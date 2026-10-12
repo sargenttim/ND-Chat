@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Channels from '@app/features/channel/state/Channels';
-import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import GatewayConnection from '@app/features/gateway/transport/GatewayConnection';
+import type {Presence} from '@app/features/gateway/types/GatewayPresenceTypes';
 import Guilds from '@app/features/guild/state/Guilds';
 import * as MessageCommands from '@app/features/messaging/commands/MessageCommands';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
@@ -10,7 +11,6 @@ import {ChannelMessages} from '@app/features/messaging/state/ChannelMessages';
 import type {ReactionEmoji} from '@app/features/messaging/utils/ReactionUtils';
 import SelectedChannel from '@app/features/navigation/state/SelectedChannel';
 import SelectedGuild from '@app/features/navigation/state/SelectedGuild';
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import Relationships from '@app/features/relationship/state/Relationships';
 import Dimension from '@app/features/ui/state/Dimension';
 import Users from '@app/features/user/state/Users';
@@ -32,6 +32,11 @@ interface GuildMemberUpdateAction {
 	member: GuildMemberData;
 }
 
+interface PresenceUpdateAction {
+	type: 'PRESENCE_UPDATE';
+	presence: Presence;
+}
+
 export interface PendingJumpDispatch {
 	messageId: string;
 	flash?: boolean;
@@ -47,7 +52,6 @@ class Messages {
 	private messageRefsByAuthor = new Map<string, Map<string, Set<string>>>();
 	private indexedAuthorsByChannel = new Map<string, Map<string, string>>();
 	updateCounter = 0;
-	cacheGeneration = 0;
 	private pendingFullHydration = false;
 
 	constructor() {
@@ -203,7 +207,7 @@ class Messages {
 	}
 
 	shouldPreloadLatestPage(channelId: string): boolean {
-		if (!GatewaySessions.foregroundConnection.isConnected || !Channels.getChannel(channelId)) {
+		if (!GatewayConnection.isConnected || !Channels.getChannel(channelId)) {
 			return false;
 		}
 		const messages = ChannelMessages.get(channelId);
@@ -228,13 +232,13 @@ class Messages {
 
 	getLastEditableMessage(channelId: string): Message | undefined {
 		return this.getMessages(channelId).searchFromNewest((message) => {
-			return (
-				message.isCurrentUserAuthor() &&
-				message.state === MessageStates.SENT &&
-				message.isUserMessage() &&
-				!message.messageSnapshots
-			);
+			return message.isCurrentUserAuthor() && message.state === MessageStates.SENT && message.isUserMessage();
 		});
+	}
+
+	jumpedMessageId(channelId: string): string | null | undefined {
+		const channel = ChannelMessages.get(channelId);
+		return channel?.jumpDestinationId;
 	}
 
 	hasNewestMessages(channelId: string): boolean {
@@ -253,13 +257,23 @@ class Messages {
 		return dispatch.messageId === messageId ? dispatch : null;
 	}
 
+	handleConnectionClosed(): boolean {
+		let didUpdate = false;
+		ChannelMessages.forEach((messages) => {
+			if (messages.loadingMore) {
+				this.commitMessages(messages.withPatch({loadingMore: false}));
+				didUpdate = true;
+			}
+		});
+		if (didUpdate) {
+			this.notifyChange();
+		}
+		return false;
+	}
+
 	handleSessionInvalidated(): boolean {
 		const channelIds: Array<string> = [];
-		let discardedLoadedMessages = false;
-		ChannelMessages.forEach((messages) => {
-			channelIds.push(messages.channelId);
-			discardedLoadedMessages ||= messages.length > 0;
-		});
+		ChannelMessages.forEach((messages) => channelIds.push(messages.channelId));
 		for (const channelId of channelIds) {
 			this.clearMessages(channelId);
 			Dimension.forgetChannelDimensions(channelId);
@@ -268,17 +282,11 @@ class Messages {
 		this.indexedAuthorsByChannel.clear();
 		this.pendingJumpDispatches.clear();
 		this.pendingFullHydration = true;
-		if (discardedLoadedMessages) {
-			this.cacheGeneration += 1;
-		}
 		this.notifyChange();
 		return true;
 	}
 
 	handleGatewayReady(): boolean {
-		if (AccountScopedWork.isSuspended) {
-			return false;
-		}
 		const selectedChannelId = SelectedChannel.currentChannelId;
 		let didHydrateSelectedChannel = false;
 		if (selectedChannelId) {
@@ -340,14 +348,14 @@ class Messages {
 				flash: true,
 				jumpType: JumpTypes.INSTANT,
 			};
-			if (!GatewaySessions.foregroundConnection.isConnected) {
+			if (!GatewayConnection.isConnected) {
 				this.pendingJumpDispatches.set(channelId, dispatch);
 				return true;
 			}
 			MessageCommands.jumpToMessage({channelId, ...dispatch});
 			return false;
 		}
-		if (!GatewaySessions.foregroundConnection.isConnected || messages.loadingMore || this.hasLoadedPage(messages)) {
+		if (!GatewayConnection.isConnected || messages.loadingMore || this.hasLoadedPage(messages)) {
 			if (this.hasLoadedPage(messages) && Dimension.channelPinnedToEnd(channelId)) {
 				this.commitMessages(messages.trimOldest(MAX_MESSAGES_PER_CHANNEL));
 				this.notifyChange();
@@ -434,6 +442,16 @@ class Messages {
 		return false;
 	}
 
+	handleTruncateMessages(action: {channelId: string; trimNewest?: boolean; trimOldest?: boolean}): boolean {
+		const messages = ChannelMessages.getOrCreate(action.channelId).trimToWindow(
+			action.trimNewest ?? false,
+			action.trimOldest ?? false,
+		);
+		this.commitMessages(messages);
+		this.notifyChange();
+		return false;
+	}
+
 	handleLoadMessagesSuccessCached(action: {
 		channelId: string;
 		jump?: JumpOptions;
@@ -488,7 +506,7 @@ class Messages {
 	}
 
 	private refetchStaleWindow(channelId: string, stale: boolean, jump?: JumpOptions): void {
-		if (!stale || !GatewaySessions.foregroundConnection.isConnected || SelectedChannel.currentChannelId !== channelId) {
+		if (!stale || !GatewayConnection.isConnected || SelectedChannel.currentChannelId !== channelId) {
 			return;
 		}
 		const lastAttemptAt = staleWindowRefetchedAt.get(channelId) ?? 0;
@@ -623,13 +641,23 @@ class Messages {
 		return hasChanges;
 	}
 
-	handleGuildThreadsPurged(guildId: string): void {
-		ChannelMessages.forEach(({channelId}) => {
-			if (Channels.getChannel(channelId)?.guildId === guildId) {
-				this.clearMessages(channelId);
-				Dimension.forgetChannelDimensions(channelId);
-			}
+	handlePresenceUpdate(action: PresenceUpdateAction): boolean {
+		if (!action.presence.user.username && !action.presence.user.avatar && !action.presence.user.discriminator) {
+			return false;
+		}
+		const userId = action.presence.user.id;
+		const updatedAuthor = Users.getUser(userId);
+		if (!updatedAuthor) return false;
+		const authorJson = updatedAuthor.toJSON();
+		const guildId = action.presence.guild_id ?? null;
+		const hasChanges = this.patchAuthorMessages(userId, (message) => message.withUpdates({author: authorJson}), {
+			guildId,
+			patchMissingChannels: true,
 		});
+		if (hasChanges) {
+			this.notifyChange();
+		}
+		return hasChanges;
 	}
 
 	handleCleanup(): boolean {
@@ -688,13 +716,21 @@ class Messages {
 		userId: string;
 		emoji: ReactionEmoji;
 		optimistic?: boolean;
+		skipReactionStore?: boolean;
 	}): boolean {
 		const existing = ChannelMessages.get(action.channelId);
 		if (!existing) return false;
 		const currentUser = Users.getCurrentUser();
 		const isCurrentUser = currentUser?.id === action.userId;
 		if (action.optimistic && !isCurrentUser) return false;
-		const updated = existing.update(action.messageId, (message) => message.withUpdates({}));
+		const updated = existing.update(action.messageId, (message) => {
+			if (action.skipReactionStore) {
+				return message.withUpdates({});
+			}
+			return action.type === 'MESSAGE_REACTION_ADD'
+				? message.withReaction(action.emoji, true, isCurrentUser)
+				: message.withReaction(action.emoji, false, isCurrentUser);
+		});
 		this.commitMessages(updated);
 		this.notifyChange();
 		return true;
@@ -735,6 +771,50 @@ class Messages {
 		return hasChanges;
 	}
 
+	handleOptimisticEdit(action: {channelId: string; messageId: string; content: string}): {
+		originalContent: string;
+		originalEditedTimestamp: string | null;
+	} | null {
+		const {channelId, messageId, content} = action;
+		const existing = ChannelMessages.get(channelId);
+		if (!existing) return null;
+		const originalMessage = existing.get(messageId);
+		if (!originalMessage) return null;
+		const rollbackData = {
+			originalContent: originalMessage.content,
+			originalEditedTimestamp: originalMessage.editedTimestamp?.toISOString() ?? null,
+		};
+		const updated = existing.update(messageId, (msg) =>
+			msg.withUpdates({
+				content,
+				state: MessageStates.EDITING,
+			}),
+		);
+		this.commitMessages(updated);
+		this.notifyChange();
+		return rollbackData;
+	}
+
+	handleEditRollback(action: {
+		channelId: string;
+		messageId: string;
+		originalContent: string;
+		originalEditedTimestamp: string | null;
+	}): void {
+		const {channelId, messageId, originalContent, originalEditedTimestamp} = action;
+		const existing = ChannelMessages.get(channelId);
+		if (!existing?.has(messageId)) return;
+		const updated = existing.update(messageId, (msg) =>
+			msg.withUpdates({
+				content: originalContent,
+				edited_timestamp: originalEditedTimestamp ?? undefined,
+				state: MessageStates.SENT,
+			}),
+		);
+		this.commitMessages(updated);
+		this.notifyChange();
+	}
+
 	subscribe(callback: () => void): () => void {
 		return reaction(
 			() => this.version,
@@ -744,16 +824,4 @@ class Messages {
 	}
 }
 
-const messages = new Messages();
-
-AccountScopedWork.registerTransition({
-	suspend: () => {},
-	resume: () => {},
-	released: () => {
-		if (GatewaySessions.foregroundConnection.isReady) {
-			messages.handleGatewayReady();
-		}
-	},
-});
-
-export default messages;
+export default new Messages();

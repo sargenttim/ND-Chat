@@ -19,9 +19,11 @@ import {getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
 import * as ReactionCommands from '@app/features/messaging/commands/ReactionCommands';
 import {ReactionTooltip} from '@app/features/messaging/components/popouts/ReactionTooltip';
 import {ReactionImage} from '@app/features/messaging/components/ReactionImage';
+import {useMatureMedia} from '@app/features/messaging/hooks/useMatureMedia';
 import {useMessageReactions as useMessageReactionsSnapshot} from '@app/features/messaging/hooks/useMessageReactionStore';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import {getEmojiName, getReactionKey, useEmojiURL} from '@app/features/messaging/utils/ReactionUtils';
+import matureStyles from '@app/features/theme/styles/MatureBlur.module.css';
 import {EmojiContextMenuItems} from '@app/features/ui/action_menu/items/EmojiContextMenuItems';
 import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
@@ -135,6 +137,7 @@ const MessageReactionItem = observer(
 		};
 		const emojiName = getEmojiName(reaction.emoji);
 		const emojiUrl = useEmojiURL({emoji: reaction.emoji, isHovering: isHovering || tooltipHovering});
+		const {shouldBlur: reactionShouldBlur, shouldBlock: reactionShouldBlock} = useMatureMedia(false, message.channelId);
 		const variants = {
 			up: {y: -20, opacity: 0},
 			down: {y: 20, opacity: 0},
@@ -172,14 +175,16 @@ const MessageReactionItem = observer(
 						data-flx="channel.message-reactions.message-reaction-item.reaction-inner"
 					>
 						{emojiUrl ? (
-							<ReactionImage
-								src={emojiUrl}
-								alt={emojiName}
-								aria-hidden={true}
-								draggable={false}
-								className={clsx('emoji', styles.emoji)}
-								data-flx="channel.message-reactions.message-reaction-item.emoji"
-							/>
+							reactionShouldBlock ? null : (
+								<ReactionImage
+									src={emojiUrl}
+									alt={emojiName}
+									aria-hidden={true}
+									draggable={false}
+									className={clsx('emoji', styles.emoji, reactionShouldBlur && matureStyles.matureBlurred)}
+									data-flx="channel.message-reactions.message-reaction-item.emoji"
+								/>
+							)
 						) : null}
 						<div
 							className={styles.countWrapper}

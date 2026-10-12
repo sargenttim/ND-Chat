@@ -29,7 +29,7 @@ const YESTERDAY_AT_DESCRIPTOR = msg({
 });
 
 export function shouldUse12HourFormat(locale: string): boolean {
-	const timeFormat = UserSettings.timeFormat;
+	const timeFormat = UserSettings.getTimeFormat();
 	switch (timeFormat) {
 		case TimeFormatTypes.TWELVE_HOUR:
 			return true;

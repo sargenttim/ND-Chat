@@ -1,16 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::api::generated::bool_param;
-
-use reqwest::Method;
-
 use crate::api::generated::types as generated_types;
 
 use super::client::{AdminApiClient, ApiError, ApiResult};
 use super::types::{
     CreateVoiceRegionResponse, CreateVoiceServerResponse, DeleteVoiceResponse,
-    GetVoiceRegionResponse, ListVoiceRegionsResponse, ListVoiceServersResponse,
-    UpdateVoiceRegionResponse, UpdateVoiceServerResponse,
+    GetVoiceRegionResponse, GetVoiceServerResponse, ListVoiceRegionsResponse,
+    ListVoiceServersResponse, UpdateVoiceRegionResponse, UpdateVoiceServerResponse,
 };
 
 impl AdminApiClient {
@@ -61,8 +57,7 @@ impl AdminApiClient {
         let region_id = required_field(params, "id")?;
         let body = voice_request_body(params, &["id"])?;
         validate_against::<generated_types::UpdateVoiceRegionRequestBody>(&body)?;
-        self.send(
-            Method::PATCH,
+        self.patch_with_reason(
             &format!("/admin/voice/regions/{}", urlencoding::encode(&region_id)),
             Some(&body),
             None,
@@ -83,6 +78,19 @@ impl AdminApiClient {
         let response = self
             .generated()
             .list_admin_voice_servers(region_id)
+            .await
+            .map_err(|e| self.generated_error(e))?;
+        self.generated_value(response.into_inner())
+    }
+
+    pub async fn get_voice_server(
+        &self,
+        region_id: &str,
+        server_id: &str,
+    ) -> ApiResult<GetVoiceServerResponse> {
+        let response = self
+            .generated()
+            .get_admin_voice_server(region_id, server_id)
             .await
             .map_err(|e| self.generated_error(e))?;
         self.generated_value(response.into_inner())
@@ -115,8 +123,7 @@ impl AdminApiClient {
         paired_coordinates(params)?;
         let body = voice_request_body(params, &["region_id", "server_id"])?;
         validate_against::<generated_types::UpdateVoiceServerRequestBody>(&body)?;
-        self.send(
-            Method::PATCH,
+        self.patch_with_reason(
             &format!(
                 "/admin/voice/regions/{}/servers/{}",
                 urlencoding::encode(&region_id),
@@ -140,6 +147,10 @@ impl AdminApiClient {
             .map_err(|e| self.generated_error(e))?;
         self.generated_value(response.into_inner())
     }
+}
+
+fn bool_param(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
 }
 
 fn validate_against<T: serde::de::DeserializeOwned>(params: &serde_json::Value) -> ApiResult<()> {

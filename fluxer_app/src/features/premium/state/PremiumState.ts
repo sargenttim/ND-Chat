@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import type {PremiumStateResponse} from '@fluxer/schema/src/domains/premium/PremiumSchemas';
 import {makeAutoObservable} from 'mobx';
 
@@ -38,8 +37,4 @@ class PremiumState {
 	}
 }
 
-const premiumState = new PremiumState();
-
-AccountScopedWork.registerCancellation(() => premiumState.clear());
-
-export default premiumState;
+export default new PremiumState();

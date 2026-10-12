@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::utils::plural::count_noun;
 use crate::{
     config::AdminConfig,
     middleware::auth::AuthContext,
     templates::{
-        components::{alert::alert_info, form::csrf_input, page_container::page_header},
+        components::{form::csrf_input, page_container::page_header},
         layout::admin_layout,
     },
 };
@@ -21,24 +20,6 @@ pub struct BanConfig {
     pub entity_name: &'static str,
     pub active_page: &'static str,
     pub show_bulk_tools: bool,
-    pub show_duration: bool,
-}
-
-const IP_BAN_DURATIONS: &[(u32, &str)] = &[
-    (24, "1 day"),
-    (168, "7 days"),
-    (720, "30 days"),
-    (0, "Permanent"),
-];
-
-pub fn ip_ban_duration_label(hours: u32) -> String {
-    IP_BAN_DURATIONS
-        .iter()
-        .find(|(value, _)| *value == hours)
-        .map_or_else(
-            || count_noun(u64::from(hours), "hour", "hours"),
-            |(_, label)| (*label).to_owned(),
-        )
 }
 
 pub const BAN_CONFIGS: &[BanConfig] = &[
@@ -52,19 +33,17 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         entity_name: "IP/CIDR",
         active_page: "ip-bans",
         show_bulk_tools: false,
-        show_duration: true,
     },
     BanConfig {
         title: "Email Bans",
         route: "/email-bans",
-        input_label: "Email Address or Domain",
+        input_label: "Email Address",
         input_name: "email",
-        input_type: "text",
-        placeholder: "user@example.com or @example.com",
+        input_type: "email",
+        placeholder: "user@example.com",
         entity_name: "Email",
         active_page: "email-bans",
         show_bulk_tools: false,
-        show_duration: false,
     },
     BanConfig {
         title: "Phrase Bans",
@@ -76,7 +55,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         entity_name: "Phrase",
         active_page: "phrase-bans",
         show_bulk_tools: false,
-        show_duration: false,
     },
     BanConfig {
         title: "URL Blocklist",
@@ -88,7 +66,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         entity_name: "URL",
         active_page: "url-bans",
         show_bulk_tools: false,
-        show_duration: false,
     },
     BanConfig {
         title: "File SHA Blocklist",
@@ -100,7 +77,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         entity_name: "SHA-256",
         active_page: "file-sha-bans",
         show_bulk_tools: true,
-        show_duration: false,
     },
     BanConfig {
         title: "Avatar Hash Blocklist",
@@ -112,7 +88,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         entity_name: "Avatar Hash",
         active_page: "avatar-hash-bans",
         show_bulk_tools: false,
-        show_duration: false,
     },
     BanConfig {
         title: "URL Domain Blocklist",
@@ -124,7 +99,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         entity_name: "Domain",
         active_page: "url-domain-bans",
         show_bulk_tools: false,
-        show_duration: false,
     },
     BanConfig {
         title: "Profile Substring Blocklist",
@@ -136,7 +110,6 @@ pub const BAN_CONFIGS: &[BanConfig] = &[
         entity_name: "Substring",
         active_page: "profile-substring-bans",
         show_bulk_tools: false,
-        show_duration: false,
     },
 ];
 
@@ -150,16 +123,10 @@ pub fn bans_page(
     ban_cfg: &BanConfig,
     flash: Option<&crate::api::types::FlashMessage>,
     csrf_token: &str,
-    username_sign_in: bool,
 ) -> Markup {
     let base = &config.base_path;
     let content = html! {
         (page_header(ban_cfg.title, None))
-        @if username_sign_in && ban_cfg.active_page == "email-bans" {
-            div class="mb-6" {
-                (alert_info(html! { "People sign in with a username on this instance. Accounts have no email address, so email bans have no effect." }))
-            }
-        }
         div class="grid gap-6 lg:grid-cols-2" {
             (ban_card(base, ban_cfg, csrf_token))
             (check_ban_card(base, ban_cfg, csrf_token))
@@ -196,9 +163,6 @@ fn ban_card(base: &str, cfg: &BanConfig, csrf_token: &str) -> Markup {
                 (csrf_input(csrf_token))
                 div class="space-y-4" {
                     (form_field(cfg.input_name, cfg.input_label, cfg.input_type, cfg.placeholder, true))
-                    @if cfg.show_duration {
-                        (duration_field())
-                    }
                     (form_field("audit_log_reason", "Private reason (audit log, optional)", "text", "Why is this ban being applied?", false))
                     (submit_btn("Ban", cfg.entity_name, false))
                 }
@@ -426,24 +390,6 @@ fn form_field(
                 class="block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm \
                        shadow-sm focus:border-brand-primary focus:outline-none focus:ring-1 \
                        focus:ring-brand-primary";
-        }
-    }
-}
-
-fn duration_field() -> Markup {
-    html! {
-        div class="space-y-1" {
-            label for="duration_hours" class="block text-sm font-medium text-neutral-700" {
-                "Duration"
-            }
-            select id="duration_hours" name="duration_hours"
-                class="block w-full rounded-md border border-neutral-300 px-3 py-2 text-sm \
-                       shadow-sm focus:border-brand-primary focus:outline-none focus:ring-1 \
-                       focus:ring-brand-primary" {
-                @for &(value, label) in IP_BAN_DURATIONS {
-                    option value=(value) { (label) }
-                }
-            }
         }
     }
 }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Authentication from '@app/features/auth/state/Authentication';
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import type {Profile} from '@app/features/user/models/Profile';
 import {ME} from '@fluxer/constants/src/AppConstants';
@@ -149,8 +148,4 @@ class UserProfile {
 	}
 }
 
-const userProfile = new UserProfile();
-
-AccountScopedWork.registerCancellation(() => userProfile.handleGatewayReady());
-
-export default userProfile;
+export default new UserProfile();

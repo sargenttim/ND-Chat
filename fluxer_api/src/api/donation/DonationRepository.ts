@@ -17,6 +17,7 @@ import {
 	DonorsByStripeCustomerId,
 	DonorsByStripeSubscriptionId,
 } from '@app/api/donation/DonationTables';
+import {IDonationRepository} from '@app/api/donation/IDonationRepository';
 import {Donor} from '@app/api/donation/models/Donor';
 import {DonorMagicLinkToken} from '@app/api/donation/models/DonorMagicLinkToken';
 
@@ -43,7 +44,7 @@ const FETCH_MAGIC_LINK_TOKENS_BY_EMAIL_QUERY = DonorMagicLinkTokensByEmail.selec
 	where: DonorMagicLinkTokensByEmail.where.eq('donor_email'),
 });
 
-export class DonationRepository {
+export class DonationRepository extends IDonationRepository {
 	async findDonorByEmail(email: string): Promise<Donor | null> {
 		const row = await fetchOne<DonorRow>(FETCH_DONOR_BY_EMAIL_QUERY, {email});
 		return row ? new Donor(row) : null;
@@ -63,6 +64,29 @@ export class DonationRepository {
 		});
 		if (!mapping) return null;
 		return this.findDonorByEmail(mapping.email);
+	}
+
+	async upsertDonor(donor: Donor): Promise<void> {
+		const row = donor.toRow();
+		const batch = new BatchBuilder();
+		batch.addPrepared(Donors.upsertAll(row));
+		if (row.stripe_customer_id) {
+			batch.addPrepared(
+				DonorsByStripeCustomerId.upsertAll({
+					stripe_customer_id: row.stripe_customer_id,
+					email: row.email,
+				}),
+			);
+		}
+		if (row.stripe_subscription_id) {
+			batch.addPrepared(
+				DonorsByStripeSubscriptionId.upsertAll({
+					stripe_subscription_id: row.stripe_subscription_id,
+					email: row.email,
+				}),
+			);
+		}
+		await batch.execute();
 	}
 
 	async createDonor(data: {

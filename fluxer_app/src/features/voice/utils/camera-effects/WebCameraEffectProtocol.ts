@@ -17,12 +17,12 @@ class CameraEffectFrameDimensionsExceededError extends Error {
 	}
 }
 
-interface WebCameraEffectBlurConfig {
+export interface WebCameraEffectBlurConfig {
 	readonly mode: typeof CameraBackgroundMode.BLUR;
 	readonly blurStrength: number;
 }
 
-interface WebCameraEffectCustomConfig {
+export interface WebCameraEffectCustomConfig {
 	readonly mode: typeof CameraBackgroundMode.CUSTOM;
 	readonly blurStrength: number;
 	readonly customMediaURL: string;
@@ -147,7 +147,7 @@ export const WebCameraEffectCustomMediaKind = Object.freeze({
 export type WebCameraEffectCustomMediaKind =
 	(typeof WebCameraEffectCustomMediaKind)[keyof typeof WebCameraEffectCustomMediaKind];
 
-function isWebCameraEffectCustomMediaKind(value: unknown): value is WebCameraEffectCustomMediaKind {
+export function isWebCameraEffectCustomMediaKind(value: unknown): value is WebCameraEffectCustomMediaKind {
 	if (value === WebCameraEffectCustomMediaKind.STATIC) {
 		return true;
 	}
@@ -231,7 +231,7 @@ function isValidStartCommand(value: object): value is WebCameraEffectStartComman
 	return hasExpectedCustomBackgroundFrames(config, Reflect.get(value, 'customBackgroundFrames'), true);
 }
 
-export function isValidUpdateRequestId(value: unknown): value is number {
+function isValidUpdateRequestId(value: unknown): value is number {
 	if (!Number.isSafeInteger(value)) {
 		return false;
 	}
@@ -269,7 +269,7 @@ export interface WebCameraEffectUpdateCommand {
 	readonly customBackgroundFrames: ReadableStream<VideoFrame> | null;
 }
 
-interface WebCameraEffectStopCommand {
+export interface WebCameraEffectStopCommand {
 	readonly kind: typeof WebCameraEffectCommandKind.STOP;
 }
 
@@ -293,13 +293,13 @@ export const WebCameraEffectCommandPolicy = Object.freeze({
 	},
 });
 
-interface WebCameraEffectReadyEvent {
+export interface WebCameraEffectReadyEvent {
 	readonly kind: typeof WebCameraEffectEventKind.READY;
 	readonly backend: WebCameraEffectBackend;
 	readonly fallbackErrorType: ErrorDiagnosticType | null;
 }
 
-interface WebCameraEffectUpdatedEvent {
+export interface WebCameraEffectUpdatedEvent {
 	readonly kind: typeof WebCameraEffectEventKind.UPDATED;
 	readonly requestId: number;
 }
@@ -309,11 +309,11 @@ export interface WebCameraEffectUpdateFailedEvent extends ErrorDiagnostic {
 	readonly requestId: number;
 }
 
-interface WebCameraEffectFailedEvent extends ErrorDiagnostic {
+export interface WebCameraEffectFailedEvent extends ErrorDiagnostic {
 	readonly kind: typeof WebCameraEffectEventKind.FAILED;
 }
 
-interface WebCameraEffectStoppedEvent {
+export interface WebCameraEffectStoppedEvent {
 	readonly kind: typeof WebCameraEffectEventKind.STOPPED;
 	readonly reason: WebCameraEffectShutdownReason;
 	readonly diagnostic: ErrorDiagnostic | null;

@@ -57,7 +57,7 @@ The denial body has the members of the ordinary [error response](/http-api/#erro
 | global | boolean | Whether the global bucket produced the denial, present and false on a route denial |
 | retry_after<sup>3</sup> | number | The delay in fractional seconds before another request is admitted |
 
-<sup>1</sup> A limit enforced outside the route bucket middleware can reuse this body with its own code. [Allowances answering 429](#allowances-answering-429) and [Announcement channel allowances](#announcement-channel-allowances) list every live one
+<sup>1</sup> A limit enforced outside the route bucket middleware can reuse this body with its own code. [Send phone verification](/http-api/users/phone-verification/#send-phone-verification) is the only live one, reporting `PHONE_RATE_LIMIT_EXCEEDED`
 
 <sup>2</sup> The locale [resolved](/topics/locales/#negotiation) for the request, which the account setting selects ahead of [Accept-Language](/http-api/#standard-request-headers)
 
@@ -88,9 +88,9 @@ The `X-RateLimit-Scope` header is the scope that produced a denial.
 | global | The denial came from the global bucket |
 | shared<sup>1</sup> | The denial came from an allowance that several accounts can exhaust for each other |
 
-<sup>1</sup> No route bucket declares a scope of its own, so every route bucket denial reports `user`. The announcement channel allowances are the live sources of `shared`
+<sup>1</sup> No route bucket declares a scope of its own, so every route bucket denial reports `user`. [Send phone verification](/http-api/users/phone-verification/#send-phone-verification) is the only live source of `shared`
 
-[Crosspost message](/http-api/messages/#crosspost-message) reports `shared` for its channel publish allowance, and an edit of a published message reports it for the per-message edit allowance. Every member who publishes or edits draws on the same allowance.
+Phone verification reports `shared` when the per-number send allowance or a number-scoped provider cooldown produced the denial. Both are keyed by the submitted number, so two accounts sending to one number share the allowance.
 
 ## Rate limit headers
 
@@ -131,7 +131,7 @@ An allowance enforced inside a handler is keyed independently of the route bucke
 
 The `disable_rate_limits` deployment switch turns off the login allowances along with both buckets. `relax_registration_rate_limits` turns off the registration allowances. Every other allowance below is enforced on every deployment.
 
-A denial takes one of the shapes below. An allowance in [Allowances answering 429](#allowances-answering-429) or [Announcement channel allowances](#announcement-channel-allowances) answers 429 with the [rate limit response object](#rate-limit-response-object) and the [rate limit headers](#rate-limit-headers) minus `X-RateLimit-Bucket`. An allowance in [Allowances answering 400](#allowances-answering-400) answers 400 `INVALID_FORM_BODY` with one [validation error](/http-api/#validation-error-object) entry whose `code` names the exhausted allowance.
+A denial takes one of the shapes below. An allowance in [Allowances answering 429](#allowances-answering-429) answers 429 with the [rate limit response object](#rate-limit-response-object) and the [rate limit headers](#rate-limit-headers) minus `X-RateLimit-Bucket`. An allowance in [Allowances answering 400](#allowances-answering-400) answers 400 `INVALID_FORM_BODY` with one [validation error](/http-api/#validation-error-object) entry whose `code` names the exhausted allowance.
 
 The 400 shape has no `retry_after` member, no `X-RateLimit-*` header, and no `Retry-After` header. The remaining delay appears only in the entry's localised `message`.
 
@@ -152,24 +152,17 @@ The 400 shape has no `retry_after` member, no `X-RateLimit-*` header, and no `Re
 | [Start password change](/http-api/users/email-and-password/#start-password-change) | 3 sends per 15 minutes, keyed by the authenticated account | `RATE_LIMITED` |
 | [Resend password change code](/http-api/users/email-and-password/#resend-password-change-code) | 3 sends per 15 minutes, keyed by the authenticated account | `RATE_LIMITED` |
 | Every code resend and every new-address request on an email or password change ticket | 1 send per 30 seconds, keyed by the ticket and counted from its previous send | `RATE_LIMITED` |
-| [Submit message report flow](/http-api/reports/#submit-message-report-flow), [Submit user report flow](/http-api/reports/#submit-user-report-flow), and [Create DSA report](/http-api/reports/#create-dsa-report) | 5 per hour, keyed by the reporter, an account or a verified email address | `RATE_LIMITED` |
-| [Submit message report flow](/http-api/reports/#submit-message-report-flow) | 3 per hour, keyed by the reporter and the channel together | `RATE_LIMITED` |
-| [Submit message report flow](/http-api/reports/#submit-message-report-flow) | 20 per hour, keyed by the reported message, across all reporters | `RATE_LIMITED` |
-| [Submit message report flow](/http-api/reports/#submit-message-report-flow) | 4 per hour, keyed by the reporter and the guild together, for a guild message | `RATE_LIMITED` |
+| [Report message](/http-api/reports/#report-message), [Report user](/http-api/reports/#report-user), [Report guild](/http-api/reports/#report-guild), and [Create DSA report](/http-api/reports/#create-dsa-report) | 5 per hour, keyed by the reporter, an account or a verified email address | `RATE_LIMITED` |
+| [Report message](/http-api/reports/#report-message) | 3 per hour, keyed by the reporter and the channel together | `RATE_LIMITED` |
+| [Report message](/http-api/reports/#report-message) | 20 per hour, keyed by the reported message, across all reporters | `RATE_LIMITED` |
+| [Report message](/http-api/reports/#report-message) | 4 per hour, keyed by the reporter and the guild together, for a guild message | `RATE_LIMITED` |
+| [Send phone verification](/http-api/users/phone-verification/#send-phone-verification) | 3 per 6 hours, keyed by the authenticated account | `PHONE_RATE_LIMIT_EXCEEDED` |
+| [Send phone verification](/http-api/users/phone-verification/#send-phone-verification) | 3 per 5 days, keyed by the submitted number | `PHONE_RATE_LIMIT_EXCEEDED` |
 | [Resend IP authorisation](/http-api/authentication/#resend-ip-authorisation) | Nothing in the first 30 seconds after the ticket was issued, keyed by the authorisation ticket | `IP_AUTHORIZATION_RESEND_COOLDOWN` |
 
+SMS provider throttling can impose an additional cooldown. It returns `PHONE_RATE_LIMIT_EXCEEDED` with the remaining delay.
+
 The Resend IP authorisation cooldown has no `X-RateLimit-*` header. It has a `Retry-After` header in whole seconds, and the body reports that delay again as a top-level `resend_available_in` and `retry_after`. A second resend on one ticket returns 400 `IP_AUTHORIZATION_RESEND_LIMIT_EXCEEDED`. The allowance never refills, and the ticket expires 15 minutes after it was issued.
-
-### Announcement channel allowances
-
-These allowances answer 429 the same way as the ones above, with `X-RateLimit-Scope` set to `shared`.
-
-| Allowance | Code |
-| --- | --- |
-| Publishes from one announcement channel through [Crosspost message](/http-api/messages/#crosspost-message), 10 in a row, then one every 6 minutes | `MESSAGE_CROSSPOST_RATE_LIMITED` |
-| Edits of one published message through [Modify message](/http-api/messages/#modify-message) and the other edit routes, 3 in a row, then one every 20 minutes | `PUBLISHED_MESSAGE_EDIT_RATE_LIMITED` |
-
-Each is a leaky bucket like the route buckets. It admits a burst of its full size and then refills one slot at the stated interval, so a caller that waits one interval can act once more. A moderator edit of another member's published message draws on no allowance. [Announcement channels](/topics/announcement-channels/#limits) lists them with the other announcement channel limits.
 
 ### Allowances answering 400
 
@@ -208,9 +201,7 @@ Fluxer consumes every multi-factor allowance before it checks the code, so a cor
 
 Slowmode limits how often one account sends a message in one channel. Fluxer reports a denial as an ordinary request failure. A denied send returns 400 `SLOWMODE_RATE_LIMITED` with a top-level `retry_after` in fractional seconds and a `Retry-After` header in whole seconds. The response has no `X-RateLimit-*` header, so a client tells it apart from a bucket denial by the status and the code.
 
-The allowance is one message for each interval the channel configures in `rate_limit_per_user`, counted separately for each account and channel pair. Fluxer counts it for a non-bot account in a guild channel whose configured interval is above zero. A caller holding [BYPASS_SLOWMODE](/http-api/permissions/) is exempt. [Get channel slowmode state](/http-api/channels/#get-channel-slowmode-state) reports the caller's remaining delay before a send is attempted.
-
-Starting a thread uses the parent slowmode on its own counter, as [Start thread from message](/http-api/threads/#start-thread-from-message) states. The same applies to a post in a forum or media channel, as [Forum channel fields](/http-api/forums/#forum-channel-fields) states. For a guild text or announcement channel, [Get channel slowmode state](/http-api/channels/#get-channel-slowmode-state) reports the message counter alone. [Indicate typing](/http-api/messages/#indicate-typing) returns the remaining delay of both counters to a user session that declares the [`channel_threads` client capability](/http-api/threads/#client-capability).
+The allowance is one message for each interval the channel configures in `rate_limit_per_user`, counted separately for each account and channel pair. Fluxer counts it only for a non-bot account sending in a guild channel whose configured interval is above zero. A caller holding [BYPASS_SLOWMODE](/http-api/permissions/) is exempt. [Get channel slowmode state](/http-api/channels/#get-channel-slowmode-state) reports the caller's remaining delay before a send is attempted.
 
 ## Other surfaces
 

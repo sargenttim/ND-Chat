@@ -16,7 +16,7 @@ function navigateToChannelNow(
 ): void {
 	if (!guildId || guildId === ME) {
 		Navigation.navigateToDM(channelId ?? undefined, messageId, mode);
-	} else if (guildId === FAVORITES_GUILD_ID) {
+	} else if (guildId === FAVORITES_GUILD_ID || guildId === '@favorites') {
 		Navigation.navigateToFavorites(channelId ?? undefined, messageId, mode);
 	} else {
 		Navigation.navigateToGuild(guildId, channelId ?? undefined, messageId, mode);
@@ -40,8 +40,8 @@ function getGuildSelectionChannelId(guildId: string, channelId: string | null | 
 	if (!channel) return channelId;
 	if (channel.type === ChannelTypes.GUILD_CATEGORY || channel.type === ChannelTypes.GUILD_LINK) return undefined;
 	if (guildId === ME) return channel.isPrivate() ? channelId : undefined;
-	if (guildId === FAVORITES_GUILD_ID && channel.isPrivate()) return undefined;
-	if (guildId !== FAVORITES_GUILD_ID && channel.guildId !== guildId) return undefined;
+	if ((guildId === FAVORITES_GUILD_ID || guildId === '@favorites') && channel.isPrivate()) return undefined;
+	if (guildId !== FAVORITES_GUILD_ID && guildId !== '@favorites' && channel.guildId !== guildId) return undefined;
 	return channelId;
 }
 
@@ -62,7 +62,13 @@ export function selectGuild(guildId: string, channelId?: string, mode: Navigatio
 	if (shouldInterceptGuildChannelNavigation(selectionChannelId)) {
 		return;
 	}
-	navigateToChannelNow(guildId, selectionChannelId, undefined, mode);
+	if (guildId === ME) {
+		Navigation.navigateToDM(selectionChannelId, undefined, mode);
+	} else if (guildId === FAVORITES_GUILD_ID || guildId === '@favorites') {
+		Navigation.navigateToFavorites(selectionChannelId, undefined, mode);
+	} else {
+		Navigation.navigateToGuild(guildId, selectionChannelId, undefined, mode);
+	}
 }
 
 export function deselectGuild(): void {
@@ -75,7 +81,16 @@ export function navigateToMessage(
 	messageId: string,
 	mode: NavigationMode = 'push',
 ): void {
-	selectChannel(guildId ?? undefined, channelId, messageId, mode);
+	if (shouldInterceptGuildChannelNavigation(channelId)) {
+		return;
+	}
+	if (!guildId || guildId === ME) {
+		Navigation.navigateToDM(channelId, messageId, mode);
+	} else if (guildId === FAVORITES_GUILD_ID || guildId === '@favorites') {
+		Navigation.navigateToFavorites(channelId, messageId, mode);
+	} else {
+		Navigation.navigateToGuild(guildId, channelId, messageId, mode);
+	}
 }
 
 export function clearMessageIdForChannel(channelId: string, mode: NavigationMode = 'replace'): void {

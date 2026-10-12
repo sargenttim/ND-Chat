@@ -64,7 +64,7 @@ export async function ensureLibfluxcoreReady(): Promise<void> {
 	await loadModule();
 }
 
-function releaseLibfluxcoreMemoryIfIdle(): void {
+export function releaseLibfluxcoreMemoryIfIdle(): void {
 	if (isLibfluxcoreModulePinned()) return;
 	if ((moduleExports?.memory.buffer.byteLength ?? 0) <= MAX_RETAINED_LIBFLUXCORE_WASM_MEMORY_BYTES) return;
 	wasm.__resetLibfluxcoreWasmForMemoryPressure();
@@ -79,6 +79,13 @@ export async function detectAnimatedImage(data: Uint8Array): Promise<boolean> {
 
 export async function sniffImageFormat(data: Uint8Array): Promise<number> {
 	return withPinnedLibfluxcoreModule(() => wasm.sniff_image_format(data));
+}
+
+export async function decompressZstdFrame(input: Uint8Array): Promise<Uint8Array | null> {
+	return withPinnedLibfluxcoreModule(() => {
+		const result = wasm.decompress_zstd_frame(input);
+		return result instanceof Uint8Array ? result : new Uint8Array(result);
+	});
 }
 
 export async function createZstdStreamDecoder(): Promise<number> {
@@ -106,6 +113,14 @@ export function freeZstdStreamDecoder(decoder: number): void {
 	} finally {
 		releaseLibfluxcoreMemoryIfIdle();
 	}
+}
+
+export async function createZstdStreamEncoder(level: number): Promise<number> {
+	return withPinnedLibfluxcoreModule(() => {
+		const encoder = wasm.create_zstd_stream_encoder(level);
+		liveZstdStreamEncoders.add(encoder);
+		return encoder;
+	});
 }
 
 export function createZstdStreamEncoderSync(level: number): number {

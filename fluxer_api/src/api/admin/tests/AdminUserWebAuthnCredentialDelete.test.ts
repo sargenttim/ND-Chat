@@ -39,7 +39,7 @@ describe('Admin WebAuthn credential delete', () => {
 			AdminACLs.USER_UPDATE_MFA,
 		]);
 	}
-	async function createPasskeyTarget() {
+	async function createPasskeyTarget(twoFactorEnabled: boolean) {
 		const target = await createTestAccount(harness);
 		const device = createWebAuthnDevice();
 		const secret = createTotpSecret();
@@ -54,10 +54,12 @@ describe('Admin WebAuthn credential delete', () => {
 			() => ({mfa_method: 'totp', mfa_code: generateTotpCode(secret)}),
 			'Admin Delete Test Passkey',
 		);
-		await setWebAuthnTwoFactor(harness, target.token, true, {
-			mfa_method: 'totp',
-			mfa_code: generateTotpCode(secret),
-		});
+		if (twoFactorEnabled) {
+			await setWebAuthnTwoFactor(harness, target.token, true, {
+				mfa_method: 'totp',
+				mfa_code: generateTotpCode(secret),
+			});
+		}
 		await createBuilder(harness, target.token)
 			.post('/users/@me/mfa/totp/disable')
 			.body({
@@ -71,7 +73,7 @@ describe('Admin WebAuthn credential delete', () => {
 	}
 	test('removes the WebAuthn authenticator type when admin deletes the last credential of a two-factor user', async () => {
 		const admin = await createAdmin();
-		const target = await createPasskeyTarget();
+		const target = await createPasskeyTarget(true);
 		const credentialsBeforeDelete = await createBuilder<Array<WebAuthnCredentialMetadata>>(harness, target.token)
 			.get('/users/@me/mfa/webauthn/credentials')
 			.execute();
@@ -80,6 +82,30 @@ describe('Admin WebAuthn credential delete', () => {
 			.get(`/admin/users/${target.userId}`)
 			.execute();
 		expect(userBeforeDelete.users[0]?.authenticator_types).toEqual([UserAuthenticatorTypes.WEBAUTHN]);
+		await createBuilder(harness, `${admin.token}`)
+			.delete(`/admin/users/${target.userId}/webauthn-credentials/${credentialsBeforeDelete[0]!.id}`)
+			.expect(204)
+			.execute();
+		const credentialsAfterDelete = await createBuilder<Array<WebAuthnCredentialMetadata>>(harness, target.token)
+			.get('/users/@me/mfa/webauthn/credentials')
+			.execute();
+		expect(credentialsAfterDelete).toHaveLength(0);
+		const userAfterDelete = await createBuilder<AdminLookupResponse>(harness, `${admin.token}`)
+			.get(`/admin/users/${target.userId}`)
+			.execute();
+		expect(userAfterDelete.users[0]?.authenticator_types).toEqual([]);
+	});
+	test('leaves the authenticator types empty throughout for a user who never turned passkey two-factor on', async () => {
+		const admin = await createAdmin();
+		const target = await createPasskeyTarget(false);
+		const credentialsBeforeDelete = await createBuilder<Array<WebAuthnCredentialMetadata>>(harness, target.token)
+			.get('/users/@me/mfa/webauthn/credentials')
+			.execute();
+		expect(credentialsBeforeDelete).toHaveLength(1);
+		const userBeforeDelete = await createBuilder<AdminLookupResponse>(harness, `${admin.token}`)
+			.get(`/admin/users/${target.userId}`)
+			.execute();
+		expect(userBeforeDelete.users[0]?.authenticator_types).toEqual([]);
 		await createBuilder(harness, `${admin.token}`)
 			.delete(`/admin/users/${target.userId}/webauthn-credentials/${credentialsBeforeDelete[0]!.id}`)
 			.expect(204)

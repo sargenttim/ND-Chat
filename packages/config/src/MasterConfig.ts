@@ -2,20 +2,15 @@
 
 import type {DerivedEndpoints} from '@fluxer/config/src/EndpointDerivation';
 
-type RuntimeEnv = 'development' | 'production' | 'test';
-type DatabaseBackend = 'postgres' | 'cassandra';
-type PublicScheme = 'http' | 'https';
+export type RuntimeEnv = 'development' | 'production' | 'test';
+export type DatabaseBackend = 'postgres' | 'cassandra';
+export type PublicScheme = 'http' | 'https';
 export const CACHE_PURGE_ADAPTER_NAMES = ['none', 'http'] as const;
 export type CachePurgeAdapterName = (typeof CACHE_PURGE_ADAPTER_NAMES)[number];
 export const STORE_PRODUCT_SLOT_NAMES = ['monthly', 'yearly', 'gift_1_month', 'gift_1_year'] as const;
 export type StoreProductSlotName = (typeof STORE_PRODUCT_SLOT_NAMES)[number];
-export const ACCOUNT_IDENTITY_MODE_NAMES = ['email', 'username'] as const;
-type AccountIdentityModeName = (typeof ACCOUNT_IDENTITY_MODE_NAMES)[number];
-export const TAG_STYLE_NAMES = ['none', 'random'] as const;
-type TagStyleName = (typeof TAG_STYLE_NAMES)[number];
-type SmtpTlsModeName = 'implicit' | 'starttls' | 'opportunistic' | 'none';
 
-interface InstanceBrandingConfig {
+export interface InstanceBrandingConfig {
 	product_name: string;
 	icon_url?: string;
 	symbol_url?: string;
@@ -89,30 +84,22 @@ export interface MasterConfig {
 			headers_timeout_ms: number;
 			request_timeout_ms: number;
 			max_inflight_requests: number;
-			automated_message_deletion_delay_days: number;
 			ip_ban_exempt_ips: Array<string>;
 			donation_proxy_key: string;
-			trusted_callers: Array<{
-				name: string;
-				key: string;
-				buckets: Array<string>;
-			}>;
 			presigned_attachment_uploads_enabled: boolean;
 			presigned_harvest_downloads_enabled: boolean;
 			unfurl_ignored_hosts: Array<string>;
 			app_origin_aliases: Array<string>;
 			worker?: {
 				mode?: 'all_lanes' | 'single_lane' | 'single_task';
-				lane?: 'realtime' | 'unfurl' | 'lifecycle' | 'batch' | 'crosspost';
+				lane?: 'realtime' | 'unfurl' | 'lifecycle' | 'batch';
 				task?: string;
 				enable_cron_scheduler?: boolean;
-				metrics_port?: number;
 				lane_concurrency_overrides?: {
 					realtime?: number;
 					unfurl?: number;
 					lifecycle?: number;
 					batch?: number;
-					crosspost?: number;
 				};
 			};
 			storage_change_feed?: {
@@ -150,7 +137,6 @@ export interface MasterConfig {
 	auth: {
 		sudo_mode_secret: string;
 		connection_initiation_secret: string;
-		profile_pseudonym_secret: string;
 		sso_allow_private_addresses: boolean;
 		passkeys: {
 			rp_name: string;
@@ -182,7 +168,6 @@ export interface MasterConfig {
 			provider: 'smtp' | 'none';
 			from_email: string;
 			from_name: string;
-			reply_to_email: string;
 			app_base_url: string;
 			webhook_secret?: string;
 			smtp?: {
@@ -190,8 +175,7 @@ export interface MasterConfig {
 				port: number;
 				username: string;
 				password: string;
-				tls_mode?: SmtpTlsModeName;
-				secure?: boolean;
+				secure: boolean;
 			};
 		};
 		voice: {
@@ -207,7 +191,6 @@ export interface MasterConfig {
 				latitude: number;
 				longitude: number;
 			};
-			p2p_stun_urls?: Array<string>;
 		};
 		search: {
 			engine: 'elasticsearch' | 'meilisearch';
@@ -223,6 +206,13 @@ export interface MasterConfig {
 			webhook_secret: string;
 			prices?: Record<string, string | undefined>;
 			legacy_prices?: Record<string, Array<string> | undefined>;
+		};
+		ncmec: {
+			enabled: boolean;
+			base_url: string;
+			username: string;
+			password: string;
+			reporter_email?: string;
 		};
 		clamav: {
 			enabled: boolean;
@@ -302,8 +292,6 @@ export interface MasterConfig {
 		setup: {
 			configured: boolean;
 		};
-		account_identity: AccountIdentityModeName | null;
-		tag_style: TagStyleName | null;
 	};
 	dev: {
 		relax_registration_rate_limits: boolean;
@@ -326,9 +314,4 @@ export interface MasterConfig {
 	attachment_decay_enabled: boolean;
 	deletion_grace_period_hours: number;
 	inactivity_deletion_threshold_days: number;
-	report_retention: {
-		days: number;
-		resolved_days: number | null;
-		dry_run: boolean;
-	};
 }

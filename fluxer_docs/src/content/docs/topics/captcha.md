@@ -29,7 +29,7 @@ A rejected token returns 400 `INVALID_CAPTCHA` with a new challenge in the same 
 Each challenge is accepted once and expires 10 minutes after it is issued. A replayed, expired or wrong token returns `INVALID_CAPTCHA`. A client MUST NOT resend a token after `INVALID_CAPTCHA`.
 :::
 
-The route rate limit on registration, login, password recovery and account recovery runs before the check. The challenge response and the retry each use one request from that allowance.
+The route rate limit on registration, login and password recovery runs before the check. The challenge response and the retry each use one request from that allowance.
 
 ## Token format
 
@@ -44,13 +44,14 @@ The following operations verify a CAPTCHA while the check is on.
 | POST | /v1/auth/register | [Register an account](/http-api/authentication/#register-an-account) |
 | POST | /v1/auth/login | [Log in with a password](/http-api/authentication/#log-in-with-a-password) |
 | POST | /v1/auth/forgot | [Request password recovery](/http-api/authentication/#request-password-recovery) |
-| POST | /v1/auth/recover | [Recover an account](/http-api/authentication/#recover-an-account) |
 | POST | /v1/oauth2/applications | [Create application](/http-api/applications/#create-application) |
 | POST | /v1/gifts/{code}/redeem | [Redeem gift](/http-api/gifts/#redeem-gift) |
 | POST | /v1/users/@me/channels | [Create private channel](/http-api/users/private-channels/#create-private-channel) |
 | PUT | /v1/channels/{channel_id}/recipients/{user_id} | [Add group direct message recipient](/http-api/channels/#add-group-direct-message-recipient) |
 
 Create private channel is gated only on the group direct message path, where the request body has a `recipients` member. A one-to-one direct message request omits the field and is never gated.
+
+[Send phone verification](/http-api/users/phone-verification/#send-phone-verification) verifies a CAPTCHA only when the phone verification service asks for one. It then answers and accepts the handshake the same way. When the check is off or the account is exempt, that send is refused with `PHONE_RATE_LIMIT_EXCEEDED` instead.
 
 ## Exemption
 

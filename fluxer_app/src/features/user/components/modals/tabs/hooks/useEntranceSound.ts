@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
 import {LimitResolver} from '@app/features/app/utils/LimitResolverAdapter';
 import {isLimitToggleEnabled} from '@app/features/app/utils/LimitUtils';
 import {TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
@@ -13,12 +12,10 @@ import {
 } from '@app/features/notification/utils/EntranceSoundClientValidators';
 import type {EntranceSoundScope} from '@app/features/notification/utils/EntranceSoundScopes';
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {readBlobAsBase64NoPrefix as blobToBase64} from '@app/features/platform/utils/BlobDataUrl';
 import * as PremiumModalCommands from '@app/features/premium/commands/PremiumModalCommands';
 import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
-import {handleAccountLimitedError} from '@app/features/user/utils/AccountLimitUtils';
-import {INVALID_AUDIO_FILE_DESCRIPTOR} from '@app/features/user/utils/UserMessageDescriptors';
+import {showUserErrorModal} from '@app/features/user/utils/UserErrorModalUtils';
 import {
 	openEntranceSoundTrimmerModal,
 	type TrimmedAudioResult,
@@ -31,6 +28,10 @@ import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {useCallback, useEffect, useMemo, useState} from 'react';
 
+const INVALID_AUDIO_FILE_DESCRIPTOR = msg({
+	message: 'Invalid audio file',
+	comment: 'Error message in the use entrance sound.',
+});
 const ENTRANCE_SOUND_TOO_LARGE_DESCRIPTOR = msg({
 	message: 'Entrance sound files must be {limit} or less.',
 	comment: 'Error modal body shown when an entrance sound upload exceeds the client-side size limit.',
@@ -74,7 +75,7 @@ const ENTRANCE_SOUNDS_NOT_ENABLED_DESCRIPTOR = msg({
 
 const logger = new Logger('useEntranceSound');
 
-interface UseEntranceSoundReturn {
+export interface UseEntranceSoundReturn {
 	library: Array<EntranceSoundEntry>;
 	libraryFull: boolean;
 	libraryLoaded: boolean;
@@ -88,6 +89,18 @@ interface UseEntranceSoundReturn {
 	renameSound: (soundId: string, name: string) => Promise<void>;
 	deleteSound: (soundId: string) => Promise<void>;
 	previewSound: (soundId: string) => Promise<void>;
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+	const buffer = await blob.arrayBuffer();
+	const bytes = new Uint8Array(buffer);
+	let binary = '';
+	const chunkSize = 0x8000;
+	for (let i = 0; i < bytes.length; i += chunkSize) {
+		const chunk = bytes.subarray(i, i + chunkSize);
+		binary += String.fromCharCode(...chunk);
+	}
+	return typeof btoa === 'function' ? btoa(binary) : Buffer.from(binary, 'binary').toString('base64');
 }
 
 function deriveLibraryName(file: File): string {
@@ -141,14 +154,12 @@ function useEntranceSoundImpl(selectedScope: EntranceSoundScope): UseEntranceSou
 				});
 			} catch (error) {
 				logger.error('Failed to set entrance sound selection', error);
-				if (handleAccountLimitedError(error)) return;
-				showGenericErrorModal({
-					title: i18n._(
+				showUserErrorModal(
+					i18n._(
 						soundId === null ? COULDN_T_REMOVE_ENTRANCE_SOUND_DESCRIPTOR : COULDN_T_SAVE_ENTRANCE_SOUND_DESCRIPTOR,
 					),
-					message: i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR),
-					dataFlx: 'user.user-error-modal-utils.show-user-error-modal.generic-error-modal',
-				});
+					i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR),
+				);
 			}
 		},
 		[selectedScope, i18n],
@@ -163,13 +174,7 @@ function useEntranceSoundImpl(selectedScope: EntranceSoundScope): UseEntranceSou
 				ToastCommands.createToast({type: 'success', children: i18n._(ENTRANCE_SOUND_SAVED_DESCRIPTOR)});
 			} catch (error) {
 				logger.error('Failed to upload trimmed entrance sound', error);
-				if (!handleAccountLimitedError(error)) {
-					showGenericErrorModal({
-						title: i18n._(COULDN_T_SAVE_ENTRANCE_SOUND_DESCRIPTOR),
-						message: i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR),
-						dataFlx: 'user.user-error-modal-utils.show-user-error-modal.generic-error-modal',
-					});
-				}
+				showUserErrorModal(i18n._(COULDN_T_SAVE_ENTRANCE_SOUND_DESCRIPTOR), i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR));
 				throw error;
 			}
 		},
@@ -181,31 +186,25 @@ function useEntranceSoundImpl(selectedScope: EntranceSoundScope): UseEntranceSou
 			if (shouldShowPremiumFeatures()) {
 				PremiumModalCommands.open();
 			} else {
-				showGenericErrorModal({
-					title: i18n._(ENTRANCE_SOUNDS_NOT_ENABLED_TITLE_DESCRIPTOR),
-					message: i18n._(ENTRANCE_SOUNDS_NOT_ENABLED_DESCRIPTOR),
-					dataFlx: 'user.user-error-modal-utils.show-user-error-modal.generic-error-modal',
-				});
+				showUserErrorModal(
+					i18n._(ENTRANCE_SOUNDS_NOT_ENABLED_TITLE_DESCRIPTOR),
+					i18n._(ENTRANCE_SOUNDS_NOT_ENABLED_DESCRIPTOR),
+				);
 			}
 			return;
 		}
 		if (libraryFull) {
-			showGenericErrorModal({
-				title: i18n._(LIBRARY_FULL_TITLE_DESCRIPTOR),
-				message: i18n._(LIBRARY_FULL_DESCRIPTOR, {max: ENTRANCE_SOUND_MAX_PER_USER}),
-				dataFlx: 'user.user-error-modal-utils.show-user-error-modal.generic-error-modal',
-			});
+			showUserErrorModal(
+				i18n._(LIBRARY_FULL_TITLE_DESCRIPTOR),
+				i18n._(LIBRARY_FULL_DESCRIPTOR, {max: ENTRANCE_SOUND_MAX_PER_USER}),
+			);
 			return;
 		}
 		const [file] = await openFilePicker({accept: ENTRANCE_SOUND_FILE_PICKER_ACCEPT});
 		if (!file) return;
 		const validation = isValidEntranceSoundFile(file);
 		if (!validation.valid) {
-			showGenericErrorModal({
-				title: i18n._(INVALID_AUDIO_FILE_DESCRIPTOR),
-				message: validationErrorMessage(i18n, validation),
-				dataFlx: 'user.user-error-modal-utils.show-user-error-modal.generic-error-modal',
-			});
+			showUserErrorModal(i18n._(INVALID_AUDIO_FILE_DESCRIPTOR), validationErrorMessage(i18n, validation));
 			return;
 		}
 		const proposedName = deriveLibraryName(file);
@@ -221,11 +220,7 @@ function useEntranceSoundImpl(selectedScope: EntranceSoundScope): UseEntranceSou
 				await EntranceSoundLibrary.renameSound(soundId, name);
 			} catch (error) {
 				logger.error('Failed to rename entrance sound', error);
-				showGenericErrorModal({
-					title: i18n._(COULDN_T_SAVE_ENTRANCE_SOUND_DESCRIPTOR),
-					message: i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR),
-					dataFlx: 'user.user-error-modal-utils.show-user-error-modal.generic-error-modal',
-				});
+				showUserErrorModal(i18n._(COULDN_T_SAVE_ENTRANCE_SOUND_DESCRIPTOR), i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR));
 			}
 		},
 		[i18n],
@@ -238,11 +233,7 @@ function useEntranceSoundImpl(selectedScope: EntranceSoundScope): UseEntranceSou
 				ToastCommands.createToast({type: 'success', children: i18n._(ENTRANCE_SOUND_REMOVED_DESCRIPTOR)});
 			} catch (error) {
 				logger.error('Failed to delete entrance sound', error);
-				showGenericErrorModal({
-					title: i18n._(COULDN_T_REMOVE_ENTRANCE_SOUND_DESCRIPTOR),
-					message: i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR),
-					dataFlx: 'user.user-error-modal-utils.show-user-error-modal.generic-error-modal',
-				});
+				showUserErrorModal(i18n._(COULDN_T_REMOVE_ENTRANCE_SOUND_DESCRIPTOR), i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR));
 			}
 		},
 		[i18n],

@@ -3,7 +3,6 @@
 import {EVERYONE_MENTION, HERE_MENTION} from '@app/features/app/config/I18nDisplayConstants';
 import styles from '@app/features/channel/components/MentionEveryonePopout.module.css';
 import {isIMEComposing} from '@app/features/messaging/utils/IMECompositionUtils';
-import {isApplePlatform as isMacPlatform} from '@app/features/platform/utils/PlatformHelpers';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import type {I18n} from '@lingui/core';
 import {msg, ph} from '@lingui/core/macro';
@@ -32,6 +31,7 @@ interface MentionEveryonePopoutProps {
 	roleName?: string;
 }
 
+const isMac = () => /Mac|iPod|iPhone|iPad/.test(navigator.platform);
 export const getMentionTitle = (
 	i18n: I18n,
 	mentionType: MentionEveryonePopoutProps['mentionType'],
@@ -72,12 +72,7 @@ export const getMentionDescription = (
 				<Trans>
 					This will notify{' '}
 					<strong data-flx="channel.mention-everyone-popout.get-mention-description.strong">
-						<Plural
-							value={memberCount}
-							one="# member"
-							other="# members"
-							data-flx="channel.mention-everyone-popout.get-mention-description.plural"
-						/>
+						<Plural value={memberCount} one="# member" other="# members" />
 					</strong>{' '}
 					with this role in this channel. Are you sure you want to do this?
 				</Trans>
@@ -88,12 +83,7 @@ export const getMentionDescription = (
 			<Trans comment="Warning text before notifying every member with a role in the current channel.">
 				This will notify{' '}
 				<strong data-flx="channel.mention-everyone-popout.get-mention-description.strong">
-					<Plural
-						value={memberCount}
-						one="# member"
-						other="# members"
-						data-flx="channel.mention-everyone-popout.get-mention-description.plural--2"
-					/>
+					<Plural value={memberCount} one="# member" other="# members" />
 				</strong>{' '}
 				with the{' '}
 				<span className={styles.roleName} data-flx="channel.mention-everyone-popout.get-mention-description.role-name">
@@ -108,12 +98,7 @@ export const getMentionDescription = (
 			<Trans comment="Warning text before notifying every member in the current channel.">
 				This will notify{' '}
 				<strong data-flx="channel.mention-everyone-popout.get-mention-description.strong--2">
-					<Plural
-						value={memberCount}
-						one="# member"
-						other="# members"
-						data-flx="channel.mention-everyone-popout.get-mention-description.plural--3"
-					/>
+					<Plural value={memberCount} one="# member" other="# members" />
 				</strong>{' '}
 				in this channel. Are you sure you want to do this?
 			</Trans>
@@ -123,12 +108,7 @@ export const getMentionDescription = (
 		<Trans comment="Warning text before notifying online members in the current channel with @here.">
 			This will notify up to{' '}
 			<strong data-flx="channel.mention-everyone-popout.get-mention-description.strong--3">
-				<Plural
-					value={memberCount}
-					one="# online member"
-					other="# online members"
-					data-flx="channel.mention-everyone-popout.get-mention-description.plural--4"
-				/>
+				<Plural value={memberCount} one="# online member" other="# online members" />
 			</strong>{' '}
 			in this channel. Are you sure you want to do this?
 		</Trans>
@@ -165,7 +145,7 @@ export const MentionEveryonePopout = ({
 		document.addEventListener('keydown', handleKeyDown, true);
 		return () => document.removeEventListener('keydown', handleKeyDown, true);
 	}, [handleKeyDown]);
-	const enterKeySymbol = isMacPlatform() ? '↵' : i18n._(ENTER_DESCRIPTOR);
+	const enterKeySymbol = isMac() ? '↵' : i18n._(ENTER_DESCRIPTOR);
 	const escapeKeyLabel = i18n._(ESC_DESCRIPTOR);
 	return (
 		<div

@@ -6,7 +6,6 @@ import styles from '@app/features/channel/components/VoiceMessageRecorder.module
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {usePortalHost} from '@app/features/ui/overlay/PortalHostContext';
 import {getReducedMotionProps} from '@app/features/ui/utils/ReducedMotionAnimation';
-import {resolveAudioContextConstructor} from '@app/features/voice/engine/VoiceSharedAudioContext';
 import {
 	computeVoiceWaveformFromAudioBuffer,
 	type PreparedVoiceMessage,
@@ -75,19 +74,20 @@ const logger = new Logger('VoiceMessageRecorder');
 const UNIVERSALLY_PLAYABLE_RECORDING_MIME = 'audio/mp4';
 const OPUS_RECORDING_MIME_CANDIDATES = ['audio/ogg;codecs=opus', 'audio/webm;codecs=opus'] as const;
 
-function selectRecordingMimeType(isTypeSupported: (mimeType: string) => boolean): string | undefined {
+export function selectRecordingMimeType(isTypeSupported: (mimeType: string) => boolean): string | undefined {
 	if (isTypeSupported(UNIVERSALLY_PLAYABLE_RECORDING_MIME)) {
 		return UNIVERSALLY_PLAYABLE_RECORDING_MIME;
 	}
 	return OPUS_RECORDING_MIME_CANDIDATES.find((candidate) => isTypeSupported(candidate));
 }
 
-function isUniversallyPlayableContainer(mimeType: string): boolean {
+export function isUniversallyPlayableContainer(mimeType: string): boolean {
 	return mimeType.split(';')[0].trim().toLowerCase() === UNIVERSALLY_PLAYABLE_RECORDING_MIME;
 }
 
 async function prepareUniversalUpload(blob: Blob, filename: string): Promise<PreparedVoiceMessage> {
-	const contextClass = resolveAudioContextConstructor();
+	const contextClass =
+		window.AudioContext || (window as typeof window & {webkitAudioContext?: typeof AudioContext}).webkitAudioContext;
 	if (!contextClass) {
 		throw new Error('AudioContext is unavailable; cannot measure voice message');
 	}
@@ -298,7 +298,9 @@ export default function VoiceMessageRecorder({channelId, disabled, tooltipAnchor
 	}, []);
 	const startWaveform = useCallback(
 		(stream: MediaStream) => {
-			const contextClass = resolveAudioContextConstructor();
+			const contextClass =
+				window.AudioContext ||
+				(window as typeof window & {webkitAudioContext?: typeof AudioContext}).webkitAudioContext;
 			if (!contextClass) return;
 			const audioContext = new contextClass();
 			const source = audioContext.createMediaStreamSource(stream);

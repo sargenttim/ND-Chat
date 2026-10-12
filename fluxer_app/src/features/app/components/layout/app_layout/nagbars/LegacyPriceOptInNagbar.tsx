@@ -4,13 +4,15 @@ import {Nagbar} from '@app/features/app/components/layout/Nagbar';
 import {NagbarButton} from '@app/features/app/components/layout/NagbarButton';
 import {NagbarContent} from '@app/features/app/components/layout/NagbarContent';
 import {NAGBAR_TONES, NagbarToneKind} from '@app/features/app/components/layout/NagbarTones';
-import * as PlutoniumPageCommands from '@app/features/premium/commands/PlutoniumPageCommands';
+import {PREMIUM_PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {resolvePriceAnnouncementCampaign} from '@app/features/premium/config/PriceAnnouncementCampaign';
 import PremiumState from '@app/features/premium/state/PremiumState';
 import {MANAGE_SUBSCRIPTION_DESCRIPTOR} from '@app/features/premium/utils/PremiumMessageDescriptors';
-import {getPremiumProductName} from '@app/features/premium/utils/PremiumUtils';
 import {formatMinorUnitPrice} from '@app/features/premium/utils/PricingUtils';
+import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
+import {modal} from '@app/features/ui/commands/ModalCommands';
 import NagbarState from '@app/features/ui/state/Nagbar';
+import {UserSettingsModal} from '@app/features/user/components/modals/UserSettingsModal';
 import Users from '@app/features/user/state/Users';
 import * as LocaleUtils from '@app/features/user/utils/LocaleUtils';
 import {getFormattedLongDate} from '@fluxer/date_utils/src/DateFormatting';
@@ -25,7 +27,14 @@ export const LegacyPriceOptInNagbar = observer(function LegacyPriceOptInNagbar({
 	const resolved = resolvePriceAnnouncementCampaign(premiumState);
 	const campaignId = resolved?.campaign.id ?? null;
 	const handleOpenPremiumSettings = useCallback(() => {
-		PlutoniumPageCommands.openPlutoniumPage();
+		ModalCommands.push(
+			modal(() => (
+				<UserSettingsModal
+					initialTab="plutonium"
+					data-flx="app.app-layout.nagbars.legacy-price-opt-in-nagbar.handle-open-premium-settings.user-settings-modal"
+				/>
+			)),
+		);
 	}, []);
 	const handleDismiss = useCallback(() => {
 		if (campaignId == null) return;
@@ -57,7 +66,7 @@ export const LegacyPriceOptInNagbar = observer(function LegacyPriceOptInNagbar({
 						? resolved.campaign.optInMonthlyMessage
 						: resolved.campaign.optInYearlyMessage,
 					{
-						premiumProductName: getPremiumProductName(),
+						premiumProductName: PREMIUM_PRODUCT_NAME,
 						currentPrice,
 						newPrice,
 						effectiveDate: getFormattedLongDate(listPriceSwitch.effective_at, locale),

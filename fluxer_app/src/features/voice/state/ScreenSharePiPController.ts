@@ -163,7 +163,7 @@ function pickWatchedScreenShareFromOpenPiP(
 	);
 }
 
-function detectScreenSharePiPContent(
+export function detectScreenSharePiPContent(
 	channelId: string | null,
 	guildId: string | null,
 ): ScreenSharePiPScreenShare | null {
@@ -428,3 +428,5 @@ const instance = new ScreenSharePiPController();
 export function startScreenSharePiPController(): void {
 	instance.start();
 }
+
+export default instance;

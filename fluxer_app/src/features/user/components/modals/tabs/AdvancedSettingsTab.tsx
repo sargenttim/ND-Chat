@@ -52,7 +52,7 @@ const NO_ADVANCED_SETTINGS_FOUND_DESCRIPTOR = msg({
 
 const EMPTY_TAGS = new Set<SettingsCategoryTag>();
 
-const AdvancedSettingsTab = observer(() => {
+export const AdvancedSettingsTab = observer(() => {
 	const {i18n} = useLingui();
 	const [query, setQuery] = useState('');
 	const currentUserCreatedAt = Users.currentUser?.createdAt ?? null;

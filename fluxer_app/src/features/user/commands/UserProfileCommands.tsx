@@ -65,11 +65,23 @@ function storeProfile(profile: ProfileWire, guildId?: string): Profile {
 	return profileRecord;
 }
 
-export async function fetch(userId: string, guildId?: string): Promise<Profile> {
+export async function fetch(userId: string, guildId?: string, force = false): Promise<Profile> {
 	try {
 		const key = buildKey(userId, guildId);
-		const cached = cachedProfileOrRequest(userId, guildId);
-		if (cached) return cached;
+		if (!force) {
+			const cached = cachedProfileOrRequest(userId, guildId);
+			if (cached) return cached;
+		} else {
+			const existingRequest = pendingRequests.get(key);
+			if (existingRequest) {
+				logger.debug(
+					`Force refresh requested but request already in-flight for user ${userId}${profileScope(guildId)}`,
+				);
+				return existingRequest;
+			} else {
+				logger.debug(`Force refreshing profile for user ${userId}${profileScope(guildId)}`);
+			}
+		}
 		logger.debug(`Fetching profile for user ${userId}${profileScope(guildId)}`);
 		const promise = (async () => {
 			const profileRecord = storeProfile(await requestProfile(userId, guildId), guildId);

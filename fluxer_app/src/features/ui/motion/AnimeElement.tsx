@@ -16,6 +16,7 @@ import React, {
 	isValidElement,
 	useCallback,
 	useContext,
+	useEffect,
 	useImperativeHandle,
 	useLayoutEffect,
 	useMemo,
@@ -24,8 +25,10 @@ import React, {
 } from 'react';
 
 type AnimeScalar = string | number;
-type AnimeStyleValue = AnimeScalar | null | undefined;
+type AnimeValueLike = AnimeValue<number> | AnimeValue<string>;
+type AnimeStyleValue = AnimeScalar | AnimeValueLike | null | undefined;
 type AnimeTargetValue = AnimeScalar | ReadonlyArray<AnimeScalar> | Readonly<Record<string, unknown>> | null;
+type AnimeTransformRenderer = (transform: Readonly<Record<string, AnimeScalar>>) => string;
 type AnimeEase = string | ((time: number) => number) | Spring;
 type UnknownFunction = (...args: Array<never>) => unknown;
 type MutableAnimeTarget = Record<string, AnimeTargetValue>;
@@ -52,18 +55,29 @@ export interface AnimeTween {
 	readonly ease?: string | ReadonlyArray<number>;
 	readonly stiffness?: number;
 	readonly damping?: number;
+	readonly mass?: number;
+	readonly bounce?: number;
+	readonly repeat?: number;
+	readonly onUpdate?: (latest: number) => void;
+	readonly onComplete?: () => void;
 	readonly [key: string]: unknown;
 }
 export type AnimeStyle = Readonly<Record<string, AnimeStyleValue>>;
-type AnimeElementProps<TagName extends keyof React.JSX.IntrinsicElements> = Omit<
+export type AnimeElementProps<TagName extends keyof React.JSX.IntrinsicElements> = Omit<
 	React.JSX.IntrinsicElements[TagName],
 	keyof AnimeElementAnimationProps | 'style'
 > &
 	AnimeElementAnimationProps & {readonly style?: AnimeStyle};
-interface AnimePlaybackControls {
+export interface AnimePlaybackControls {
 	readonly stop: () => void;
 	readonly cancel: () => void;
 }
+export interface AnimeValue<T = number> {
+	readonly get: () => T;
+	readonly set: (value: T) => void;
+	readonly subscribe: (listener: (value: T) => void) => () => void;
+}
+
 interface ActiveAnimation {
 	readonly phase: AnimeAnimationPhase;
 	readonly key: string;
@@ -76,6 +90,9 @@ interface AnimeElementAnimationProps {
 	readonly tween?: AnimeTween;
 	readonly hover?: AnimeTarget;
 	readonly press?: AnimeTarget;
+	readonly renderTransform?: AnimeTransformRenderer;
+	readonly onAnimeStart?: () => void;
+	readonly onAnimeComplete?: () => void;
 }
 
 type InternalAnimeElementProps = AnimeElementAnimationProps &
@@ -135,6 +152,12 @@ const ANIME_TRANSFORM_KEYS = Object.freeze([
 	AnimeTransformKey.ROTATE_X,
 	AnimeTransformKey.ROTATE_Y,
 ] as const satisfies ReadonlyArray<AnimeTransformKey>);
+
+type AssertNever<T extends never> = T;
+
+export type AnimeTransformKeyCoverageGap = AssertNever<
+	Exclude<AnimeTransformKey, (typeof ANIME_TRANSFORM_KEYS)[number]>
+>;
 const ROTATE_TRANSFORM_KEY_PREFIX = 'rotate';
 const AUTO_SIZE_VALUE = 'auto';
 const DEFAULT_ANIME_EASE: AnimeEase = AnimeEaseExpression.OUT;
@@ -143,6 +166,7 @@ const MILLISECONDS_PER_SECOND = 1000;
 const ANIME_SPRING_DEFAULT_STIFFNESS = 100;
 const ANIME_SPRING_DEFAULT_DAMPING = 10;
 const ANIME_SPRING_DEFAULT_MASS = 1;
+const ANIME_SPRING_MINIMUM_MASS = 1;
 const ANIME_SPRING_MAXIMUM_PARAMETER = 10_000;
 const CUBIC_BEZIER_CONTROL_POINT_COUNT = 4;
 const MAX_ANIME_SIGNATURE_DEPTH = 16;
@@ -480,6 +504,75 @@ export function AnimePresence({children, enterOnMount}: AnimePresenceProps): Rea
 	);
 }
 
+class AnimeReactiveValue<T> implements AnimeValue<T> {
+	private current: T;
+	private readonly listeners = new Set<(value: T) => void>();
+
+	constructor(initialValue: T) {
+		this.current = initialValue;
+	}
+
+	get(): T {
+		return this.current;
+	}
+
+	set(value: T): void {
+		if (Object.is(this.current, value)) return;
+		this.current = value;
+		let failures: Array<unknown> | null = null;
+		for (const listener of this.listeners) {
+			try {
+				listener(value);
+			} catch (error) {
+				if (failures == null) {
+					failures = [];
+				}
+				failures.push(error);
+			}
+		}
+		if (failures != null) {
+			throw new AggregateError(failures, 'Anime reactive value listeners failed');
+		}
+	}
+
+	subscribe(listener: (value: T) => void): () => void {
+		this.listeners.add(listener);
+		return () => {
+			this.listeners.delete(listener);
+		};
+	}
+}
+
+function isAnimeValue(value: unknown): value is AnimeValueLike {
+	return (
+		typeof value === 'object' &&
+		value != null &&
+		'get' in value &&
+		'set' in value &&
+		'subscribe' in value &&
+		typeof (value as AnimeValueLike).get === 'function' &&
+		typeof (value as AnimeValueLike).set === 'function' &&
+		typeof (value as AnimeValueLike).subscribe === 'function'
+	);
+}
+
+export function useAnimeValue<T = number>(initialValue: T): AnimeValue<T> {
+	const valueRef = useRef<AnimeValue<T> | null>(null);
+	if (valueRef.current == null) {
+		valueRef.current = new AnimeReactiveValue(initialValue);
+	}
+	return valueRef.current;
+}
+
+export interface UseAnimeValueEventRequest<T> {
+	readonly value: AnimeValue<T>;
+	readonly listener: (latest: T) => void;
+}
+
+export function useAnimeValueEvent<T>({value, listener}: UseAnimeValueEventRequest<T>): void {
+	useEffect(() => value.subscribe(listener), [listener, value]);
+}
+
 function isFiniteNumber(value: unknown): value is number {
 	if (typeof value !== 'number') {
 		return false;
@@ -493,7 +586,7 @@ interface ConvertTweenSecondsRequest {
 }
 
 interface ResolveSpringParameterRequest {
-	readonly setting: 'damping' | 'stiffness';
+	readonly setting: 'damping' | 'mass' | 'stiffness';
 	readonly value: unknown;
 }
 
@@ -508,15 +601,15 @@ function millisecondsFromSeconds({setting, value}: ConvertTweenSecondsRequest): 
 }
 
 function hasSpringParameters(tween: AnimeTween): boolean {
-	return tween.stiffness != null || tween.damping != null;
+	return tween.stiffness != null || tween.damping != null || tween.mass != null || tween.bounce != null;
 }
 
 function hasPhysicalSpringParameters(tween: AnimeTween): boolean {
-	return tween.stiffness != null || tween.damping != null;
+	return tween.stiffness != null || tween.damping != null || tween.mass != null;
 }
 
 function hasPerceptualSpringParameters(tween: AnimeTween): boolean {
-	return tween.duration != null;
+	return tween.duration != null || tween.bounce != null;
 }
 
 function isSpringTween(tween: AnimeTween | null): boolean {
@@ -562,7 +655,15 @@ function resolveSpringParameters(tween: AnimeTween): SpringParams {
 		}
 		parameters.duration = duration;
 	}
-
+	if (tween.bounce != null) {
+		if (!isFiniteNumber(tween.bounce)) {
+			throw new TypeError('Anime spring bounce must be a finite number');
+		}
+		if (tween.bounce < -1 || tween.bounce > 1) {
+			throw new RangeError('Anime spring bounce must be between -1 and 1');
+		}
+		parameters.bounce = tween.bounce;
+	}
 	if (!hasPhysicalParameters) {
 		return parameters;
 	}
@@ -574,13 +675,21 @@ function resolveSpringParameters(tween: AnimeTween): SpringParams {
 	if (tween.damping != null) {
 		damping = resolvePositiveSpringParameter({setting: 'damping', value: tween.damping});
 	}
-
+	let mass = ANIME_SPRING_DEFAULT_MASS;
+	if (tween.mass != null) {
+		mass = resolvePositiveSpringParameter({setting: 'mass', value: tween.mass});
+	}
+	if (mass < ANIME_SPRING_MINIMUM_MASS) {
+		stiffness /= mass;
+		damping /= mass;
+		mass = ANIME_SPRING_MINIMUM_MASS;
+	}
 	if (stiffness > ANIME_SPRING_MAXIMUM_PARAMETER || damping > ANIME_SPRING_MAXIMUM_PARAMETER) {
 		throw new RangeError('Anime spring mass normalization exceeded the supported physical parameter range');
 	}
 	parameters.stiffness = stiffness;
 	parameters.damping = damping;
-	parameters.mass = ANIME_SPRING_DEFAULT_MASS;
+	parameters.mass = mass;
 	return parameters;
 }
 
@@ -662,6 +771,9 @@ function asAnimeScalar(value: unknown): AnimeScalar | null {
 }
 
 function unwrapAnimeValue(value: AnimeTargetValue | AnimeStyleValue): AnimeScalar | null {
+	if (isAnimeValue(value)) {
+		return asAnimeScalar(value.get());
+	}
 	return asAnimeScalar(value);
 }
 
@@ -673,12 +785,14 @@ interface NormalizeTransformValueRequest {
 interface BuildTransformRequest {
 	readonly target: Readonly<Record<string, AnimeStyleValue | AnimeTargetValue>>;
 	readonly baseTransform: string | null;
+	readonly renderTransform: AnimeTransformRenderer | null;
 }
 
 interface AssignTargetRequest {
 	readonly element: HTMLElement | SVGElement;
 	readonly target: AnimeTarget;
 	readonly baseTransform: string | null;
+	readonly renderTransform: AnimeTransformRenderer | null;
 }
 
 function normalizeTransformValue({key, value}: NormalizeTransformValueRequest): string {
@@ -708,9 +822,11 @@ function getTransformValues(
 	return values;
 }
 
-function buildTransform({target, baseTransform}: BuildTransformRequest): string {
+function buildTransform({target, baseTransform, renderTransform}: BuildTransformRequest): string {
 	const transformValues = getTransformValues(target);
-
+	if (renderTransform != null) {
+		return renderTransform(transformValues);
+	}
 	const segments: Array<string> = [];
 	if (baseTransform != null && baseTransform.length > 0) {
 		segments.push(baseTransform);
@@ -744,14 +860,14 @@ function splitTarget(target: AnimeTarget): SplitAnimeTarget {
 	return {animationTarget, transformTarget};
 }
 
-function assignTarget({element, target, baseTransform}: AssignTargetRequest): void {
+function assignTarget({element, target, baseTransform, renderTransform}: AssignTargetRequest): void {
 	const {animationTarget, transformTarget} = splitTarget(target);
 	for (const [key, value] of Object.entries(animationTarget)) {
 		const unwrapped = unwrapAnimeValue(value);
 		if (unwrapped == null) continue;
 		Reflect.set(element.style, key, String(unwrapped));
 	}
-	const transform = buildTransform({target: transformTarget, baseTransform});
+	const transform = buildTransform({target: transformTarget, baseTransform, renderTransform});
 	if (transform.length > 0) {
 		element.style.transform = transform;
 	}
@@ -777,6 +893,7 @@ interface ResolvedAnimeElementSettings {
 	readonly hoverTarget: AnimeTarget | null;
 	readonly pressTarget: AnimeTarget | null;
 	readonly tween: AnimeTween | null;
+	readonly renderTransform: AnimeTransformRenderer | null;
 	readonly animeStyle: AnimeStyle;
 }
 
@@ -816,12 +933,15 @@ function resolveAnimeElementSettings(props: InternalAnimeElementProps): Resolved
 	if (props.tween != null) {
 		tween = props.tween;
 	}
-
+	let renderTransform: AnimeTransformRenderer | null = null;
+	if (props.renderTransform != null) {
+		renderTransform = props.renderTransform;
+	}
 	let animeStyle: AnimeStyle = EMPTY_ANIME_STYLE;
 	if (props.style != null) {
 		animeStyle = props.style;
 	}
-	return {fromTarget, enterTarget, exitTarget, hoverTarget, pressTarget, tween, animeStyle};
+	return {fromTarget, enterTarget, exitTarget, hoverTarget, pressTarget, tween, renderTransform, animeStyle};
 }
 
 function getFunctionSignature(value: UnknownFunction): string {
@@ -876,6 +996,9 @@ class AnimeValueSignatureOwner {
 		}
 		this.activeObjects.add(value);
 		try {
+			if (isAnimeValue(value)) {
+				return `anime-value:${this.visit(value.get(), depth + 1)}`;
+			}
 			if (Array.isArray(value)) {
 				return `[${value.map((item) => this.visit(item, depth + 1)).join(',')}]`;
 			}
@@ -906,17 +1029,29 @@ function baseTransformSignature(baseTransform: string | null): string {
 	return baseTransform;
 }
 
+function renderTransformSignature(renderTransform: AnimeTransformRenderer | null): string {
+	if (renderTransform == null) {
+		return '';
+	}
+	return getFunctionSignature(renderTransform);
+}
+
 interface AnimationKeyArgs {
 	readonly phase: AnimeAnimationPhase;
 	readonly target: AnimeTarget;
 	readonly tween: AnimeTween | null;
 	readonly baseTransform: string | null;
+	readonly renderTransform: AnimeTransformRenderer | null;
 }
 
-function getAnimationKey({phase, target, tween, baseTransform}: AnimationKeyArgs): string {
-	return [phase, getTargetSignature(target), getValueSignature(tween), baseTransformSignature(baseTransform)].join(
-		'::',
-	);
+function getAnimationKey({phase, target, tween, baseTransform, renderTransform}: AnimationKeyArgs): string {
+	return [
+		phase,
+		getTargetSignature(target),
+		getValueSignature(tween),
+		baseTransformSignature(baseTransform),
+		renderTransformSignature(renderTransform),
+	].join('::');
 }
 
 const AutoSizeProperty = Object.freeze({
@@ -956,6 +1091,32 @@ interface RunElementAnimationRequest {
 	readonly onComplete: () => void;
 }
 
+interface AnimateAnimeValueRequest {
+	readonly value: AnimeValue<number>;
+	readonly to: number;
+	readonly tween: AnimeTween | null;
+}
+
+interface AnimateNumberRequest {
+	readonly from: number;
+	readonly to: number;
+	readonly tween: AnimeTween | null;
+}
+
+export interface AnimateAnimeNumberRequest {
+	readonly from: number;
+	readonly to: number;
+	readonly tween?: AnimeTween;
+}
+
+export interface AnimateAnimeReactiveValueRequest {
+	readonly value: AnimeValue<number>;
+	readonly to: number;
+	readonly tween?: AnimeTween;
+}
+
+export type AnimateAnimeRequest = AnimateAnimeNumberRequest | AnimateAnimeReactiveValueRequest;
+
 function measureAutoSize({element, property}: MeasureAutoSizeRequest): number {
 	const style = (element as HTMLElement).style;
 	const previousValue = style.getPropertyValue(property);
@@ -977,6 +1138,22 @@ function resolveElementTween({target, tween}: ResolveElementTweenRequest): Anime
 		return tween;
 	}
 	return targetTween as AnimeTween;
+}
+
+function resolveAnimationLoop(tween: AnimeTween | null): number | boolean | null {
+	if (tween == null) {
+		return null;
+	}
+	if (tween.repeat === Number.POSITIVE_INFINITY) {
+		return true;
+	}
+	if (typeof tween.repeat !== 'number') {
+		return null;
+	}
+	if (tween.repeat > 0) {
+		return tween.repeat;
+	}
+	return null;
 }
 
 function resolvePropertyTween(tween: AnimeTween | null, property: string): AnimeTween | null {
@@ -1049,7 +1226,10 @@ function runElementAnimation({element, target, tween, onComplete}: RunElementAni
 		delay: getTweenDelay(resolvedTween),
 		ease: getTweenEase(resolvedTween),
 	};
-
+	const loop = resolveAnimationLoop(resolvedTween);
+	if (loop != null) {
+		params.loop = loop;
+	}
 	if (completeAnimation != null) {
 		params.onComplete = completeAnimation;
 	}
@@ -1069,11 +1249,97 @@ function createPlaybackControls(animation: JSAnimation): AnimePlaybackControls {
 	return Object.freeze({stop: cancel, cancel});
 }
 
+function animateAnimeValue({value, to, tween}: AnimateAnimeValueRequest): AnimePlaybackControls {
+	const state = {value: value.get()};
+	const onUpdate = resolveTweenUpdateHandler(tween);
+	const onComplete = resolveTweenCompleteHandler(tween);
+	const animation = animeAnimate(state, {
+		value: to,
+		duration: getTweenDuration(tween),
+		delay: getTweenDelay(tween),
+		ease: getTweenEase(tween),
+		onUpdate: () => {
+			value.set(state.value);
+			if (onUpdate != null) {
+				onUpdate(state.value);
+			}
+		},
+		onComplete: () => {
+			value.set(to);
+			if (onUpdate != null) {
+				onUpdate(to);
+			}
+			if (onComplete != null) {
+				onComplete();
+			}
+		},
+	});
+	return createPlaybackControls(animation);
+}
+
+function resolveTweenUpdateHandler(tween: AnimeTween | null): ((latest: number) => void) | null {
+	if (tween == null) {
+		return null;
+	}
+	if (typeof tween.onUpdate !== 'function') {
+		return null;
+	}
+	return tween.onUpdate;
+}
+
+function resolveTweenCompleteHandler(tween: AnimeTween | null): (() => void) | null {
+	if (tween == null) {
+		return null;
+	}
+	if (typeof tween.onComplete !== 'function') {
+		return null;
+	}
+	return tween.onComplete;
+}
+
+function animateNumber({from, to, tween}: AnimateNumberRequest): AnimePlaybackControls {
+	const state = {value: from};
+	const onUpdate = resolveTweenUpdateHandler(tween);
+	const onComplete = resolveTweenCompleteHandler(tween);
+	const animation = animeAnimate(state, {
+		value: to,
+		duration: getTweenDuration(tween),
+		delay: getTweenDelay(tween),
+		ease: getTweenEase(tween),
+		onUpdate: () => {
+			if (onUpdate != null) {
+				onUpdate(state.value);
+			}
+		},
+		onComplete: () => {
+			if (onUpdate != null) {
+				onUpdate(to);
+			}
+			if (onComplete != null) {
+				onComplete();
+			}
+		},
+	});
+	return createPlaybackControls(animation);
+}
+
+export function animateAnime(request: AnimateAnimeRequest): AnimePlaybackControls {
+	let tween: AnimeTween | null = null;
+	if (request.tween != null) {
+		tween = request.tween;
+	}
+	if ('from' in request) {
+		return animateNumber({from: request.from, to: request.to, tween});
+	}
+	return animateAnimeValue({value: request.value, to: request.to, tween});
+}
+
 interface StartAnimationArgs {
 	readonly phase: AnimeAnimationPhase;
 	readonly element: HTMLElement | SVGElement;
 	readonly target: AnimeTarget;
 	readonly complete: (() => void) | null;
+	readonly notifyStart: boolean;
 	readonly tween?: AnimeTween | null;
 }
 
@@ -1115,6 +1381,7 @@ interface InitialiseFirstMountTargetRequest {
 	readonly element: HTMLElement | SVGElement;
 	readonly fromTarget: AnimeTarget | null;
 	readonly presence: PresenceContextValue | null;
+	readonly renderTransform: AnimeTransformRenderer | null;
 	readonly resolveAnimationKey: (request: ResolveAnimationKeyRequest) => string;
 }
 
@@ -1217,14 +1484,15 @@ function initialiseFirstMountTarget({
 	element,
 	fromTarget,
 	presence,
+	renderTransform,
 	resolveAnimationKey,
 }: InitialiseFirstMountTargetRequest): boolean {
 	if (shouldEnterOnMount(presence)) {
-		if (fromTarget != null) assignTarget({element, target: fromTarget, baseTransform});
+		if (fromTarget != null) assignTarget({element, target: fromTarget, baseTransform, renderTransform});
 		return false;
 	}
 	if (animateTarget == null) return false;
-	assignTarget({element, target: animateTarget, baseTransform});
+	assignTarget({element, target: animateTarget, baseTransform, renderTransform});
 	animationOwner.beginAnimation({
 		phase: AnimeAnimationPhase.ENTER,
 		key: resolveAnimationKey({phase: AnimeAnimationPhase.ENTER, target: animateTarget}),
@@ -1247,6 +1515,9 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 				hover,
 				press,
 				style,
+				renderTransform,
+				onAnimeStart,
+				onAnimeComplete,
 				onMouseEnter,
 				onMouseLeave,
 				onPointerDown,
@@ -1262,9 +1533,12 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 				pressTarget,
 				animeStyle,
 				tween: elementTween,
+				renderTransform: elementRenderTransform,
 			} = resolveAnimeElementSettings(props);
 			const elementRef = useRef<HTMLElement | SVGElement | null>(null);
 			const [animationOwner] = useState(() => new AnimeElementAnimationOwner());
+			const onAnimeStartRef = useRef(onAnimeStart);
+			const onAnimeCompleteRef = useRef(onAnimeComplete);
 			const presence = useContext(PresenceContext);
 			const baseTransform = resolveBaseTransform(animeStyle);
 
@@ -1274,9 +1548,10 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 					target,
 					tween: elementTween,
 					baseTransform,
+					renderTransform: elementRenderTransform,
 				});
 
-			const startAnimation = ({phase, element, target, complete, tween}: StartAnimationArgs): void => {
+			const startAnimation = ({phase, element, target, complete, notifyStart, tween}: StartAnimationArgs): void => {
 				const animationKey = animationKeyFor({phase, target});
 				if (animationOwner.matches({phase, animationKey})) {
 					return;
@@ -1286,7 +1561,12 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 				}
 				animationOwner.stopAnimation();
 				animationOwner.beginAnimation({phase, key: animationKey});
-
+				if (notifyStart) {
+					const onAnimeStartHandler = onAnimeStartRef.current;
+					if (onAnimeStartHandler != null) {
+						onAnimeStartHandler();
+					}
+				}
 				let resolvedStartTween = elementTween;
 				if (tween !== undefined) {
 					resolvedStartTween = tween;
@@ -1314,7 +1594,7 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 				if (target == null) {
 					return;
 				}
-				startAnimation({phase, element, target, complete: null});
+				startAnimation({phase, element, target, complete: null, notifyStart: false});
 			};
 
 			useImperativeHandle(forwardedRef, () => elementRef.current as HTMLElement | SVGElement, []);
@@ -1327,9 +1607,34 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 			}, [animationOwner]);
 
 			useLayoutEffect(() => {
+				onAnimeStartRef.current = onAnimeStart;
+				onAnimeCompleteRef.current = onAnimeComplete;
+			}, [onAnimeComplete, onAnimeStart]);
+
+			useLayoutEffect(() => {
+				const subscriptions: Array<() => void> = [];
 				const element = elementRef.current;
-				if (element != null) assignTarget({element, target: animeStyle as AnimeTarget, baseTransform});
-			}, [animeStyle, baseTransform]);
+				if (element != null) {
+					const applyAnimeStyle = () => {
+						assignTarget({
+							element,
+							target: animeStyle as AnimeTarget,
+							baseTransform,
+							renderTransform: elementRenderTransform,
+						});
+					};
+					applyAnimeStyle();
+					for (const value of Object.values(animeStyle)) {
+						if (!isAnimeValue(value)) continue;
+						subscriptions.push(value.subscribe(applyAnimeStyle));
+					}
+				}
+				return () => {
+					for (const unsubscribe of subscriptions) {
+						unsubscribe();
+					}
+				};
+			}, [animeStyle, baseTransform, elementRenderTransform]);
 
 			useLayoutEffect(() => {
 				const element = elementRef.current;
@@ -1356,6 +1661,7 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 						complete: () => {
 							animationOwner.completeExitRegistration(completeExit);
 						},
+						notifyStart: false,
 					});
 					return;
 				}
@@ -1368,6 +1674,7 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 								element,
 								target: animateTarget,
 								complete: null,
+								notifyStart: false,
 								tween: SETTLE_ON_MOUNT_TWEEN,
 							});
 							return;
@@ -1380,6 +1687,7 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 							element,
 							fromTarget,
 							presence,
+							renderTransform: elementRenderTransform,
 							resolveAnimationKey: animationKeyFor,
 						});
 						if (firstMountTargetInitialised) return;
@@ -1390,7 +1698,13 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 						phase: AnimeAnimationPhase.ENTER,
 						element,
 						target: animateTarget,
-						complete: null,
+						complete: () => {
+							const onAnimeCompleteHandler = onAnimeCompleteRef.current;
+							if (onAnimeCompleteHandler != null) {
+								onAnimeCompleteHandler();
+							}
+						},
+						notifyStart: true,
 					});
 					return;
 				}
@@ -1435,7 +1749,7 @@ function createAnimeElement({tagName, normalizeClassName}: CreateAnimeElementReq
 			}
 			const domStyle: React.CSSProperties = {};
 			for (const [key, value] of Object.entries(animeStyle)) {
-				if (isAnimeTransformKey(key)) continue;
+				if (isAnimeTransformKey(key) || isAnimeValue(value)) continue;
 				(domStyle as Record<string, unknown>)[key] = value;
 			}
 			if (baseTransform != null && baseTransform.length > 0) {
@@ -1464,4 +1778,6 @@ export const AnimeButton = createAnimeElement({
 	tagName: 'button',
 	normalizeClassName: null,
 }) as AnimeComponent<'button'>;
+export const AnimeImg = createAnimeElement({tagName: 'img', normalizeClassName: null}) as AnimeComponent<'img'>;
 export const AnimeSpan = createAnimeElement({tagName: 'span', normalizeClassName: null}) as AnimeComponent<'span'>;
+export const AnimeVideo = createAnimeElement({tagName: 'video', normalizeClassName: null}) as AnimeComponent<'video'>;

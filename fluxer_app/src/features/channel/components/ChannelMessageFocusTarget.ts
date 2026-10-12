@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const MIN_VISIBLE_RATIO_FOR_FOCUS = 0.75;
+export const MIN_VISIBLE_RATIO_FOR_FOCUS = 0.75;
 
 export interface MessageFocusCandidate {
 	messageId: string;

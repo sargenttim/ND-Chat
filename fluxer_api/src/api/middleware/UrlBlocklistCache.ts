@@ -6,24 +6,46 @@ import {Config} from '@app/api/Config';
 import {BANNED_URL_DOMAINS_REFRESH_CHANNEL, BANNED_URLS_REFRESH_CHANNEL} from '@app/api/constants/ContentModeration';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
 import {Logger} from '@app/api/Logger';
-import {RefreshedCache} from '@app/api/utils/RefreshedCache';
-import {UrlHostRuleSet} from '@app/api/utils/UrlHostRules';
-import {canonicalizeUrl, extractLinkHosts, extractUrlCandidates} from '@app/api/utils/UrlNormalizer';
+import {RefreshSubscription} from '@app/api/utils/RefreshSubscription';
+import {canonicalizeUrl} from '@app/api/utils/UrlNormalizer';
+import type {IKVProvider} from '@pkgs/kv_client/src/IKVProvider';
 
-class UrlBlocklistCache extends RefreshedCache {
-	constructor() {
-		super({name: 'URL blocklist cache', channels: [BANNED_URLS_REFRESH_CHANNEL, BANNED_URL_DOMAINS_REFRESH_CHANNEL]});
+class UrlBlocklistCache {
+	private exactUrls: Set<string> = new Set();
+	private blockedDomains: Set<string> = new Set();
+	private adminRepository = new AdminRepository();
+	private kvClient: IKVProvider | null = null;
+	private storageService: IStorageService | null = null;
+	private consecutiveFailures = 0;
+	private readonly maxConsecutiveFailures = 5;
+	private readonly refreshSubscription = new RefreshSubscription({
+		name: 'URL blocklist cache',
+		channels: [BANNED_URLS_REFRESH_CHANNEL, BANNED_URL_DOMAINS_REFRESH_CHANNEL],
+		refresh: () => this.refresh(),
+		onRefreshError: (err) => {
+			this.consecutiveFailures++;
+			const message = err instanceof Error ? err.message : String(err);
+			if (this.consecutiveFailures >= this.maxConsecutiveFailures) {
+				Logger.error({error: message}, 'Failed to refresh URL blocklist cache after notification');
+			} else {
+				Logger.warn({error: message}, 'Failed to refresh URL blocklist cache after notification');
+			}
+		},
+	});
+
+	setRefreshSubscriber(kvClient: IKVProvider | null): void {
+		this.kvClient = kvClient;
 	}
 
-	private exactUrls: Set<string> = new Set();
-	private hostRules = new UrlHostRuleSet();
-	private adminRepository = new AdminRepository();
-	private storageService: IStorageService | null = null;
 	setStorageService(storageService: IStorageService | null): void {
 		this.storageService = storageService;
 	}
 
-	protected async load(): Promise<void> {
+	initialize(): Promise<void> {
+		return this.refreshSubscription.start(this.kvClient);
+	}
+
+	async refresh(): Promise<void> {
 		const [manualUrls, domains, feedUrls] = await Promise.all([
 			this.adminRepository.loadAllBannedUrls(),
 			this.adminRepository.loadAllBannedUrlDomains(),
@@ -33,15 +55,15 @@ class UrlBlocklistCache extends RefreshedCache {
 		for (const row of manualUrls) {
 			if (row.url_canonical) nextUrls.add(row.url_canonical.toLowerCase());
 		}
-		const nextHostRules = new UrlHostRuleSet();
+		const nextDomains = new Set<string>();
 		for (const row of domains) {
-			nextHostRules.add(row.domain, row.match_subdomains ?? true);
+			nextDomains.add(row.domain.toLowerCase());
 		}
 		this.exactUrls = nextUrls;
-		this.hostRules = nextHostRules;
-
+		this.blockedDomains = nextDomains;
+		this.consecutiveFailures = 0;
 		Logger.debug(
-			{urls: nextUrls.size, ...nextHostRules.size, feedUrls: feedUrls.size},
+			{urls: nextUrls.size, domains: nextDomains.size, feedUrls: feedUrls.size},
 			'URL blocklist cache refreshed',
 		);
 	}
@@ -72,17 +94,7 @@ class UrlBlocklistCache extends RefreshedCache {
 	}
 
 	isHostnameBanned(host: string): boolean {
-		return this.hostRules.matches(host);
-	}
-
-	containsBannedLink(text: string): boolean {
-		for (const url of extractUrlCandidates(text)) {
-			if (this.isUrlOrDomainBanned(url)) return true;
-		}
-		for (const host of extractLinkHosts(text)) {
-			if (this.isHostnameBanned(host)) return true;
-		}
-		return false;
+		return this.blockedDomains.has(host.toLowerCase());
 	}
 
 	addExactUrl(canonical: string): void {
@@ -93,31 +105,37 @@ class UrlBlocklistCache extends RefreshedCache {
 		this.exactUrls.delete(canonical.toLowerCase());
 	}
 
-	addDomain(domain: string, matchSubdomains = true): void {
-		this.hostRules.add(domain, matchSubdomains);
+	addDomain(domain: string): void {
+		this.blockedDomains.add(domain.toLowerCase());
 	}
 
 	removeDomain(domain: string): void {
-		this.hostRules.remove(domain);
+		this.blockedDomains.delete(domain.toLowerCase());
 	}
 
 	get size(): {
 		urls: number;
 		domains: number;
-		patterns: number;
 	} {
 		return {
 			urls: this.exactUrls.size,
-			...this.hostRules.size,
+			domains: this.blockedDomains.size,
 		};
 	}
 
 	resetForTesting(): void {
-		this.resetRefreshState();
+		void this.shutdown().catch((error) => {
+			Logger.error({error}, 'Failed to shut down URL blocklist cache');
+		});
 		this.exactUrls = new Set();
-		this.hostRules = new UrlHostRuleSet();
-
+		this.blockedDomains = new Set();
+		this.kvClient = null;
 		this.storageService = null;
+		this.consecutiveFailures = 0;
+	}
+
+	shutdown(): Promise<void> {
+		return this.refreshSubscription.stop();
 	}
 }
 

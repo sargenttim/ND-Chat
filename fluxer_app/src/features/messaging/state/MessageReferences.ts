@@ -2,7 +2,7 @@
 
 import {Message as MessageRecord} from '@app/features/messaging/models/MessagingMessage';
 import Messages from '@app/features/messaging/state/MessagingMessages';
-import {MessageFlags, MessageReferenceTypes} from '@fluxer/constants/src/ChannelConstants';
+import {MessageReferenceTypes} from '@fluxer/constants/src/ChannelConstants';
 import type {ValueOf} from '@fluxer/constants/src/ValueOf';
 import type {Message as WireMessage} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 import {makeAutoObservable} from 'mobx';
@@ -15,7 +15,7 @@ export const MessageReferenceState = {
 
 export type MessageReferenceState = ValueOf<typeof MessageReferenceState>;
 
-type MessageReferenceResolution =
+export type MessageReferenceResolution =
 	| {readonly state: typeof MessageReferenceState.LOADED; readonly message: MessageRecord}
 	| {readonly state: typeof MessageReferenceState.NOT_LOADED}
 	| {readonly state: typeof MessageReferenceState.DELETED};
@@ -137,23 +137,13 @@ class MessageReferences {
 		this.referencingMessages.delete(referencingMessageId);
 	}
 
-	private resolvableReferenceMessageId(message: WireMessage): string | undefined {
+	private resolveReferenceTarget(message: WireMessage, fallbackChannelId: string): boolean {
 		const reference = message.message_reference;
 		if (!reference || reference.type !== MessageReferenceTypes.DEFAULT) {
-			return undefined;
-		}
-		if ((message.flags & MessageFlags.IS_CROSSPOST) !== 0) {
-			return undefined;
-		}
-		return reference.message_id ?? undefined;
-	}
-
-	private resolveReferenceTarget(message: WireMessage, fallbackChannelId: string): boolean {
-		const refMessageId = this.resolvableReferenceMessageId(message);
-		if (!refMessageId) {
 			return false;
 		}
-		const refChannelId = message.message_reference?.channel_id ?? fallbackChannelId;
+		const refChannelId = reference.channel_id ?? fallbackChannelId;
+		const refMessageId = reference.message_id;
 		this.addReference(refChannelId, refMessageId, message.id);
 		if (!('referenced_message' in message)) {
 			return false;
@@ -193,14 +183,28 @@ class MessageReferences {
 		}
 	}
 
+	handleChannelDelete(channelId: string): void {
+		this.cleanupChannelMessages(channelId);
+	}
+
+	handleGatewayReady(): void {
+		this.deletedMessageIds.clear();
+		this.cachedMessages.clear();
+		this.referenceVersions.clear();
+		this.referenceCount.clear();
+		this.referencingMessages.clear();
+	}
+
 	handleMessageUpdate(message: WireMessage): void {
 		this.handleReferencedMessageUpdate(message);
 		if (!('message_reference' in message) && !('referenced_message' in message)) {
 			return;
 		}
+		const reference = message.message_reference;
+		const isReferenceBearing = reference != null && reference.type === MessageReferenceTypes.DEFAULT;
 		const previousRef = this.referencingMessages.get(message.id);
-		const newRefChannelId = message.message_reference?.channel_id ?? message.channel_id;
-		const newRefMessageId = this.resolvableReferenceMessageId(message);
+		const newRefChannelId = reference?.channel_id ?? message.channel_id;
+		const newRefMessageId = isReferenceBearing ? reference.message_id : undefined;
 		if (previousRef) {
 			const previousKey = this.getKey(previousRef.channelId, previousRef.messageId);
 			const newKey = newRefMessageId ? this.getKey(newRefChannelId, newRefMessageId) : null;
@@ -210,6 +214,35 @@ class MessageReferences {
 		}
 		if (newRefMessageId) {
 			this.resolveReferenceTarget(message, message.channel_id);
+		}
+	}
+
+	private cleanupChannelMessages(channelId: string): void {
+		const channelPrefix = `${channelId}:`;
+		for (const key of Array.from(this.deletedMessageIds)) {
+			if (key.startsWith(channelPrefix)) {
+				this.deletedMessageIds.delete(key);
+			}
+		}
+		for (const key of Array.from(this.cachedMessages.keys())) {
+			if (key.startsWith(channelPrefix)) {
+				this.cachedMessages.delete(key);
+			}
+		}
+		for (const key of Array.from(this.referenceVersions.keys())) {
+			if (key.startsWith(channelPrefix)) {
+				this.referenceVersions.delete(key);
+			}
+		}
+		for (const key of Array.from(this.referenceCount.keys())) {
+			if (key.startsWith(channelPrefix)) {
+				this.referenceCount.delete(key);
+			}
+		}
+		for (const [messageId, ref] of Array.from(this.referencingMessages.entries())) {
+			if (ref.channelId === channelId) {
+				this.referencingMessages.delete(messageId);
+			}
 		}
 	}
 

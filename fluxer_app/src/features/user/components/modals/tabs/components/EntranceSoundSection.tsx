@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {PREMIUM_PRODUCT_NAME, PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {LimitResolver} from '@app/features/app/utils/LimitResolverAdapter';
 import {isLimitToggleEnabled} from '@app/features/app/utils/LimitUtils';
 import Guilds from '@app/features/guild/state/Guilds';
@@ -17,7 +17,7 @@ import {
 	parseEntranceSoundScopeId,
 } from '@app/features/notification/utils/EntranceSoundScopes';
 import * as PremiumModalCommands from '@app/features/premium/commands/PremiumModalCommands';
-import {getPremiumProductName, shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
+import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import {Button} from '@app/features/ui/button/Button';
 import type {ComboboxOption} from '@app/features/ui/components/form/FormCombobox';
 import {Tooltip} from '@app/features/ui/tooltip/Tooltip';
@@ -25,10 +25,6 @@ import {CompactComboboxRow} from '@app/features/user/components/modals/tabs/comp
 import styles from '@app/features/user/components/modals/tabs/components/EntranceSoundSection.module.css';
 import {useEntranceSound} from '@app/features/user/components/modals/tabs/hooks/useEntranceSound';
 import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
-import {
-	SUMMARY_NONE_DESCRIPTOR as NONE_LIBRARY_OPTION_DESCRIPTOR,
-	PREVIEW_SOUND_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
 import type {EntranceSoundEntry} from '@app/features/voice/state/EntranceSoundLibrary';
 import {
 	ENTRANCE_SOUND_MAX_BYTES,
@@ -123,7 +119,10 @@ const INHERITED_FROM_DESCRIPTOR = msg({
 	comment:
 		'Short label in the entrance sound section. Keep it concise. Preserve {inheritedFromLabel}; it is inserted by code.',
 });
-
+const PREVIEW_SOUND_DESCRIPTOR = msg({
+	message: 'Preview sound',
+	comment: 'Short label in the entrance sound section. Keep it concise.',
+});
 const APPLIES_TO_DESCRIPTOR = msg({
 	message: 'Applies to',
 	comment: 'Short label in the entrance sound section. Keep it concise.',
@@ -144,7 +143,10 @@ const LIBRARY_COUNT_DESCRIPTOR = msg({
 	message: 'Library: {count} of {max}',
 	comment: 'Label showing how many sounds the user has saved relative to the maximum allowed.',
 });
-
+const NONE_LIBRARY_OPTION_DESCRIPTOR = msg({
+	message: 'None',
+	comment: 'Library picker entry meaning no sound is selected for this scope.',
+});
 const SOUND_FOR_THIS_SCOPE_DESCRIPTOR = msg({
 	message: 'Sound for this scope',
 	comment: 'Label for the dropdown that picks which library sound to use for the chosen scope.',
@@ -385,7 +387,7 @@ export const EntranceSoundSection: React.FC = observer(() => {
 				case 'dms':
 					return i18n._(USED_IN_DIRECT_MESSAGE_CALLS_IF_YOU_DO_DESCRIPTOR);
 				case 'guild':
-					return i18n._(USED_IN_THIS_COMMUNITY_IF_YOU_DO_NOT_DESCRIPTOR, {productName: RuntimeConfig.productName});
+					return i18n._(USED_IN_THIS_COMMUNITY_IF_YOU_DO_NOT_DESCRIPTOR, {productName: PRODUCT_NAME});
 			}
 		},
 		[i18n],
@@ -439,7 +441,7 @@ export const EntranceSoundSection: React.FC = observer(() => {
 							/>
 							<span className={styles.premiumCardTitle} data-flx="user.entrance-sound-section.premium-card-title">
 								{i18n._(CUSTOM_ENTRANCE_SOUNDS_PREMIUM_DESCRIPTOR, {
-									premiumProductName: getPremiumProductName(),
+									premiumProductName: PREMIUM_PRODUCT_NAME,
 								})}
 							</span>
 						</div>
@@ -458,7 +460,7 @@ export const EntranceSoundSection: React.FC = observer(() => {
 							onClick={() => PremiumModalCommands.open()}
 							data-flx="user.entrance-sound-section.button.open"
 						>
-							{i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
+							{i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: PREMIUM_PRODUCT_NAME})}
 						</Button>
 					</div>
 				) : (

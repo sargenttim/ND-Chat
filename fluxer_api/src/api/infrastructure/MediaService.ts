@@ -5,7 +5,8 @@ import {Config} from '@app/api/Config';
 import {
 	IMediaService,
 	MEDIA_PROXY_METADATA_REQUEST_VERSION,
-	type MediaProxyMetadataOptions,
+	type MediaProxyFrameRequest,
+	type MediaProxyFrameResponse,
 	type MediaProxyMetadataRequest,
 	type MediaProxyMetadataResponse,
 	type MediaProxyNsfwMode,
@@ -21,6 +22,7 @@ import {ms} from 'itty-time';
 
 type MediaProxyRequestBody =
 	| MediaProxyMetadataRequest
+	| MediaProxyFrameRequest
 	| {
 			type: 'upload';
 			upload_filename: string;
@@ -29,20 +31,11 @@ type MediaProxyRequestBody =
 const MEDIA_PROXY_METADATA_MAX_BYTES = 256 * 1024;
 const MEDIA_PROXY_METADATA_WITH_BASE64_MAX_BYTES = 64 * 1024 * 1024;
 const MEDIA_PROXY_ERROR_MAX_BYTES = 16 * 1024;
+const MEDIA_PROXY_THUMBNAIL_MAX_BYTES = 8 * 1024 * 1024;
+const MEDIA_PROXY_FRAMES_MAX_BYTES = 512 * 1024;
 const MEDIA_PROXY_SNIFF_MAX_BYTES = 1024;
 const MEDIA_PROXY_REQUEST_TIMEOUT_MS = ms('30 seconds');
 const MEDIA_PROXY_SNIFF_TIMEOUT_MS = ms('2 seconds');
-const MEDIA_PROXY_BUFFERED_INPUT_MAX_BYTES = 500 * 1024 * 1024;
-const MEDIA_PROXY_SPOOLED_INPUT_BYTES_PER_SECOND = 16 * 1024 * 1024;
-
-function metadataRequestTimeoutMs(sizeBytes: number | undefined): number {
-	if (sizeBytes === undefined || sizeBytes <= MEDIA_PROXY_BUFFERED_INPUT_MAX_BYTES) {
-		return MEDIA_PROXY_REQUEST_TIMEOUT_MS;
-	}
-	return (
-		MEDIA_PROXY_REQUEST_TIMEOUT_MS + Math.ceil(sizeBytes / MEDIA_PROXY_SPOOLED_INPUT_BYTES_PER_SECOND) * ms('1 second')
-	);
-}
 
 function isMediaProxySniffResponse(value: unknown): value is MediaProxySniffResponse {
 	return isJsonRecord(value) && (value.content_type === null || typeof value.content_type === 'string');
@@ -63,6 +56,17 @@ function isMediaProxyMetadataResponse(value: unknown): value is MediaProxyMetada
 		(value.animated === undefined || typeof value.animated === 'boolean') &&
 		typeof value.nsfw === 'boolean' &&
 		(value.nsfw_probability === undefined || typeof value.nsfw_probability === 'number')
+	);
+}
+
+function isMediaProxyFrameResponse(value: unknown): value is MediaProxyFrameResponse {
+	if (!isJsonRecord(value) || !Array.isArray(value.frames)) return false;
+	return value.frames.every(
+		(frame) =>
+			isJsonRecord(frame) &&
+			typeof frame.timestamp === 'number' &&
+			typeof frame.mime_type === 'string' &&
+			typeof frame.base64 === 'string',
 	);
 }
 
@@ -101,16 +105,9 @@ export class MediaService extends IMediaService {
 		this.proxyURL = new URL(Config.endpoints.media);
 	}
 
-	async getMetadata(
-		request: MediaProxyMetadataRequest,
-		options: MediaProxyMetadataOptions = {},
-	): Promise<MediaProxyMetadataResponse | null> {
+	async getMetadata(request: MediaProxyMetadataRequest): Promise<MediaProxyMetadataResponse | null> {
 		const nsfwMode = this.getNsfwMode(request);
-		const response = await this.makeRequest(
-			'/_metadata',
-			this.toMetadataWireRequest(request, nsfwMode),
-			metadataRequestTimeoutMs(options.sizeBytes),
-		);
+		const response = await this.makeRequest('/_metadata', this.toMetadataWireRequest(request, nsfwMode));
 		if (!response) {
 			return null;
 		}
@@ -162,6 +159,25 @@ export class MediaService extends IMediaService {
 		return this.handleExternalURL(url);
 	}
 
+	async getThumbnail(uploadFilename: string): Promise<Buffer | null> {
+		const response = await this.makeRequest('/_thumbnail', {
+			type: 'upload',
+			upload_filename: uploadFilename,
+		});
+		if (!response) return null;
+		try {
+			const bytes = await FetchUtils.streamToBufferWithLimit(response.body, {
+				maxBytes: MEDIA_PROXY_THUMBNAIL_MAX_BYTES,
+				headers: response.headers,
+				description: 'Media proxy thumbnail response',
+			});
+			return Buffer.from(bytes);
+		} catch (error) {
+			Logger.error({error, uploadFilename}, 'Failed to parse media proxy thumbnail response');
+			return null;
+		}
+	}
+
 	async sniffUpload(uploadFilename: string): Promise<MediaProxySniffResponse | null> {
 		const response = await this.makeRequest(
 			'/_sniff',
@@ -188,6 +204,23 @@ export class MediaService extends IMediaService {
 			Logger.error({error, uploadFilename}, 'Failed to read media proxy sniff response');
 			return null;
 		}
+	}
+
+	async extractFrames(request: MediaProxyFrameRequest): Promise<MediaProxyFrameResponse> {
+		const response = await this.makeRequest('/_frames', request);
+		if (!response) {
+			throw new Error('Unable to extract frames: no response from media proxy');
+		}
+		const responseText = await FetchUtils.streamToStringWithLimit(response.body, {
+			maxBytes: MEDIA_PROXY_FRAMES_MAX_BYTES,
+			headers: response.headers,
+			description: 'Media proxy frames response',
+		});
+		const data = parseJsonWithGuard(responseText, isMediaProxyFrameResponse);
+		if (!data) {
+			throw new Error('Unable to extract frames: invalid response from media proxy');
+		}
+		return data;
 	}
 
 	private async makeRequest(

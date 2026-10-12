@@ -23,7 +23,7 @@ import {GIFEncoder, type GifPaletteColor} from 'gifenc';
 import {decompressFrame, type ParsedGif, parseGIF} from 'gifuct-js';
 import UPNG from 'upng-js';
 
-interface DecodedFrame {
+export interface DecodedFrame {
 	rgba: Uint8Array;
 	delayMs: number;
 }

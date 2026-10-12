@@ -2,20 +2,25 @@
 
 import {initialTransition, setup, transition} from 'xstate';
 
-type LocalParticipantMediaControl = 'camera' | 'screenShare';
-type LocalParticipantMediaControlStateValue = 'waiting' | 'permissionBlocked' | 'capBlocked' | 'active' | 'ready';
-type LocalParticipantCameraLabelKey =
+export type LocalParticipantMediaControl = 'camera' | 'screenShare';
+export type LocalParticipantMediaControlStateValue =
+	| 'waiting'
+	| 'permissionBlocked'
+	| 'capBlocked'
+	| 'active'
+	| 'ready';
+export type LocalParticipantCameraLabelKey =
 	| 'waitingForConnection'
 	| 'noCameraPermission'
 	| 'cameraUserCapReached'
 	| 'turnOffCamera'
 	| 'turnOnCamera';
-type LocalParticipantScreenShareLabelKey =
+export type LocalParticipantScreenShareLabelKey =
 	| 'waitingForConnection'
 	| 'noScreenSharePermission'
 	| 'configureOrEndScreenShare'
 	| 'shareScreen';
-type LocalParticipantScreenShareClickAction = 'none' | 'openPicker' | 'openMenu';
+export type LocalParticipantScreenShareClickAction = 'none' | 'openPicker' | 'openMenu';
 
 export interface LocalParticipantControlSignals {
 	isConnected: boolean;
@@ -31,14 +36,14 @@ interface LocalParticipantMediaControlEvent {
 	signals: LocalParticipantControlSignals;
 }
 
-interface LocalParticipantCameraControlState {
+export interface LocalParticipantCameraControlState {
 	value: LocalParticipantMediaControlStateValue;
 	labelKey: LocalParticipantCameraLabelKey;
 	disabled: boolean;
 	canOpenSettings: boolean;
 }
 
-interface LocalParticipantScreenShareControlState {
+export interface LocalParticipantScreenShareControlState {
 	value: LocalParticipantMediaControlStateValue;
 	labelKey: LocalParticipantScreenShareLabelKey;
 	disabled: boolean;
@@ -73,7 +78,7 @@ function isControlEnabled(control: LocalParticipantMediaControl, signals: LocalP
 	return control === 'camera' ? signals.isCameraEnabled : signals.isScreenShareEnabled;
 }
 
-const localParticipantMediaControlStateMachine = setup({
+export const localParticipantMediaControlStateMachine = setup({
 	types: {} as {
 		events: LocalParticipantMediaControlEvent;
 	},
@@ -109,7 +114,7 @@ function isDisabled(value: LocalParticipantMediaControlStateValue): boolean {
 	return value === 'waiting' || value === 'permissionBlocked' || value === 'capBlocked';
 }
 
-function selectLocalParticipantMediaControlState(
+export function selectLocalParticipantMediaControlState(
 	control: LocalParticipantMediaControl,
 	signals: LocalParticipantControlSignals,
 ): LocalParticipantMediaControlStateValue {

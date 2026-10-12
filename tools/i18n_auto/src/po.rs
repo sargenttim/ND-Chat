@@ -3,6 +3,10 @@
 use anyhow::{Context, Result, bail};
 use regex::Regex;
 
+use crate::config::{
+    AUTO_I18N_COMMENT_PREFIX, AUTO_I18N_UNCHANGED_COMMENT, is_auto_i18n_unchanged_comment,
+};
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Entry {
     pub comments: Vec<String>,
@@ -158,7 +162,11 @@ fn rebuild_block_allow_replacing(
     block: &str,
     translation_map: &[(String, &Translation)],
 ) -> Result<String> {
-    let lines = block.split('\n').map(str::to_string).collect::<Vec<_>>();
+    let lines = block
+        .split('\n')
+        .filter(|line| !is_auto_i18n_unchanged_comment(line))
+        .map(str::to_string)
+        .collect::<Vec<_>>();
     let Some(msgid_range) = field_range(&lines, "msgid") else {
         return Ok(block.to_string());
     };
@@ -174,10 +182,14 @@ fn rebuild_block_allow_replacing(
         .iter()
         .find(|(candidate, _)| *candidate == key)
     else {
-        return Ok(block.to_string());
+        return Ok(lines.join("\n"));
     };
 
-    let mut next_lines = lines[..msgstr_range.0].to_vec();
+    let mut next_lines = Vec::new();
+    if translation.reviewed_unchanged {
+        next_lines.push(AUTO_I18N_UNCHANGED_COMMENT.to_string());
+    }
+    next_lines.extend_from_slice(&lines[..msgstr_range.0]);
     next_lines.push(format!("msgstr \"{}\"", escape_po(&translation.msgstr)));
     next_lines.extend_from_slice(&lines[msgstr_range.1..]);
     Ok(next_lines.join("\n"))
@@ -238,7 +250,11 @@ pub fn extract_translator_comments(entry: &Entry) -> Vec<String> {
         .iter()
         .filter_map(|line| line.strip_prefix("#. "))
         .map(str::trim)
-        .filter(|comment| !comment.is_empty() && !is_placeholder_comment(comment))
+        .filter(|comment| {
+            !comment.is_empty()
+                && !is_auto_i18n_comment(comment)
+                && !is_placeholder_comment(comment)
+        })
         .map(str::to_string)
         .collect()
 }
@@ -252,6 +268,10 @@ pub fn extract_placeholder_hints(entry: &Entry) -> Vec<String> {
         .filter(|comment| !comment.is_empty() && is_placeholder_comment(comment))
         .map(str::to_string)
         .collect()
+}
+
+pub fn is_auto_i18n_comment(comment: &str) -> bool {
+    comment.to_lowercase().starts_with(AUTO_I18N_COMMENT_PREFIX)
 }
 
 pub fn is_placeholder_comment(comment: &str) -> bool {
@@ -270,7 +290,7 @@ mod tests {
 		 msgctxt \"welcome title\"\n\
 		 msgid \"Hello \\\"world\\\"\"\n\
 		 msgstr \"\"\n\n\
-		 #. Delete button label.\n\
+		 #. auto-i18n: reviewed unchanged\n\
 		 #: src/example.tsx:2\n\
 		 msgctxt \"verb\"\n\
 		 msgid \"Delete\"\n\
@@ -310,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn rebuilds_by_context() {
+    fn rebuilds_by_context_and_manages_unchanged_markers() {
         let rebuilt = rebuild_po_allow_replacing(
             sample_po(),
             &[
@@ -320,58 +340,64 @@ mod tests {
                     "Bonjour \"monde\"",
                 ),
                 Translation::new(Some("verb".to_string()), "Delete", "Supprimer"),
-                Translation::new(Some("keyboard key".to_string()), "Delete", "Suppr"),
+                Translation {
+                    msgctxt: Some("keyboard key".to_string()),
+                    msgid: "Delete".to_string(),
+                    msgstr: "Delete".to_string(),
+                    reviewed_unchanged: true,
+                    notes: String::new(),
+                },
             ],
         )
         .unwrap();
         let entries = parse_po(&rebuilt).unwrap();
-        let msgstr = |msgctxt: &str| {
-            entries
-                .iter()
-                .find(|entry| entry.msgctxt.as_deref() == Some(msgctxt))
-                .unwrap()
-                .msgstr
-                .clone()
-        };
-        assert_eq!(msgstr("welcome title"), "Bonjour \"monde\"");
-        assert_eq!(msgstr("verb"), "Supprimer");
-        assert_eq!(msgstr("keyboard key"), "Suppr");
-    }
-
-    #[test]
-    fn untouched_blocks_stay_byte_identical() {
-        let content = format!(
-            "{}\n#. Audio settings tab.\n#: src/example.tsx:5\nmsgid \"Audio\"\nmsgstr \"Audio\"\n",
-            sample_po()
-        );
-        let rebuilt = rebuild_po_allow_replacing(
-            &content,
-            &[Translation::new(
-                Some("keyboard key".to_string()),
-                "Delete",
-                "Supprimer",
-            )],
-        )
-        .unwrap();
-        let entries = parse_po(&rebuilt).unwrap();
-        let verb = entries
-            .iter()
-            .find(|entry| entry.msgctxt.as_deref() == Some("verb"))
-            .unwrap();
-        assert_eq!(verb.comments, vec!["#. Delete button label.".to_string()]);
-        let audio = entries.iter().find(|entry| entry.msgid == "Audio").unwrap();
-        assert_eq!(audio.comments, vec!["#. Audio settings tab.".to_string()]);
         assert_eq!(
             entries
                 .iter()
-                .find(|entry| entry.msgctxt.as_deref() == Some("keyboard key"))
+                .find(|entry| entry.msgctxt.as_deref() == Some("welcome title"))
+                .unwrap()
+                .msgstr,
+            "Bonjour \"monde\""
+        );
+        assert_eq!(
+            entries
+                .iter()
+                .find(|entry| entry.msgctxt.as_deref() == Some("verb"))
                 .unwrap()
                 .msgstr,
             "Supprimer"
         );
-        assert_eq!(
-            rebuild_po_allow_replacing(&content, &[]).unwrap(),
-            format!("{}\n", content.trim_end())
+        let keyboard = entries
+            .iter()
+            .find(|entry| entry.msgctxt.as_deref() == Some("keyboard key"))
+            .unwrap();
+        assert_eq!(keyboard.msgstr, "Delete");
+        assert!(
+            keyboard
+                .comments
+                .contains(&AUTO_I18N_UNCHANGED_COMMENT.to_string())
         );
+        assert!(
+            !keyboard
+                .comments
+                .contains(&crate::config::AUTO_I18N_LEGACY_UNCHANGED_COMMENT.to_string())
+        );
+        assert!(
+            !entries
+                .iter()
+                .find(|entry| entry.msgctxt.as_deref() == Some("verb"))
+                .unwrap()
+                .comments
+                .contains(&AUTO_I18N_UNCHANGED_COMMENT.to_string())
+        );
+    }
+
+    #[test]
+    fn reset_clears_msgstr_and_removes_reviewed_markers() {
+        let reset = reset_po_translations(sample_po()).unwrap();
+        let entries = parse_po(&reset).unwrap();
+        assert!(entries.iter().all(|entry| entry.msgstr.is_empty()));
+        assert!(!reset.contains(AUTO_I18N_UNCHANGED_COMMENT));
+        assert!(!reset.contains(crate::config::AUTO_I18N_LEGACY_UNCHANGED_COMMENT));
     }
 }

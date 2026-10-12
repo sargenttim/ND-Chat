@@ -197,14 +197,14 @@ let localeChangeSequence = 0;
 let localLocaleOverride: string | null = null;
 
 export function getCurrentLocale(): string {
-	return UserSettings.locale || DEFAULT_LOCALE;
+	return UserSettings.getLocale() || DEFAULT_LOCALE;
 }
 
 export function getCurrentOrDetectedLocale(): string {
 	if (localLocaleOverride) {
 		return localLocaleOverride;
 	}
-	const currentLocale = UserSettings.locale;
+	const currentLocale = UserSettings.getLocale();
 	if (UserSettings.isHydrated() || currentLocale !== DEFAULT_LOCALE) {
 		return currentLocale || DEFAULT_LOCALE;
 	}
@@ -285,7 +285,7 @@ interface DiscoveryLanguageInfo {
 	label: string;
 }
 
-function getLocalizedLocaleName(code: string): string {
+export function getLocalizedLocaleName(code: string): string {
 	const info = SUPPORTED_LOCALES.find((locale) => locale.code === code);
 	return info ? i18n._(info.name) : code;
 }

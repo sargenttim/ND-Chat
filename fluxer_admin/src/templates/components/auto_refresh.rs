@@ -12,3 +12,7 @@ pub fn auto_refresh(enabled: bool, interval_ms: u32) -> Markup {
         script defer { (PreEscaped(script)) }
     }
 }
+
+pub fn auto_refresh_default(enabled: bool) -> Markup {
+    auto_refresh(enabled, 3000)
+}

@@ -39,12 +39,13 @@ A guild object contains the guild's configuration. The operation that returns it
 | embed_splash_height<sup>3</sup> | ?integer | Embedded invite splash height in pixels |
 | vanity_url_code | ?string | Custom invite code |
 | owner_id | snowflake | The ID of the guild owner |
-| system_channel_id | ?snowflake | Text or announcement channel that receives system messages |
+| system_channel_id | ?snowflake | Text channel that receives system messages |
 | system_channel_flags | integer | [System channel flags](#system-channel-flags) |
 | rules_channel_id<sup>5</sup> | ?snowflake | The ID of the rules channel |
 | afk_channel_id | ?snowflake | Voice channel that inactive members are moved to |
 | afk_timeout | integer | AFK timeout in seconds (60-3600) |
 | features<sup>6</sup> | array[string] | [Guild features](#guild-features) |
+| badges | ?array[snowflake] | IDs of the [custom badges](/http-api/instance/#badge-object) assigned to the guild |
 | verification_level | integer | [Verification level](#verification-levels) |
 | mfa_level | integer | [MFA level](#mfa-levels) |
 | nsfw_level<sup>7</sup> | integer | [NSFW level](#nsfw-levels) |
@@ -64,7 +65,6 @@ A guild object contains the guild's configuration. The operation that returns it
 | online_count?<sup>14</sup> | integer | Online presence count held by the main Gateway |
 | approximate_member_count?<sup>15</sup> | integer | Approximate member count |
 | approximate_presence_count?<sup>15</sup> | integer | Approximate online presence count |
-| threads_active?<sup>16</sup> | boolean | Whether the caller can use threads, forum channels, and media channels in the guild, always `true` when present |
 
 <sup>1</sup> An animated icon hash has the `a_` prefix, and that prefix is removed from the returned value while the guild lacks `ANIMATED_ICON`
 
@@ -90,15 +90,11 @@ A guild object contains the guild's configuration. The operation that returns it
 
 <sup>12</sup> Only [Get guild](#get-guild) populates this field
 
-<sup>13</sup> Only [Get guild](#get-guild) populates this field, with the channels the caller can currently view. The array has forum and media channels for every caller and has no threads
+<sup>13</sup> Only [Get guild](#get-guild) populates this field, and the array is filtered to the channels the caller can currently view
 
 <sup>14</sup> Only [Get guild](#get-guild) populates these fields
 
 <sup>15</sup> Only [List current user guilds](#list-current-user-guilds) populates these fields, and only when `with_counts` is true. A guild for which the Gateway holds no cached counts reports 0 for both
-
-<sup>16</sup> Only [List current user guilds](#list-current-user-guilds) populates this field, and only for a bot or a user session that declares the [`channel_threads` client capability](/http-api/threads/#client-capability)
-
-A caller other than a bot or a user session that declares `channel_threads` receives `permissions` and each role `permissions` with the [thread permission bits](/http-api/threads/#thread-permissions) removed. The `permission_overwrites` of `channels` keep the thread bits.
 
 :::note[An absent field means the operation omitted it]
 `roles`, `emojis`, `stickers`, `channels`, and every count field arrive only from the operations named in the footnotes above. A guild returned without `roles` can still hold roles.
@@ -155,6 +151,7 @@ A partial guild object is the smaller shape that appears inside invite payloads.
 | embed_splash_width<sup>3</sup> | ?integer | Embedded invite splash width in pixels |
 | embed_splash_height<sup>3</sup> | ?integer | Embedded invite splash height in pixels |
 | features<sup>5</sup> | array[string] | [Guild features](#guild-features) |
+| badges | ?array[snowflake] | IDs of the [custom badges](/http-api/instance/#badge-object) assigned to the guild |
 
 <sup>1</sup> An animated icon hash has the `a_` prefix, and that prefix is removed from the returned value while the guild lacks `ANIMATED_ICON`
 
@@ -194,7 +191,7 @@ A creation template describes the roles and channels that [Create guild](#create
 | verification_level?<sup>2</sup> | integer | [Verification level](#verification-levels), defaulting to 0 |
 | default_message_notifications?<sup>2</sup> | integer | [Default message notification level](#default-message-notification-levels), defaulting to 0 |
 | explicit_content_filter?<sup>2</sup> | integer | [Guild explicit content filter level](#guild-explicit-content-filter-levels), defaulting to 0 |
-| system_channel_id?<sup>3</sup> | ?decimal string \| integer | Template-local ID of the text or announcement channel that becomes the system channel |
+| system_channel_id?<sup>3</sup> | ?decimal string \| integer | Template-local ID of the text channel that becomes the system channel |
 | afk_timeout?<sup>2</sup> | integer | AFK timeout in seconds, clamped to 60-3600 and defaulting to 300 |
 | system_channel_flags?<sup>4</sup> | integer | [System channel flags](#system-channel-flags), defaulting to 0 |
 | roles<sup>5</sup> | array[[guild template role](#guild-template-role-object) object] | Template roles (max 250) |
@@ -204,7 +201,7 @@ A creation template describes the roles and channels that [Create guild](#create
 
 <sup>2</sup> The value is truncated to an integer and clamped into its registry range, and a missing value becomes the stated default. A non-numeric value fails validation and returns 400 `INVALID_FORM_BODY`
 
-<sup>3</sup> An identifier that resolves to no text or announcement channel in the same template, and an absent or null value, all fall back to the template's first text or announcement channel. A template with neither receives a root text channel named `general`, which becomes the system channel
+<sup>3</sup> An identifier that resolves to no text channel in the same template, and an absent or null value, all fall back to the template's first text channel. A template with no text channel receives a root text channel named `general`, which becomes the system channel
 
 <sup>4</sup> Every bit outside the registry is discarded
 
@@ -235,8 +232,6 @@ A creation template describes the roles and channels that [Create guild](#create
 
 <sup>4</sup> The value is stored on the created role. The everyone role is always created with no Unicode emoji
 
-A resolved everyone mask that has `SEND_MESSAGES` and no [thread permission bit](/http-api/threads/#thread-permissions) also receives `CREATE_PUBLIC_THREADS`, `CREATE_PRIVATE_THREADS`, and `SEND_MESSAGES_IN_THREADS`.
-
 ### Guild template channel object
 
 #### Structure
@@ -258,7 +253,7 @@ A resolved everyone mask that has `SEND_MESSAGES` and no [thread permission bit]
 
 <sup>1</sup> A duplicate identifier in the same template rejects creation with 400 `GUILD_TEMPLATE_INVALID`
 
-<sup>2</sup> The value 0 creates a text channel, 2 a voice channel, 4 a category, and 5 an announcement channel. The value 13, the stage channel type of another platform, creates a voice channel. Fluxer skips every other value, a forum channel (15) and a media channel (16) included, and creates no channel for it
+<sup>2</sup> The value 0 creates a text channel, 2 a voice channel, and 4 a category. The value 5, the announcement channel type of another platform, creates a text channel. The value 13, the stage channel type of another platform, creates a voice channel. Fluxer skips every other value, so the channel is not created
 
 <sup>3</sup> The identifier is applied only when it resolves to a category in the same template, and every other value leaves the channel at the guild root
 
@@ -290,13 +285,14 @@ A verification level gates member participation. Fluxer evaluates it when a memb
 | 0 | NONE | No verification requirement |
 | 1 | LOW<sup>1</sup> | The account is claimed and its email address verified |
 | 2 | MEDIUM | The LOW requirement, and the account is at least 5 minutes old |
-| 3 | HIGH<sup>2</sup> <sup>3</sup> | The MEDIUM requirement, and the membership is at least 10 minutes old |
+| 3 | HIGH<sup>2</sup> | The MEDIUM requirement, and the membership is at least 10 minutes old |
+| 4 | VERY_HIGH<sup>3</sup> | The account has a verified phone number |
 
 <sup>1</sup> A guild with `DISCOVERABLE` is evaluated at an effective minimum of LOW even when the stored value is NONE, and [Modify guild](#modify-guild) rejects lowering a discoverable guild below LOW with 400 `INVALID_FORM_BODY` and the field code `DISCOVERABLE_GUILD_VERIFICATION_LEVEL_TOO_LOW`
 
 <sup>2</sup> The membership age requirement is skipped when the join timestamp cannot be read, so the level behaves as MEDIUM
 
-<sup>3</sup> A request value of 4 is stored as HIGH, and a [guild template](#guild-creation-template-object) value above HIGH is clamped to HIGH
+<sup>3</sup> A verified phone number is the whole requirement at this level
 
 The guild owner, a bot, and any member holding at least one role bypass the check at every level.
 
@@ -383,7 +379,6 @@ Each value in the guild's `features` array is a capability or availability flag.
 | Value | Description |
 | --- | --- |
 | ANIMATED_ICON | Guild can use an animated icon |
-| ANNOUNCEMENT_CHANNELS_DISABLED<sup>8</sup> | Publishing from and following the guild's announcement channels is disabled |
 | ANIMATED_BANNER | Guild can use an animated banner |
 | AUDIO_BITRATE_128_KBPS<sup>6</sup> | Voice channel bitrate ceiling is raised to 128000 |
 | AUDIO_BITRATE_256_KBPS<sup>6</sup> | Voice channel bitrate ceiling is raised to 256000 |
@@ -397,7 +392,7 @@ Each value in the guild's `features` array is a capability or availability flag.
 | INVITE_SPLASH | Guild can use invite splash assets |
 | INVITES_DISABLED<sup>1</sup> | Guild invite use is disabled |
 | RAID_DETECTED | Raid detection is active and invites are restricted |
-| TEXT_CHANNEL_FLEXIBLE_NAMES<sup>1</sup> | Text, announcement, forum, and media channel names keep uppercase letters, spaces, and punctuation |
+| TEXT_CHANNEL_FLEXIBLE_NAMES<sup>1</sup> | Text channel names keep uppercase letters, spaces, and punctuation |
 | HIDE_OWNER_CROWN<sup>1</sup> | Guild owner crown is hidden |
 | MORE_EMOJI<sup>2</sup> | Legacy increased emoji slot allowance |
 | MORE_STICKERS<sup>2</sup> | Legacy increased sticker slot allowance |
@@ -430,8 +425,6 @@ Each value in the guild's `features` array is a capability or availability flag.
 <sup>6</sup> A guild holding none of the three caps a voice channel `bitrate` at 96000. The highest feature the guild holds wins, and a write above the cap is stored at the cap rather than rejected. A guild that loses the feature keeps the stored value, and the next write to `bitrate` lowers it to the cap
 
 <sup>7</sup> The feature is deprecated and changes no behaviour. Fluxer still returns it for a guild that already holds it, and [Modify guild](#modify-guild) can neither add nor remove it
-
-<sup>8</sup> Set by an instance administrator. [Crosspost message](/http-api/messages/#crosspost-message) and [Follow announcement channel](/http-api/channels/#follow-announcement-channel) return 403 `FEATURE_TEMPORARILY_DISABLED`, and copies of messages published earlier are no longer delivered or updated. Creating and converting announcement channels is unaffected
 
 :::caution[Expression cloning is opt-in]
 Cloning requires `CLONE_EMOJI_ENABLED` or `CLONE_STICKER_ENABLED`. A member with `MANAGE_GUILD` can enable them through [Modify guild](#modify-guild). The deprecated `CLONE_EMOJI_DISABLED` and `CLONE_STICKER_DISABLED` features have no effect.
@@ -522,9 +515,9 @@ Creates a guild owned by the caller. Requires a user session credential. Returns
 
 A `name` outside 1 to 100 characters after normalisation returns `STRING_LENGTH_INVALID`. A blocked name returns 403 `CONTENT_BLOCKED`.
 
-The `icon` base64 payload is bounded to 1 to 139810136 characters and is otherwise rejected with `BASE64_LENGTH_INVALID`, and a payload that is not valid base64 with `INVALID_BASE64_FORMAT`. The decoded image must fit within the instance `avatar_max_size` limit, which defaults to the 10 MiB ceiling, and a larger image is rejected with `IMAGE_SIZE_EXCEEDS_LIMIT`. PNG, JPEG, WebP, GIF, APNG, AVIF, HEIC, HEIF, JXL, and SVG are accepted. An animated AVIF is rejected with `INVALID_IMAGE_FORMAT`.
+The `icon` base64 payload is bounded to 1 to 13981016 characters and is otherwise rejected with `BASE64_LENGTH_INVALID`, and a payload that is not valid base64 with `INVALID_BASE64_FORMAT`. The decoded image must fit within the instance `avatar_max_size` limit, which defaults to the 10 MiB ceiling, and a larger image is rejected with `IMAGE_SIZE_EXCEEDS_LIMIT`. PNG, JPEG, WebP, GIF, APNG, AVIF, HEIC, HEIF, JXL, and SVG are accepted. An animated AVIF is rejected with `INVALID_IMAGE_FORMAT`.
 
-Without a template the guild is created with a `Text Channels` category holding a text channel named `general`, a `Voice Channels` category holding a voice channel named `General`, and an everyone role with the default permission set plus `CREATE_PUBLIC_THREADS`, `CREATE_PRIVATE_THREADS`, and `SEND_MESSAGES_IN_THREADS`. The `general` channel becomes the system channel.
+Without a template the guild is created with a `Text Channels` category holding a text channel named `general`, a `Voice Channels` category holding a voice channel named `General`, and an everyone role with the default permission set. The `general` channel becomes the system channel.
 
 :::note[Embedded collections arrive on the Guild Create Dispatch]
 The creation response has no roles, channels, emojis, stickers, or member counts. Read [Get guild](#get-guild) afterwards to fetch them over HTTP.
@@ -537,7 +530,6 @@ The creation response has no roles, channels, emojis, stickers, or member counts
 | 200 | [guild object](#guild-object) | Guild was created |
 | 400<sup>1</sup> | [error response](/http-api/#error-response) | Body, image, template, bot or unclaimed credential, configured guild limit, or single community policy rejects creation |
 | 403<sup>2</sup> | [error response](/http-api/#error-response) | Email address is unverified, or the name is blocked |
-| 403 | [error response](/http-api/#error-response) | The account is [limited](/http-api/users/#account-limitation) and the request returns `ACCOUNT_LIMITED` |
 
 <sup>1</sup> The [error code](/http-api/errors/) is `SINGLE_COMMUNITY_CANNOT_CREATE_GUILDS` while the single community policy is active, `BOTS_CANNOT_CREATE_GUILDS` for a bot credential, `UNCLAIMED_ACCOUNT_CANNOT_CREATE_GUILDS` for an unclaimed account, `MAX_GUILDS` at the configured guild limit, `GUILD_TEMPLATE_INVALID` for a rejected template, and `INVALID_FORM_BODY` otherwise
 
@@ -675,13 +667,13 @@ Every field is optional. An omitted field preserves its current value, and a fie
 
 <sup>2</sup> The accepted encoding, byte ceiling, and format set are the ones listed by [Create guild](#create-guild). No guild feature gates an animated icon on write, but the `a_` prefix is stripped from the returned hash while the guild lacks `ANIMATED_ICON`
 
-<sup>3</sup> The channel must exist in this guild and be a text or announcement channel, and is otherwise rejected with `SYSTEM_CHANNEL_MUST_BE_IN_GUILD` or `SYSTEM_CHANNEL_MUST_BE_TEXT`
+<sup>3</sup> The channel must exist in this guild and be a text channel, and is otherwise rejected with `SYSTEM_CHANNEL_MUST_BE_IN_GUILD` or `SYSTEM_CHANNEL_MUST_BE_TEXT`
 
 <sup>4</sup> Every bit outside the registry is discarded
 
 <sup>5</sup> The channel must exist in this guild and be a voice channel, and is otherwise rejected with `AFK_CHANNEL_MUST_BE_IN_GUILD` or `AFK_CHANNEL_MUST_BE_VOICE`
 
-<sup>6</sup> A guild with `DISCOVERABLE` cannot be lowered below LOW and is rejected with the field code `DISCOVERABLE_GUILD_VERIFICATION_LEVEL_TOO_LOW`.
+<sup>6</sup> A guild with `DISCOVERABLE` cannot be lowered below LOW and is rejected with the field code `DISCOVERABLE_GUILD_VERIFICATION_LEVEL_TOO_LOW`
 
 <sup>7</sup> Sending the value the guild already holds needs neither ownership nor sudo mode, and an owner without a configured second factor is rejected with the field code `MUST_ENABLE_2FA_BEFORE_REQUIRING_FOR_MODS`
 
@@ -727,7 +719,7 @@ Every successful request emits [Guild Update](/gateway/events/#guild-update) to 
 
 A request that changes the stored value of at least one body field records a [`GUILD_UPDATE`](/http-api/guild-audit-logs/#audit-actions) audit entry with the previous and new values. That entry emits [Guild Audit Log Entry Create](/gateway/events/#guild-audit-log-entry-create) to sessions that can read the audit log.
 
-Removing `TEXT_CHANNEL_FLEXIBLE_NAMES` renames every guild text and announcement channel whose stored name changes when Fluxer trims it, lowercases it, replaces each whitespace run with a hyphen, and removes disallowed punctuation. A forum or media channel keeps its stored name until [Modify channel](/http-api/channels/#modify-channel) next sets `name`. When at least one channel is renamed, the removal emits one [Channel Update Bulk](/gateway/events/#channel-update-bulk) Dispatch with every channel in the guild.
+Removing `TEXT_CHANNEL_FLEXIBLE_NAMES` renames every guild text channel whose stored name changes when Fluxer trims it, lowercases it, replaces each whitespace run with a hyphen, and removes disallowed punctuation. When at least one channel is renamed, the removal emits one [Channel Update Bulk](/gateway/events/#channel-update-bulk) Dispatch with every channel in the guild.
 
 Replacing an image removes the previous asset. A failed replacement leaves the previous image unchanged.
 
@@ -739,7 +731,7 @@ Replacing an image removes the previous asset. A failed replacement leaves the p
 
 <RouteHeader method="POST" path="/v1/guilds/{guild_id}/delete" mfa />
 
-Permanently deletes the guild and returns 204 with an empty body. Requires the guild owner and sudo mode. Emits a [Guild Delete](/gateway/events/#guild-delete) Gateway event to every member session. The guild is unavailable from that point, and its channels, messages and other records are removed in the background shortly after.
+Permanently deletes the guild and returns 204 with an empty body. Requires the guild owner and sudo mode. Emits a [Guild Delete](/gateway/events/#guild-delete) Gateway event to every member session.
 
 Fluxer refuses a non-owner with 403 `MISSING_PERMISSIONS`. A bot can never own a guild, so a bot credential never satisfies the requirement.
 
@@ -762,7 +754,7 @@ While `single_community_enabled` is true in the [instance policy](/admin-api/ins
 The body is the optional [sudo verification fields](#sudo-verification-fields). A request that already has a valid proof can omit it.
 
 :::danger[Deleting a guild destroys its messages and attachments]
-Deletion removes the guild, memberships, roles, channels, threads, messages, attachments, invites, webhooks and discovery listing. There is no grace period or way to restore them through the API.
+Deletion removes the guild, memberships, roles, channels, messages, attachments, invites, webhooks and discovery listing. There is no grace period or way to restore them through the API.
 :::
 
 ### Response
@@ -847,8 +839,6 @@ Remaining guild sessions receive [Guild Member Remove](/gateway/events/#guild-me
 
 Guild read states and settings are unchanged, but the guild profile and roles are lost. Rejoining within one year resumes any unexpired communication timeout. Leaving records no audit entry, and `X-Audit-Log-Reason` has no effect.
 
-Removal from the guild removes every membership in its threads. Fluxer emits a [Thread Members Update](/gateway/threads/#thread-members-update) for each of them, as [Thread member flags](/http-api/thread-members/#thread-member-flags) states.
-
 ### Rate limit
 
 10 requests per 10 seconds for each authenticated user and guild, on the `guild:leave::guild_id` bucket.
@@ -859,7 +849,7 @@ Removal from the guild removes every membership in its threads. Fluxer emits a [
 
 Deletes every message the authenticated account has authored in the guild and returns 202 with an empty body. Requires membership and sudo mode, which a bot credential satisfies implicitly. The membership survives the request.
 
-The deletion runs inside this request. Fluxer sends the 202 only after it has removed every matching message in every channel and thread of the guild. Each processed batch emits [Message Delete Bulk](/gateway/events/#message-delete-bulk) in its channel or thread.
+The deletion runs inside this request, so the 202 is sent only after every matching message in every guild channel has been removed. Each processed batch emits [Message Delete Bulk](/gateway/events/#message-delete-bulk) in its channel.
 
 ### Path parameters
 

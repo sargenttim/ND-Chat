@@ -28,7 +28,6 @@ interface CronDefinition {
 	payload: WorkerJobPayload;
 	schedule: CronSchedule;
 	ledger: boolean;
-	enabled: (() => boolean) | null;
 	lastFired: number;
 }
 
@@ -128,7 +127,7 @@ export class CronScheduler {
 		taskType: WorkerTaskName,
 		payload: WorkerJobPayload,
 		cronExpression: string,
-		options: {ledger: boolean; enabled?: () => boolean},
+		options: {ledger: boolean},
 	): void {
 		this.definitions.set(id, {
 			id,
@@ -136,7 +135,6 @@ export class CronScheduler {
 			payload,
 			schedule: compileCronSchedule(cronExpression),
 			ledger: options.ledger,
-			enabled: options.enabled ?? null,
 			lastFired: 0,
 		});
 	}
@@ -199,9 +197,6 @@ export class CronScheduler {
 			}
 			def.lastFired = dueSecond;
 			try {
-				if (def.enabled !== null && !def.enabled()) {
-					continue;
-				}
 				const jobKey = `cron:${def.id}:${dueSecond}`;
 				const acquired = await this.acquireEnqueueLease(jobKey);
 				if (!acquired) {

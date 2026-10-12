@@ -13,6 +13,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "catalog:",
+		"@vitest/coverage-v8": "catalog:",
 		"typescript": "catalog:ts7",
 		"vitest": "catalog:"
 	}

@@ -8,6 +8,7 @@ type RequestVariables = HonoEnv['Variables'];
 type EagerlySetVariable = 'apiContext' | 'sudoModeValid';
 
 type ExternallySetVariable =
+	| 'adminApiKey'
 	| 'adminApiKeyAcls'
 	| 'adminUserAcls'
 	| 'adminUserId'
@@ -15,14 +16,18 @@ type ExternallySetVariable =
 	| 'authSession'
 	| 'authToken'
 	| 'authTokenType'
+	| 'authUserId'
+	| 'authViaCookie'
 	| 'channelUpdateType'
-	| 'clientFeatures'
 	| 'oauthBearerAllowed'
 	| 'oauthBearerApplicationId'
 	| 'oauthBearerScopes'
+	| 'oauthBearerToken'
+	| 'oauthBearerUserId'
 	| 'requestCache'
 	| 'requestId'
 	| 'requestLocale'
+	| 'responseSchema'
 	| 'sudoModeToken'
 	| 'user';
 

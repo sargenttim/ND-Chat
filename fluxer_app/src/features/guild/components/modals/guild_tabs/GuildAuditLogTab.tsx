@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {StatusSlate} from '@app/features/app/components/dialogs/shared/StatusSlate';
+import {EmptySlate} from '@app/features/app/components/dialogs/shared/EmptySlate';
 import {
 	AUDIT_LOG_ACTIONS,
 	AUDIT_LOG_TARGET_TYPES,
 	type AuditLogTargetType,
 	getTranslatedAuditLogActions,
-	THREAD_AUDIT_LOG_ACTIONS,
 } from '@app/features/app/config/AuditLogConstants';
 import Emoji from '@app/features/emoji/state/Emoji';
 import EmojiSticker from '@app/features/emoji/state/EmojiSticker';
@@ -33,8 +32,7 @@ import {TRY_AGAIN_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescri
 import GuildMembers from '@app/features/member/state/GuildMembers';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
-import {ingestSearchThreads} from '@app/features/threads/commands/ThreadCommands';
-import ThreadGuilds from '@app/features/threads/state/ThreadGuilds';
+import {Button} from '@app/features/ui/button/Button';
 import {Avatar} from '@app/features/ui/components/Avatar';
 import {Combobox, type ComboboxOption} from '@app/features/ui/components/form/FormCombobox';
 import {MockAvatar} from '@app/features/ui/components/MockAvatar';
@@ -49,7 +47,6 @@ import type {IconWeight} from '@phosphor-icons/react';
 import {
 	BuildingsIcon,
 	CaretDownIcon,
-	ChatsIcon,
 	ClipboardTextIcon,
 	DotIcon,
 	FunnelSimpleIcon,
@@ -158,9 +155,6 @@ const actionIconMap: Partial<Record<AuditLogActionType, IconComponent>> = {
 	[AuditLogActionType.MESSAGE_BULK_DELETE]: TrashIcon,
 	[AuditLogActionType.MESSAGE_PIN]: PencilSimpleIcon,
 	[AuditLogActionType.MESSAGE_UNPIN]: PencilSimpleIcon,
-	[AuditLogActionType.THREAD_CREATE]: ChatsIcon,
-	[AuditLogActionType.THREAD_UPDATE]: ChatsIcon,
-	[AuditLogActionType.THREAD_DELETE]: ChatsIcon,
 };
 const targetIconMap: Record<AuditLogTargetType, IconComponent> = {
 	[AUDIT_LOG_TARGET_TYPES.ALL]: BuildingsIcon,
@@ -191,7 +185,7 @@ const getActionIcon = (actionType: AuditLogActionType): IconComponent => {
 };
 const getActionOptionIcon = (value: string): IconComponent => {
 	if (!value) return FunnelSimpleIcon;
-	const action = [...AUDIT_LOG_ACTIONS, ...THREAD_AUDIT_LOG_ACTIONS].find((item) => item.value.toString() === value);
+	const action = AUDIT_LOG_ACTIONS.find((item) => item.value.toString() === value);
 	if (!action) return FunnelSimpleIcon;
 	return getActionIcon(action.value);
 };
@@ -241,22 +235,16 @@ const GuildAuditLogTab: React.FC<{guildId: string}> = observer(({guildId}) => {
 		() => [{value: '', label: i18n._(ALL_USERS_DESCRIPTOR)}, ...buildUserOptions(members)],
 		[members, i18n.locale],
 	);
-	const threadsActive = ThreadGuilds.isActive(guildId);
 	const actionOptions = useMemo<Array<ComboboxOption<string>>>(
 		() => [
 			{value: '', label: i18n._(ALL_ACTIONS_DESCRIPTOR)},
-			...getTranslatedAuditLogActions(i18n, {includeThreads: threadsActive}).map((action) => ({
+			...getTranslatedAuditLogActions(i18n).map((action) => ({
 				value: action.value.toString(),
 				label: action.label,
 			})),
 		],
-		[i18n.locale, threadsActive],
+		[i18n.locale],
 	);
-	useEffect(() => {
-		if (!threadsActive && THREAD_AUDIT_LOG_ACTIONS.some((action) => action.value.toString() === selectedAction)) {
-			setSelectedAction('');
-		}
-	}, [threadsActive, selectedAction]);
 	const userComboboxRenderers = useMemo(() => {
 		const renderContent = (option: UserFilterOption) => {
 			if (!option.value) {
@@ -356,9 +344,6 @@ const GuildAuditLogTab: React.FC<{guildId: string}> = observer(({guildId}) => {
 				});
 				const fetchedEntries = response.audit_log_entries;
 				Users.cacheUsers(response.users);
-				if (response.threads) {
-					ingestSearchThreads(response.threads, []);
-				}
 				setWebhookNames((current) => {
 					const merged = reset ? new Map<string, string>() : new Map(current);
 					for (const webhook of response.webhooks) {
@@ -663,7 +648,7 @@ const GuildAuditLogTab: React.FC<{guildId: string}> = observer(({guildId}) => {
 				)}
 				{shouldShowEmptyState && (
 					<div className={styles.emptyState} data-flx="guild.guild-tabs.guild-audit-log-tab.empty-state">
-						<StatusSlate
+						<EmptySlate
 							Icon={ClipboardTextIcon}
 							title={i18n._(NO_LOGS_YET_DESCRIPTOR)}
 							description={i18n._(MODERATION_ACTIONS_AND_COMMUNITY_CHANGES_WILL_APPEAR_HERE_DESCRIPTOR)}
@@ -673,15 +658,21 @@ const GuildAuditLogTab: React.FC<{guildId: string}> = observer(({guildId}) => {
 				)}
 				{!isLoading && shouldShowErrorState && (
 					<div className={styles.errorState} data-flx="guild.guild-tabs.guild-audit-log-tab.error-state">
-						<StatusSlate
+						<EmptySlate
 							Icon={WarningCircleIcon}
 							title={i18n._(UNABLE_TO_LOAD_ACTIVITY_LOGS_DESCRIPTOR)}
 							description={errorDescription}
-							actions={[
-								{text: i18n._(TRY_AGAIN_DESCRIPTOR), onClick: () => loadLogs({reset: true}), variant: 'secondary'},
-							]}
 							data-flx="guild.guild-tabs.guild-audit-log-tab.empty-slate--2"
 						/>
+						<div className={styles.statusActions} data-flx="guild.guild-tabs.guild-audit-log-tab.status-actions">
+							<Button
+								variant="secondary"
+								onClick={() => loadLogs({reset: true})}
+								data-flx="guild.guild-tabs.guild-audit-log-tab.button.load-logs"
+							>
+								{i18n._(TRY_AGAIN_DESCRIPTOR)}
+							</Button>
+						</div>
 					</div>
 				)}
 				{hasMore && entries.length > 0 && !shouldShowErrorState && (

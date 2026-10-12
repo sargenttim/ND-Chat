@@ -105,9 +105,9 @@ export async function updateProfile(guildId: string, params: GuildProfilePatch):
 	}
 }
 
-export async function kick(guildId: string, userId: string, reason?: string): Promise<void> {
+export async function kick(guildId: string, userId: string): Promise<void> {
 	try {
-		await http.delete(Endpoints.GUILD_MEMBER(guildId, userId), {reason});
+		await http.delete(Endpoints.GUILD_MEMBER(guildId, userId));
 		logger.debug(`Kicked member ${userId} from guild ${guildId}`);
 	} catch (error) {
 		logger.error(`Failed to kick member ${userId} from guild ${guildId}:`, error);

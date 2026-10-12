@@ -14,10 +14,11 @@ import {
 	getUserRepository,
 } from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
+import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import bulkUpdateUserFlags from '@app/api/worker/tasks/admin_bulk/BulkUpdateUserFlags';
 import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
+import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
 import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test} from 'vitest';
 
 interface BulkJobResult {
@@ -32,6 +33,17 @@ interface BulkJobResult {
 const ADMIN_USER_ID = 4000000000000000000n;
 const JOB_ID = 7100000000000000000n;
 const MISSING_USER_ID = 4200000000000000001n;
+
+function createHelpers(): WorkerTaskHelpers {
+	return {
+		logger: new NoopLogger(),
+		jobId: JOB_ID,
+		addJob: async () => 0n,
+		reportProgress: async () => {},
+		shouldCancel: async () => false,
+		setContextLink: async () => {},
+	};
+}
 
 function installWorkerDependencies(): void {
 	setWorkerDependenciesForTest({
@@ -64,7 +76,7 @@ describe('bulkUpdateUserFlags task', () => {
 		clearWorkerDependencies();
 	});
 
-	test('writes a per-user audit row with the admin reason and records failed items', async () => {
+	test('writes a per-user audit row carrying the admin reason and records failed items', async () => {
 		const first = await createTestAccount(harness);
 		const second = await createTestAccount(harness);
 		const result = (await bulkUpdateUserFlags(
@@ -75,7 +87,7 @@ describe('bulkUpdateUserFlags task', () => {
 				admin_user_id: ADMIN_USER_ID.toString(),
 				audit_log_reason: 'Lilith spam sweep',
 			},
-			createTestWorkerHelpers({jobId: JOB_ID}),
+			createHelpers(),
 		)) as unknown as BulkJobResult;
 
 		expect(result.successful_count).toBe(2);
@@ -111,7 +123,7 @@ describe('bulkUpdateUserFlags task', () => {
 				admin_user_id: ADMIN_USER_ID.toString(),
 				audit_log_reason: 'Staff grant',
 			},
-			createTestWorkerHelpers({jobId: JOB_ID}),
+			createHelpers(),
 		);
 
 		const auditLogs = await new AdminRepository().listAllAuditLogsPaginated(50);

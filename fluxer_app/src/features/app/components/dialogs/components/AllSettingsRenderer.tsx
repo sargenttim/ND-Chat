@@ -8,21 +8,21 @@ import {
 	setHighlightRanges,
 } from '@app/features/messaging/utils/CSSHighlightSearch';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
-import {AccessibilityInlineContent} from '@app/features/user/components/modals/tabs/AccessibilityTab';
-import {AppearanceInlineContent} from '@app/features/user/components/modals/tabs/AppearanceTab';
+import {AccessibilityInlineContent} from '@app/features/user/components/modals/tabs/accessibility_tab/AccessibilityTabInline';
 import {AccountSecurityInlineTab} from '@app/features/user/components/modals/tabs/account_security_tab/AccountSecurityTabInline';
+import {AppearanceInlineContent} from '@app/features/user/components/modals/tabs/appearance_tab/AppearanceTabInline';
 import ApplicationsTab from '@app/features/user/components/modals/tabs/applications_tab';
-import {ChatSettingsInlineContent} from '@app/features/user/components/modals/tabs/ChatSettingsTab';
+import {ChatSettingsInlineContent} from '@app/features/user/components/modals/tabs/chat_settings_tab/ChatSettingsTabInline';
 import DesktopSettingsTab from '@app/features/user/components/modals/tabs/DesktopSettingsTab';
 import GiftInventoryTab from '@app/features/user/components/modals/tabs/GiftInventoryTab';
 import KeybindsTab from '@app/features/user/components/modals/tabs/KeybindsTab';
 import LanguageTab from '@app/features/user/components/modals/tabs/LanguageTab';
 import LinkedAccountsTab from '@app/features/user/components/modals/tabs/LinkedAccountsTab';
 import MyProfileTab from '@app/features/user/components/modals/tabs/MyProfileTab';
-import {NotificationsInlineContent} from '@app/features/user/components/modals/tabs/NotificationsTab';
-import {PlutoniumInlineTab} from '@app/features/user/components/modals/tabs/PlutoniumTab';
+import {NotificationsInlineContent} from '@app/features/user/components/modals/tabs/notifications_tab/NotificationsTabInline';
+import PlutoniumTab from '@app/features/user/components/modals/tabs/PlutoniumTab';
 import {PrivacyDashboardContent} from '@app/features/user/components/modals/tabs/privacy_safety_tab/PrivacySafetyTabInline';
-import {VoiceVideoInlineContent} from '@app/features/user/components/modals/tabs/VoiceVideoTab';
+import {VoiceVideoInlineContent} from '@app/features/user/components/modals/tabs/voice_video_tab/VoiceVideoTabInline';
 import {getSettingsTabComponent} from '@app/features/user/components/settings_utils/DesktopSettingsTabs';
 import type {SettingsTab} from '@app/features/user/components/settings_utils/SettingsConstants';
 import {
@@ -62,7 +62,7 @@ interface SettingsSectionProps {
 const INLINE_TAB_COMPONENTS: Partial<Record<UserSettingsTabType, React.ComponentType<Record<string, unknown>>>> = {
 	my_profile: MyProfileTab,
 	account_security: AccountSecurityInlineTab,
-	plutonium: PlutoniumInlineTab,
+	plutonium: PlutoniumTab,
 	gift_inventory: GiftInventoryTab,
 	privacy_safety: PrivacyDashboardContent,
 	authorized_apps: AccountSecurityInlineTab,
@@ -265,15 +265,8 @@ export const AllSettingsRenderer: React.FC<AllSettingsRendererProps> = observer(
 			>
 				<div className={styles.resultsHeader} data-flx="app.all-settings-renderer.results-header">
 					<Trans>
-						Found{' '}
-						<Plural value={resultCount} one="# result" other="# results" data-flx="app.all-settings-renderer.plural" />{' '}
-						in{' '}
-						<Plural
-							value={categoryCount}
-							one="# category"
-							other="# categories"
-							data-flx="app.all-settings-renderer.plural--2"
-						/>
+						Found <Plural value={resultCount} one="# result" other="# results" /> in{' '}
+						<Plural value={categoryCount} one="# category" other="# categories" />
 					</Trans>
 				</div>
 				{searchResults.map((result) => (

@@ -2,7 +2,6 @@
 
 import {randomUUID} from 'node:crypto';
 import {createTestAccount, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
-import {createOAuth2Application as createOAuth2Application2} from '@app/api/oauth/tests/OAuth2TestUtils';
 import type {ApiTestHarness} from '@app/api/test/ApiTestHarness';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import type {
@@ -28,15 +27,21 @@ export async function createOAuth2Application(
 		redirect_uris: Array<string>;
 	},
 ): Promise<OAuth2Application> {
-	const result = await createOAuth2Application2(harness, owner.token, {
-		name: params.name ?? `Test App ${randomUUID()}`,
-		redirect_uris: params.redirect_uris,
-	});
-	return {
-		...result.application,
-		client_secret: result.clientSecret,
-		bot: {id: result.botUserId, token: result.botToken},
-	};
+	const {response, text, json} = await createBuilder<OAuth2Application>(harness, owner.token)
+		.post('/oauth2/applications')
+		.body({
+			name: params.name ?? `Test App ${randomUUID()}`,
+			redirect_uris: params.redirect_uris,
+		})
+		.executeRaw();
+	if (response.status !== 200) {
+		throw new Error(`Expected 200, got ${response.status}: ${text}`);
+	}
+	const payload = json;
+	if (!payload.id || !payload.client_secret || !payload.bot?.id || !payload.bot?.token) {
+		throw new Error('Invalid OAuth2 application response');
+	}
+	return payload;
 }
 
 export async function authorizeOAuth2(

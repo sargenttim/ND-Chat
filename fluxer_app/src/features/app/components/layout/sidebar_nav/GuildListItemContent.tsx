@@ -15,7 +15,7 @@ import {Tooltip} from '@app/features/ui/tooltip/Tooltip';
 import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
-import {useEffect, useRef, useState} from 'react';
+import {useEffect, useRef} from 'react';
 
 interface GuildListItemContentProps extends GuildListItemProps {
 	readonly isDesktopLayout: boolean;
@@ -47,10 +47,6 @@ export const GuildListItemContent = observer((props: GuildListItemContentProps) 
 		isSortingList: props.isSortingList,
 		itemRef: props.itemRef,
 	});
-	const [hasOpenedBottomSheet, setHasOpenedBottomSheet] = useState(false);
-	if (interaction.bottomSheetOpen && !hasOpenedBottomSheet) {
-		setHasOpenedBottomSheet(true);
-	}
 	const focusableRef = useRef<HTMLElement | null>(null);
 	const focusRingTargetRef = useRef<HTMLElement | null>(null);
 	const didMountRef = useRef(false);
@@ -141,7 +137,7 @@ export const GuildListItemContent = observer((props: GuildListItemContentProps) 
 					/>
 				</FocusRing>
 			</Tooltip>
-			{props.isMobileExperience && hasOpenedBottomSheet && (
+			{props.isMobileExperience && (
 				<GuildHeaderBottomSheet
 					isOpen={interaction.bottomSheetOpen}
 					onClose={interaction.handleCloseBottomSheet}

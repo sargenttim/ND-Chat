@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {PREMIUM_PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
-import {getPremiumProductName, shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
+import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import {CharacterCountAnnouncer} from '@app/features/ui/character_counter/CharacterCountAnnouncer';
 import styles from '@app/features/ui/character_counter/CharacterCounter.module.css';
 import {
@@ -36,7 +37,7 @@ export const CharacterCounter = observer(
 		const tooltipText = needsPremium
 			? i18n._(CHARACTERS_LEFT_GET_TO_WRITE_UP_TO_CHARACTERS_DESCRIPTOR, {
 					remaining,
-					premiumProductName: getPremiumProductName(),
+					premiumProductName: PREMIUM_PRODUCT_NAME,
 					premiumMaxLength,
 				})
 			: isOverLimit

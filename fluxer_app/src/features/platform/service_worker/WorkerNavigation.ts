@@ -6,7 +6,6 @@ const APP_NAVIGATION_EXACT_PATHS = new Set([
 	'/register',
 	'/forgot',
 	'/reset',
-	'/recover',
 	'/verify',
 	'/authorize-ip',
 	'/wasntme',

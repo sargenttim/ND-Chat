@@ -16,7 +16,7 @@ export function createEmailProvider(emailConfig: APIConfig['email']): IEmailProv
 						port: emailConfig.smtp.port,
 						username: emailConfig.smtp.username,
 						password: emailConfig.smtp.password,
-						tlsMode: emailConfig.smtp.tlsMode,
+						secure: emailConfig.smtp.secure,
 					})
 				: null;
 		default:

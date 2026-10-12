@@ -6,7 +6,7 @@ import {
 	type ContentI18nCatalog,
 	type ContentI18nKey,
 } from '@app/api/content_i18n/ContentI18nMessages';
-import {compileMessage} from '@fluxer/i18n/src/runtime/CompileMessage';
+import {identityLocale} from '@fluxer/i18n/src/normalization/IdentityLocale';
 import {createStaticI18n} from '@fluxer/i18n/src/runtime/CreateStaticI18n';
 import type {MessageArgsForTemplate} from '@fluxer/i18n/src/runtime/MessageCatalogTypes';
 import {validateMessageTemplateVariables} from '@fluxer/i18n/src/runtime/MessageCatalogTypes';
@@ -23,13 +23,14 @@ const contentI18n = createStaticI18n<ContentI18nKey, string, ContentI18nRuntimeV
 		defaultLocale: DEFAULT_LOCALE,
 		defaultMessages: CONTENT_I18N_MESSAGES,
 		localeMessages: CONTENT_I18N_LOCALE_MESSAGES,
+		normalizeLocale: (locale) => identityLocale(locale),
 		onWarning: (message) => {
 			console.warn(message);
 		},
 		validateVariables: (_key, template, variables) => validateMessageTemplateVariables(template, variables),
 	},
 	(template, variables, mf) => {
-		return String(compileMessage(mf, template)(variables));
+		return String(mf.compile(template)(variables));
 	},
 );
 

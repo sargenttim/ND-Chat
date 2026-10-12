@@ -5,6 +5,7 @@ import {
 	GuildOperations,
 	GuildOperationsDescriptions,
 } from '@fluxer/constants/src/GuildConstants';
+import {BadgeAssignmentRequest} from '@fluxer/schema/src/domains/admin/AdminBadgeSchemas';
 import {GuildAuditLogListResponse} from '@fluxer/schema/src/domains/guild/GuildAuditLogSchemas';
 import {GuildBanCreateRequest} from '@fluxer/schema/src/domains/guild/GuildRequestSchemas';
 import {GuildFeatureSchema} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
@@ -15,7 +16,7 @@ import {
 	DefaultMessageNotificationsSchema,
 	GuildExplicitContentFilterSchema,
 	GuildMFALevelSchema,
-	GuildVerificationLevelInputSchema,
+	GuildVerificationLevelSchema,
 	NSFWLevelSchema,
 } from '@fluxer/schema/src/primitives/GuildValidators';
 import {createQueryIntegerType} from '@fluxer/schema/src/primitives/QueryValidators';
@@ -156,7 +157,7 @@ export type UpdateGuildNameRequest = z.infer<typeof UpdateGuildNameRequest>;
 export const UpdateGuildSettingsRequest = z.object({
 	guild_id: SnowflakeType.describe('ID of the guild to update'),
 	verification_level: withFieldDescription(
-		GuildVerificationLevelInputSchema,
+		GuildVerificationLevelSchema,
 		'Required verification level for guild members',
 	).optional(),
 	mfa_level: withFieldDescription(GuildMFALevelSchema, 'Required MFA level for moderators').optional(),
@@ -261,6 +262,7 @@ export const UpdateGuildRequest = UpdateGuildSettingsRequest.omit({guild_id: tru
 	new_owner_id: TransferGuildOwnershipRequest.shape.new_owner_id.optional(),
 	add_features: UpdateGuildFeaturesRequest.shape.add_features.unwrap().optional(),
 	remove_features: UpdateGuildFeaturesRequest.shape.remove_features.unwrap().optional(),
+	badge_ids: BadgeAssignmentRequest.shape.badge_ids.optional(),
 	fields: ClearGuildFieldsRequest.shape.fields.optional(),
 });
 

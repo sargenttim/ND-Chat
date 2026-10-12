@@ -2,22 +2,20 @@
 
 import {requireEmailVerified} from '@app/api/auth/EmailVerificationUtils';
 import {createEmojiID, type MessageID, type UserID} from '@app/api/BrandedTypes';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {IChannelRepositoryAggregate} from '@app/api/channel/repositories/IChannelRepositoryAggregate';
 import type {AuthenticatedChannel} from '@app/api/channel/services/AuthenticatedChannel';
 import {dispatchChannelEvent} from '@app/api/channel/services/ChannelGatewayDispatch';
-import {ensureTextChannel, isOperationDisabled} from '@app/api/channel/services/message/MessageHelpers';
-import {assertThreadInteractionAllowed} from '@app/api/channel/services/thread/ThreadInteractionGuards';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import {MessageInteractionBase, type ParsedEmoji} from '@app/api/channel/services/interaction/MessageInteractionBase';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
+import {resolveLimitSafe} from '@app/api/limits/LimitConfigUtils';
 import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder';
 import type {Channel} from '@app/api/models/Channel';
 import type {MessageReaction} from '@app/api/models/MessageReaction';
 import type {User} from '@app/api/models/User';
-import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {mapUserToPartialResponse} from '@app/api/user/UserMappers';
-import {checkUserGlobalExpressions} from '@app/api/utils/EmojiUtils';
 import {assertGuildMemberCanCommunicate} from '@app/api/utils/GuildCommunicationUtils';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {GuildOperations} from '@fluxer/constants/src/GuildConstants';
@@ -35,31 +33,18 @@ import type {UserPartialResponse} from '@fluxer/schema/src/domains/user/UserResp
 import {isValidSingleUnicodeEmoji} from '@fluxer/schema/src/primitives/EmojiValidators';
 import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
 
-interface ParsedEmoji {
-	id?: string;
-	name: string;
-	animated?: boolean;
-}
-
 const REACTION_CUSTOM_EMOJI_REGEX = /^(.+):(\d+)$/;
 
-export class MessageReactionService {
-	private async assertReactionRemovalAllowed(authChannel: AuthenticatedChannel, messageId: MessageID): Promise<void> {
-		const {channel, guild} = authChannel;
-		ensureTextChannel(channel);
-		assertThreadInteractionAllowed(authChannel, 'react', {ignoreTimeout: true});
-		await this.assertMessageHistoryAccess({authChannel, messageId});
-		if (isOperationDisabled(guild, GuildOperations.REACTIONS)) {
-			throw new FeatureTemporarilyDisabledError();
-		}
-	}
+export class MessageReactionService extends MessageInteractionBase {
 	constructor(
-		private gatewayService: IGatewayService,
-		private channelRepository: ChannelRepository,
-		private userRepository: UserRepository,
-		private guildRepository: GuildRepository,
+		gatewayService: IGatewayService,
+		private channelRepository: IChannelRepositoryAggregate,
+		private userRepository: IUserRepository,
+		private guildRepository: IGuildRepositoryAggregate,
 		private limitConfigService: LimitConfigService,
-	) {}
+	) {
+		super(gatewayService);
+	}
 
 	private resolveLimitForUser(params: {
 		user: User | null;
@@ -115,7 +100,7 @@ export class MessageReactionService {
 		next_after: string | null;
 	}> {
 		const {channel, guild} = authChannel;
-		ensureTextChannel(channel);
+		this.ensureTextChannel(channel);
 		await this.assertMessageHistoryAccess({authChannel, messageId});
 		const requestingUser = await this.userRepository.findUnique(userId);
 		const guildFeatures = guild?.features ?? null;
@@ -175,11 +160,10 @@ export class MessageReactionService {
 	}): Promise<void> {
 		const channel = authChannel.channel;
 		const {guild, hasPermission, checkPermission} = authChannel;
-		ensureTextChannel(channel);
-		assertThreadInteractionAllowed(authChannel, 'react');
+		this.ensureTextChannel(channel);
 		assertGuildMemberCanCommunicate(authChannel.member);
 		await this.assertMessageHistoryAccess({authChannel, messageId});
-		if (isOperationDisabled(guild, GuildOperations.REACTIONS)) {
+		if (this.isOperationDisabled(guild, GuildOperations.REACTIONS)) {
 			throw new FeatureTemporarilyDisabledError();
 		}
 		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
@@ -187,7 +171,6 @@ export class MessageReactionService {
 		const requestingUser = await this.userRepository.findUnique(userId);
 		if (requestingUser) {
 			requireEmailVerified(requestingUser, 'reaction');
-			assertAccountNotLimited(requestingUser);
 		}
 		const guildFeatures = guild?.features ?? null;
 		const maxUsersPerReaction = this.resolveLimitForUser({
@@ -279,8 +262,12 @@ export class MessageReactionService {
 		actorId: UserID;
 	}): Promise<void> {
 		const channel = authChannel.channel;
-		const {hasPermission} = authChannel;
-		await this.assertReactionRemovalAllowed(authChannel, messageId);
+		const {guild, hasPermission} = authChannel;
+		this.ensureTextChannel(channel);
+		await this.assertMessageHistoryAccess({authChannel, messageId});
+		if (this.isOperationDisabled(guild, GuildOperations.REACTIONS)) {
+			throw new FeatureTemporarilyDisabledError();
+		}
 		const parsedEmoji = this.parseEmojiWithoutValidation(emoji);
 		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
 		if (!message) return;
@@ -315,8 +302,12 @@ export class MessageReactionService {
 		emoji: string;
 	}): Promise<void> {
 		const channel = authChannel.channel;
-		const {hasPermission} = authChannel;
-		await this.assertReactionRemovalAllowed(authChannel, messageId);
+		const {guild, hasPermission} = authChannel;
+		this.ensureTextChannel(channel);
+		await this.assertMessageHistoryAccess({authChannel, messageId});
+		if (this.isOperationDisabled(guild, GuildOperations.REACTIONS)) {
+			throw new FeatureTemporarilyDisabledError();
+		}
 		const parsedEmoji = this.parseEmojiWithoutValidation(emoji);
 		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
 		if (!message) return;
@@ -343,13 +334,28 @@ export class MessageReactionService {
 		messageId: MessageID;
 	}): Promise<void> {
 		const channel = authChannel.channel;
-		const {hasPermission} = authChannel;
-		await this.assertReactionRemovalAllowed(authChannel, messageId);
+		const {guild, hasPermission} = authChannel;
+		this.ensureTextChannel(channel);
+		await this.assertMessageHistoryAccess({authChannel, messageId});
+		if (this.isOperationDisabled(guild, GuildOperations.REACTIONS)) {
+			throw new FeatureTemporarilyDisabledError();
+		}
 		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
 		if (!message) return;
 		await this.assertCanModerateMessageReactions({channel, hasPermission});
 		await this.channelRepository.messageInteractions.removeAllReactions(channel.id, messageId);
 		await this.dispatchMessageReactionRemoveAll({channel, messageId});
+	}
+
+	async getMessageReactions({
+		authChannel,
+		messageId,
+	}: {
+		authChannel: AuthenticatedChannel;
+		messageId: MessageID;
+	}): Promise<Array<MessageReaction>> {
+		await this.assertMessageHistoryAccess({authChannel, messageId});
+		return this.channelRepository.messageInteractions.listMessageReactions(authChannel.channel.id, messageId);
 	}
 
 	private async assertCanModerateMessageReactions({
@@ -401,9 +407,17 @@ export class MessageReactionService {
 		if (customEmojiMatch) {
 			const [, , id] = customEmojiMatch;
 			const emojiIdBigInt = createEmojiID(BigInt(id));
-			const hasGlobalExpressions = userId
-				? await checkUserGlobalExpressions(userId, this.userRepository, this.limitConfigService)
-				: 0;
+			let hasGlobalExpressions = 0;
+			if (userId) {
+				const user = await this.userRepository.findUnique(userId);
+				const ctx = createLimitMatchContext({user});
+				hasGlobalExpressions = resolveLimitSafe(
+					this.limitConfigService.getConfigSnapshot(),
+					ctx,
+					'feature_global_expressions',
+					0,
+				);
+			}
 			const emoji = await this.guildRepository.getEmojiById(emojiIdBigInt);
 			if (!emoji) {
 				throw InputValidationError.fromCode('emoji', ValidationErrorCodes.CUSTOM_EMOJI_NOT_FOUND);

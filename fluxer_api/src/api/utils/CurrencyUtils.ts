@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {Config} from '@app/api/Config';
 import {
 	type EffectiveBillingConfig,
 	getEffectiveBillingConfig,
@@ -10,6 +9,10 @@ import {isEuEeaCountryCode} from '@fluxer/constants/src/EuropeanEconomicArea';
 import type {PremiumCurrency} from '@fluxer/schema/src/domains/premium/PremiumSchemas';
 
 export type Currency = PremiumCurrency;
+
+export function getCurrency(countryCode: string | null | undefined): Currency {
+	return getCurrencyPreferences(countryCode)[0];
+}
 
 export function getCurrencyPreferences(
 	countryCode: string | null | undefined,
@@ -29,16 +32,13 @@ function getEnvCurrencyPreferences(countryCode: string | null | undefined): Arra
 	if (upperCode === 'BR') {
 		return ['BRL', 'USD', 'EUR'];
 	}
-	if (upperCode === 'DK' || upperCode === 'FO' || upperCode === 'GL') {
+	if (upperCode === 'DK') {
 		return ['DKK', 'EUR', 'USD'];
 	}
 	if (upperCode === 'IN') {
 		return ['INR', 'USD', 'EUR'];
 	}
-	if (upperCode === 'IS') {
-		return ['ISK', 'EUR', 'USD'];
-	}
-	if (upperCode === 'NO' || upperCode === 'SJ') {
+	if (upperCode === 'NO') {
 		return ['NOK', 'EUR', 'USD'];
 	}
 	if (upperCode === 'PL') {
@@ -56,22 +56,9 @@ function getEnvCurrencyPreferences(countryCode: string | null | undefined): Arra
 	return ['USD', 'EUR'];
 }
 
-const GIFT_ELIGIBLE_LOCALIZED_CURRENCIES = new Set<Currency>(['DKK', 'ISK', 'NOK', 'SEK']);
+const GIFT_ELIGIBLE_LOCALIZED_CURRENCIES = new Set<Currency>(['DKK', 'NOK', 'SEK']);
 
-const ADAPTIVE_PRICING_DISABLED_CURRENCIES = new Set<Currency>(['DKK', 'ISK', 'NOK', 'SEK']);
-
-const ENV_CATALOG_CURRENCIES = new Set<Currency>([
-	'USD',
-	'EUR',
-	'BRL',
-	'DKK',
-	'INR',
-	'ISK',
-	'NOK',
-	'PLN',
-	'SEK',
-	'TRY',
-]);
+const ENV_CATALOG_CURRENCIES = new Set<Currency>(['USD', 'EUR', 'BRL', 'DKK', 'INR', 'NOK', 'PLN', 'SEK', 'TRY']);
 
 const OPERATOR_CURRENCY_PATTERN = /^[A-Z]{3}$/;
 
@@ -88,10 +75,6 @@ export function getGiftCurrencyPreferences(
 	return getEnvCurrencyPreferences(countryCode).filter(
 		(currency) => currency === 'USD' || currency === 'EUR' || GIFT_ELIGIBLE_LOCALIZED_CURRENCIES.has(currency),
 	);
-}
-
-export function shouldDisableAdaptivePricing(currency: string): boolean {
-	return !Config.instance.selfHosted && ADAPTIVE_PRICING_DISABLED_CURRENCIES.has(currency.toUpperCase());
 }
 
 export function isLocalizedCurrency(

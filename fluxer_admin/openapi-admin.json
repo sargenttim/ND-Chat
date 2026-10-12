@@ -5,7 +5,7 @@
 		"title": "Fluxer API",
 		"version": "1.0.0",
 		"description": "API for Fluxer, a free and open source instant messaging and VoIP chat app built for friends, groups, and communities.",
-		"contact": {"name": "Fluxer Platform AB", "email": "support@fluxer.com"},
+		"contact": {"name": "Fluxer Platform AB", "email": "support@fluxer.app"},
 		"license": {"name": "AGPL-3.0", "url": "https://www.gnu.org/licenses/agpl-3.0.html"}
 	},
 	"servers": [{"url": "https://api.fluxer.app/v1", "description": "Production API"}],
@@ -280,7 +280,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Renames an API key or replaces the access control lists (ACLs) it has. The key may only hold permissions the acting admin already holds. Omitted fields are left unchanged and the key material is never rotated or returned.",
+				"description": "Renames an API key or replaces the access control lists (ACLs) it carries. The key may only carry permissions the acting admin already holds. Omitted fields are left unchanged and the key material is never rotated or returned.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -1059,6 +1059,306 @@
 				]
 			}
 		},
+		"/admin/badges": {
+			"get": {
+				"operationId": "list_admin_badges",
+				"summary": "List badges",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/BadgesResponse"}}}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Lists every user and guild badge defined on the instance, together with the icon overrides for built-in badges. Requires BADGE_LIST permission.",
+				"security": [{"adminApiKey": []}]
+			},
+			"post": {
+				"operationId": "create_admin_badge",
+				"summary": "Create badge",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/BadgeMutationResponse"}}}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Creates a user or guild badge. Creates audit log entry. Requires BADGE_CREATE permission.",
+				"security": [{"adminApiKey": []}],
+				"requestBody": {
+					"required": true,
+					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateBadgeRequest"}}}
+				}
+			}
+		},
+		"/admin/badges/builtin/{badge}": {
+			"put": {
+				"operationId": "update_admin_builtin_badge_icon",
+				"summary": "Update built-in badge icon",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/BuiltinBadgeIconsResponse"}}}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Overrides the SVG icon of the premium, verified, partnered, or discoverable badge, or restores the default icon when null. Creates audit log entry. Requires BADGE_UPDATE permission.",
+				"security": [{"adminApiKey": []}],
+				"parameters": [
+					{
+						"name": "badge",
+						"in": "path",
+						"required": true,
+						"schema": {"allOf": [{"$ref": "#/components/schemas/BuiltinBadgeEnum"}]},
+						"description": "Type of built-in icon override"
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateBuiltinBadgeIconRequest"}}}
+				}
+			}
+		},
+		"/admin/badges/{badge_id}": {
+			"patch": {
+				"operationId": "update_admin_badge",
+				"summary": "Update badge",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/BadgeMutationResponse"}}}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Updates the name, tooltip, icon, URL, or position of a badge. Creates audit log entry. Requires BADGE_UPDATE permission.",
+				"security": [{"adminApiKey": []}],
+				"parameters": [
+					{
+						"name": "badge_id",
+						"in": "path",
+						"required": true,
+						"schema": {"description": "The ID of the badge", "allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
+						"description": "The ID of the badge"
+					}
+				],
+				"requestBody": {
+					"required": false,
+					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateBadgeRequest"}}}
+				}
+			},
+			"delete": {
+				"operationId": "delete_admin_badge",
+				"summary": "Delete badge",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/SuccessResponse"}}}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Deletes a badge. Users and guilds that were assigned the badge stop showing it. Creates audit log entry. Requires BADGE_DELETE permission.",
+				"security": [{"adminApiKey": []}],
+				"parameters": [
+					{
+						"name": "badge_id",
+						"in": "path",
+						"required": true,
+						"schema": {"description": "The ID of the badge", "allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
+						"description": "The ID of the badge"
+					}
+				]
+			}
+		},
 		"/admin/blocklists": {
 			"get": {
 				"operationId": "list_admin_blocklist_types",
@@ -1108,7 +1408,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "List every blocklist this instance maintains, the request field that holds an entry value, the extra fields its entries accept, and which of the bulk and update operations it supports.",
+				"description": "List every blocklist this instance maintains, the request field that carries an entry value, the extra fields its entries accept, and which of the bulk and update operations it supports.",
 				"security": [{"adminApiKey": []}]
 			}
 		},
@@ -1451,7 +1751,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Report whether a value is currently blocked by a blocklist. The value is percent-encoded in the path. An IP address can still match a broader stored CIDR entry, and a url-domain value can be a hostname or an http(s) URL that a stored domain or pattern covers. The profile-substring blocklist requires a scope.",
+				"description": "Report whether a value is currently blocked by a blocklist. The value is percent-encoded in the path. An IP address can still match a broader stored CIDR entry, and a URL can match a banned domain. The profile-substring blocklist requires a scope.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -1529,7 +1829,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Rewrite the stored fields of a blocklist entry without removing and re-adding it. The stored metadata is replaced by the supplied fields, so fields left out fall back to their defaults. Only blocklists whose entries have fields accept this operation, reported as supports_update by GET /admin/blocklists.",
+				"description": "Rewrite the stored fields of a blocklist entry without removing and re-adding it. The stored metadata is replaced by the supplied fields, so fields left out fall back to their defaults. Only blocklists whose entries carry fields accept this operation, reported as supports_update by GET /admin/blocklists.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -1683,75 +1983,12 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Enqueue one background administrative job. The `task` discriminator selects both the body variant and the ACL evaluated for the request: `update_user_flags` needs bulk:update:user_flags, `update_guild_features` needs bulk:update:guild_features, `add_guild_members` needs bulk:add:guild_members, `schedule_user_deletion` needs bulk:delete:users, and `delete_user_messages` needs bulk:delete:user_messages. Returns a job_id immediately; observe progress at /admin/jobs/:job_id.",
+				"description": "Enqueue one background administrative job. The `task` discriminator selects both the body variant and the ACL evaluated for the request: `update_user_flags` needs bulk:update:user_flags, `update_suspicious_activity_flags` needs bulk:update:suspicious_activity, `update_guild_features` needs bulk:update:guild_features, `add_guild_members` needs bulk:add:guild_members, `schedule_user_deletion` needs bulk:delete:users, and `delete_user_messages` needs bulk:delete:user_messages. Returns a job_id immediately; observe progress at /admin/jobs/:job_id.",
 				"security": [{"adminApiKey": []}],
 				"requestBody": {
 					"required": true,
 					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminBulkJobCreateRequest"}}}
 				}
-			}
-		},
-		"/admin/channels/{channel_id}": {
-			"delete": {
-				"operationId": "delete_admin_thread_channel",
-				"summary": "Delete a thread",
-				"tags": ["Admin"],
-				"responses": {
-					"204": {"description": "No Content"},
-					"400": {
-						"description": "Bad Request - The request was malformed or contained invalid data",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"401": {
-						"description": "Unauthorized - Authentication is required or the token is invalid",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"403": {
-						"description": "Forbidden - You do not have permission to perform this action",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"429": {
-						"description": "Too Many Requests - You are being rate limited",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
-						"headers": {
-							"Retry-After": {
-								"description": "Number of seconds to wait before retrying (only on 429)",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Limit": {
-								"description": "The number of requests that can be made in the current window",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Remaining": {
-								"description": "The number of remaining requests that can be made",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Reset": {
-								"description": "Unix timestamp when the rate limit resets",
-								"schema": {"type": "integer"}
-							}
-						}
-					},
-					"500": {
-						"description": "Internal Server Error - An unexpected error occurred",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					}
-				},
-				"description": "Deletes a thread channel with its messages and memberships. Only public and private threads can be deleted here. Requires MESSAGE_DELETE_ALL permission.",
-				"x-fluxer-experiment": "channel_threads",
-				"security": [{"adminApiKey": []}],
-				"parameters": [
-					{
-						"name": "channel_id",
-						"in": "path",
-						"required": true,
-						"schema": {
-							"description": "The ID of the channel",
-							"allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]
-						},
-						"description": "The ID of the channel"
-					}
-				]
 			}
 		},
 		"/admin/channels/{channel_id}/messages": {
@@ -3010,7 +3247,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Partially updates a guild. The permissions required are selected by the fields present in the body and are evaluated with all-of semantics: name requires GUILD_UPDATE_NAME, vanity_url_code requires GUILD_UPDATE_VANITY, new_owner_id requires GUILD_TRANSFER_OWNERSHIP, add_features and remove_features require GUILD_UPDATE_FEATURES, and fields together with every other setting requires GUILD_UPDATE_SETTINGS. A body with no fields applies no change. Every applied change is logged to the audit log.",
+				"description": "Partially updates a guild. The permissions required are selected by the fields present in the body and are evaluated with all-of semantics: name requires GUILD_UPDATE_NAME, vanity_url_code requires GUILD_UPDATE_VANITY, new_owner_id requires GUILD_TRANSFER_OWNERSHIP, add_features and remove_features require GUILD_UPDATE_FEATURES, badge_ids requires GUILD_UPDATE_BADGES, and fields together with every other setting requires GUILD_UPDATE_SETTINGS. A body with no fields applies no change. Every applied change is logged to the audit log.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -3074,7 +3311,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Permanently deletes a guild. The guild becomes unavailable at once, and a background job deletes all channels, messages, and settings. Irreversible operation with no recovery window. Logged to audit log. Requires GUILD_DELETE permission.",
+				"description": "Permanently deletes a guild. Deletes all channels, messages, and settings. Irreversible operation with no recovery window. Logged to audit log. Requires GUILD_DELETE permission.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -3325,7 +3562,7 @@
 						"required": false,
 						"schema": {
 							"description": "Filter entries by the type of action",
-							"allOf": [{"$ref": "#/components/schemas/AuditLogActionTypeFilter"}]
+							"allOf": [{"$ref": "#/components/schemas/AuditLogActionTypeInput"}]
 						},
 						"description": "Filter entries by the type of action"
 					}
@@ -3867,69 +4104,6 @@
 				]
 			}
 		},
-		"/admin/guilds/{guild_id}/threads": {
-			"get": {
-				"operationId": "list_admin_guild_threads",
-				"summary": "List guild threads",
-				"tags": ["Admin"],
-				"responses": {
-					"200": {
-						"description": "Success",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ListGuildThreadsResponse"}}}
-					},
-					"400": {
-						"description": "Bad Request - The request was malformed or contained invalid data",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"401": {
-						"description": "Unauthorized - Authentication is required or the token is invalid",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"403": {
-						"description": "Forbidden - You do not have permission to perform this action",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"429": {
-						"description": "Too Many Requests - You are being rate limited",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
-						"headers": {
-							"Retry-After": {
-								"description": "Number of seconds to wait before retrying (only on 429)",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Limit": {
-								"description": "The number of requests that can be made in the current window",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Remaining": {
-								"description": "The number of remaining requests that can be made",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Reset": {
-								"description": "Unix timestamp when the rate limit resets",
-								"schema": {"type": "integer"}
-							}
-						}
-					},
-					"500": {
-						"description": "Internal Server Error - An unexpected error occurred",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					}
-				},
-				"description": "Lists every thread of a guild, active and archived, whether or not the channel threads experiment is active for it. Requires GUILD_LOOKUP permission.",
-				"x-fluxer-experiment": "channel_threads",
-				"security": [{"adminApiKey": []}],
-				"parameters": [
-					{
-						"name": "guild_id",
-						"in": "path",
-						"required": true,
-						"schema": {"description": "The ID of the guild", "allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
-						"description": "The ID of the guild"
-					}
-				]
-			}
-		},
 		"/admin/instance/config": {
 			"get": {
 				"operationId": "get_admin_instance_config",
@@ -4144,10 +4318,10 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Validates that an SMTP configuration can authenticate and accept a connection. Fields left out of the body come from the saved configuration, and the saved password is reused only for the saved host and username. An empty body tests what outgoing email uses and fails when email is off or incomplete. Requires INSTANCE_CONFIG_UPDATE permission.",
+				"description": "Validates that an SMTP configuration can authenticate and accept a connection. Requires INSTANCE_CONFIG_UPDATE permission.",
 				"security": [{"adminApiKey": []}],
 				"requestBody": {
-					"required": false,
+					"required": true,
 					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/InstanceEmailSmtpTestRequest"}}}
 				}
 			}
@@ -4806,7 +4980,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Searches the messages of a channel by content, or resolves a single message by its ID or by one of its attachments. Passing message_id returns that message with the messages surrounding it; passing attachment_id together with filename returns the message with that attachment with its surrounding context. Requires MESSAGE_LOOKUP permission.",
+				"description": "Searches the messages of a channel by content, or resolves a single message by its ID or by one of its attachments. Passing message_id returns that message with the messages surrounding it; passing attachment_id together with filename returns the message carrying that attachment with its surrounding context. Requires MESSAGE_LOOKUP permission.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -4841,10 +5015,10 @@
 						"in": "query",
 						"required": false,
 						"schema": {
-							"description": "Return the single message with this attachment together with its surrounding context; requires filename",
+							"description": "Return the single message carrying this attachment together with its surrounding context; requires filename",
 							"allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]
 						},
-						"description": "Return the single message with this attachment together with its surrounding context; requires filename"
+						"description": "Return the single message carrying this attachment together with its surrounding context; requires filename"
 					},
 					{
 						"name": "filename",
@@ -4881,6 +5055,65 @@
 						"description": "Maximum number of messages to return when searching (1-100, default 25)"
 					}
 				]
+			}
+		},
+		"/admin/messages/ncmec-reports": {
+			"post": {
+				"operationId": "create_admin_ncmec_report",
+				"summary": "Report an attachment to NCMEC",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {
+							"application/json": {"schema": {"$ref": "#/components/schemas/NcmecAttachmentSubmitResultResponse"}}
+						}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Submits a specific image attachment to NCMEC, creates an audit log entry, silently disables the user, triggers one archive for the user, and schedules content deletion after the archive completes.",
+				"security": [{"adminApiKey": []}],
+				"requestBody": {
+					"required": true,
+					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReportAttachmentToNcmecRequest"}}}
+				}
 			}
 		},
 		"/admin/messages/shreds/{job_id}": {
@@ -4948,59 +5181,6 @@
 				]
 			}
 		},
-		"/admin/report-reasons": {
-			"get": {
-				"operationId": "list_admin_report_reasons",
-				"summary": "List report reasons",
-				"tags": ["Admin"],
-				"responses": {
-					"200": {
-						"description": "Success",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminReportReasonsResponse"}}}
-					},
-					"400": {
-						"description": "Bad Request - The request was malformed or contained invalid data",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"401": {
-						"description": "Unauthorized - Authentication is required or the token is invalid",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"403": {
-						"description": "Forbidden - You do not have permission to perform this action",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"429": {
-						"description": "Too Many Requests - You are being rate limited",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
-						"headers": {
-							"Retry-After": {
-								"description": "Number of seconds to wait before retrying (only on 429)",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Limit": {
-								"description": "The number of requests that can be made in the current window",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Remaining": {
-								"description": "The number of remaining requests that can be made",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Reset": {
-								"description": "Unix timestamp when the rate limit resets",
-								"schema": {"type": "integer"}
-							}
-						}
-					},
-					"500": {
-						"description": "Internal Server Error - An unexpected error occurred",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					}
-				},
-				"description": "Lists every reason key a report filed through a report flow can carry, with its English label, whether it is a highest-priority reason, and the legacy category it maps to for message, user and community reports. Requires REPORT_VIEW permission.",
-				"security": [{"adminApiKey": []}]
-			}
-		},
 		"/admin/reports": {
 			"get": {
 				"operationId": "list_admin_reports",
@@ -5050,7 +5230,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Lists user and content reports from the report search index with pagination. Without a status filter the list covers reports of every status. A request that filters by status alone lists the reports with that status newest first and ignores sort_by and sort_order. A free-text query and the entity, category, reason and resolver filters narrow the results. Every response includes the total, offset and limit of the page. Reporter contact details are redacted unless the caller also holds REPORT_VIEW_REPORTER_PII. Requires REPORT_VIEW permission.",
+				"description": "Lists user and content reports with pagination. Filtering by status alone reads them straight from the database; supplying a free-text query or any of the entity, category and resolver filters searches the report index instead and adds the total, offset and limit of the page to the response. Reporter contact details are redacted unless the caller also holds REPORT_VIEW_REPORTER_PII. Requires REPORT_VIEW permission.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -5101,13 +5281,6 @@
 						"description": "Only return reports filed under this category"
 					},
 					{
-						"name": "reason",
-						"in": "query",
-						"required": false,
-						"schema": {"description": "Only return reports filed with this report reason key", "type": "string"},
-						"description": "Only return reports filed with this report reason key"
-					},
-					{
 						"name": "reporter_id",
 						"in": "query",
 						"required": false,
@@ -5126,16 +5299,6 @@
 							"allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]
 						},
 						"description": "Only return reports about this user"
-					},
-					{
-						"name": "reported_webhook_id",
-						"in": "query",
-						"required": false,
-						"schema": {
-							"description": "Only return reports about messages sent by this webhook",
-							"allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]
-						},
-						"description": "Only return reports about messages sent by this webhook"
 					},
 					{
 						"name": "reported_guild_id",
@@ -5279,7 +5442,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Retrieves detailed information about a specific report including content, reporter, reason, and the message context and profile snapshot captured when it was filed. Requires REPORT_VIEW permission.",
+				"description": "Retrieves detailed information about a specific report including content, reporter, reason, and the message context captured when it was filed. Requires REPORT_VIEW permission.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -5342,7 +5505,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Moves a report to the resolved status. The reporter is always told the report was reviewed: an account reporter by system DM and email, a Digital Services Act notifier by email. notify_reporter false leaves the public comment out of that notice. Nothing is sent when the reporter account is deleted or barred from reporting. Creates an audit log entry. Requires REPORT_RESOLVE permission.",
+				"description": "Moves a report to the resolved status with an optional public comment shown to the reporter. Marks the report as handled, notifies the reporter by system DM and email unless notify_reporter is false, and creates an audit log entry. Requires REPORT_RESOLVE permission.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -5359,135 +5522,6 @@
 				"requestBody": {
 					"required": true,
 					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UpdateReportRequest"}}}
-				}
-			},
-			"delete": {
-				"operationId": "delete_admin_report",
-				"summary": "Delete report",
-				"tags": ["Admin"],
-				"responses": {
-					"204": {"description": "No Content"},
-					"400": {
-						"description": "Bad Request - The request was malformed or contained invalid data",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"401": {
-						"description": "Unauthorized - Authentication is required or the token is invalid",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"403": {
-						"description": "Forbidden - You do not have permission to perform this action",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"429": {
-						"description": "Too Many Requests - You are being rate limited",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
-						"headers": {
-							"Retry-After": {
-								"description": "Number of seconds to wait before retrying (only on 429)",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Limit": {
-								"description": "The number of requests that can be made in the current window",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Remaining": {
-								"description": "The number of remaining requests that can be made",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Reset": {
-								"description": "Unix timestamp when the rate limit resets",
-								"schema": {"type": "integer"}
-							}
-						}
-					},
-					"500": {
-						"description": "Internal Server Error - An unexpected error occurred",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					}
-				},
-				"description": "Deletes a report now: its record with the captured message context and profile snapshot, its stored evidence copies, its search index entry, and the duplicate-report reservation it holds for the reporter. An evidence copy that another report also uses is kept. A report under a legal hold that has not ended is refused with REPORT_UNDER_LEGAL_HOLD. This cannot be undone. Creates an audit log entry. Requires REPORT_DELETE permission.",
-				"security": [{"adminApiKey": []}],
-				"parameters": [
-					{
-						"name": "report_id",
-						"in": "path",
-						"required": true,
-						"schema": {
-							"description": "The ID of the report",
-							"allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]
-						},
-						"description": "The ID of the report"
-					}
-				]
-			}
-		},
-		"/admin/reports/{report_id}/legal-hold": {
-			"post": {
-				"operationId": "set_admin_report_legal_hold",
-				"summary": "Set report legal hold",
-				"tags": ["Admin"],
-				"responses": {
-					"200": {
-						"description": "Success",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReportLegalHoldResponse"}}}
-					},
-					"400": {
-						"description": "Bad Request - The request was malformed or contained invalid data",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"401": {
-						"description": "Unauthorized - Authentication is required or the token is invalid",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"403": {
-						"description": "Forbidden - You do not have permission to perform this action",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"429": {
-						"description": "Too Many Requests - You are being rate limited",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
-						"headers": {
-							"Retry-After": {
-								"description": "Number of seconds to wait before retrying (only on 429)",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Limit": {
-								"description": "The number of requests that can be made in the current window",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Remaining": {
-								"description": "The number of remaining requests that can be made",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Reset": {
-								"description": "Unix timestamp when the rate limit resets",
-								"schema": {"type": "integer"}
-							}
-						}
-					},
-					"500": {
-						"description": "Internal Server Error - An unexpected error occurred",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					}
-				},
-				"description": "Places or clears a legal hold on a report. A report is deleted together with its stored evidence when its retention period ends, unless a hold that ends later is in place, and a held report cannot be deleted through DELETE /admin/reports/{report_id} either. A hold needs an end time in the future and a reason. A null legal_hold_until clears the hold. Creates an audit log entry. Requires REPORT_RESOLVE permission.",
-				"security": [{"adminApiKey": []}],
-				"parameters": [
-					{
-						"name": "report_id",
-						"in": "path",
-						"required": true,
-						"schema": {
-							"description": "The ID of the report",
-							"allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]
-						},
-						"description": "The ID of the report"
-					}
-				],
-				"requestBody": {
-					"required": true,
-					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ReportLegalHoldRequest"}}}
 				}
 			}
 		},
@@ -5602,7 +5636,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Trigger a full or partial rebuild of the named search index. Creates a background job and returns its refresh ID for status tracking. The channel_messages, guild_members and threads indexes are rebuilt one guild at a time and require guild_id, and favorite_memes requires user_id. Requires GUILD_LOOKUP permission.",
+				"description": "Trigger a full or partial rebuild of the named search index. Creates a background job and returns its refresh ID for status tracking. The channel_messages and guild_members indexes are rebuilt one guild at a time and require guild_id, and favorite_memes requires user_id. Requires GUILD_LOOKUP permission.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -5619,8 +5653,7 @@
 								"channel_messages",
 								"guild_members",
 								"favorite_memes",
-								"discovery",
-								"threads"
+								"discovery"
 							],
 							"x-enumDescriptions": [
 								"Guild search index",
@@ -5630,8 +5663,7 @@
 								"Channel message search index",
 								"Guild member search index",
 								"Favourite meme search index",
-								"Discovery guild search index",
-								"Thread search index"
+								"Discovery guild search index"
 							],
 							"enum": [
 								"guilds",
@@ -5641,8 +5673,7 @@
 								"channel_messages",
 								"guild_members",
 								"favorite_memes",
-								"discovery",
-								"threads"
+								"discovery"
 							],
 							"type": "string"
 						},
@@ -6210,6 +6241,72 @@
 				"requestBody": {
 					"required": false,
 					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/BanUserAvatarRequest"}}}
+				}
+			}
+		},
+		"/admin/users/{user_id}/badges": {
+			"patch": {
+				"operationId": "update_admin_user_badges",
+				"summary": "Update user badges",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserMutationResponse"}}}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Replaces the badges shown on the user profile with the given badges. Creates audit log entry. Requires USER_UPDATE_BADGES permission.",
+				"security": [{"adminApiKey": []}],
+				"parameters": [
+					{
+						"name": "user_id",
+						"in": "path",
+						"required": true,
+						"schema": {"description": "The ID of the user", "allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
+						"description": "The ID of the user"
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/BadgeAssignmentRequest"}}}
 				}
 			}
 		},
@@ -7459,15 +7556,15 @@
 				]
 			}
 		},
-		"/admin/users/{user_id}/password-reset-link": {
-			"post": {
-				"operationId": "create_admin_user_password_reset_link",
-				"summary": "Create user password reset link",
+		"/admin/users/{user_id}/phone-verification": {
+			"put": {
+				"operationId": "update_admin_user_phone_verification",
+				"summary": "Update user phone verification flag",
 				"tags": ["Admin"],
 				"responses": {
 					"200": {
 						"description": "Success",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminPasswordResetLinkResponse"}}}
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserMutationResponse"}}}
 					},
 					"400": {
 						"description": "Bad Request - The request was malformed or contained invalid data",
@@ -7508,7 +7605,7 @@
 						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
 					}
 				},
-				"description": "Create a one-time password reset link on an instance where people sign in with a username. Hand the link to the user yourself. It works once and expires after an hour. Deletes the recovery kit of the account. Creates audit log entry. Requires USER_CREATE_PASSWORD_RESET_LINK permission and every ACL the target account holds. Fails with USERNAME_SIGN_IN_ONLY on email instances.",
+				"description": "Set whether a user is treated as having completed phone verification. This is the only supported path for clearing the irreversible user-facing phone verification flag. Requires USER_UPDATE_PHONE permission.",
 				"security": [{"adminApiKey": []}],
 				"parameters": [
 					{
@@ -7518,7 +7615,13 @@
 						"schema": {"description": "The ID of the user", "allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
 						"description": "The ID of the user"
 					}
-				]
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {"schema": {"$ref": "#/components/schemas/AdminUserPhoneVerificationRequest"}}
+					}
+				}
 			}
 		},
 		"/admin/users/{user_id}/premium-flags": {
@@ -7653,65 +7756,6 @@
 					"required": true,
 					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminUserClearFieldsRequest"}}}
 				}
-			}
-		},
-		"/admin/users/{user_id}/recovery-kit": {
-			"delete": {
-				"operationId": "revoke_admin_user_recovery_kit",
-				"summary": "Revoke user recovery kit",
-				"tags": ["Admin"],
-				"responses": {
-					"204": {"description": "No Content"},
-					"400": {
-						"description": "Bad Request - The request was malformed or contained invalid data",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"401": {
-						"description": "Unauthorized - Authentication is required or the token is invalid",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"403": {
-						"description": "Forbidden - You do not have permission to perform this action",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					},
-					"429": {
-						"description": "Too Many Requests - You are being rate limited",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
-						"headers": {
-							"Retry-After": {
-								"description": "Number of seconds to wait before retrying (only on 429)",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Limit": {
-								"description": "The number of requests that can be made in the current window",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Remaining": {
-								"description": "The number of remaining requests that can be made",
-								"schema": {"type": "integer"}
-							},
-							"X-RateLimit-Reset": {
-								"description": "Unix timestamp when the rate limit resets",
-								"schema": {"type": "integer"}
-							}
-						}
-					},
-					"500": {
-						"description": "Internal Server Error - An unexpected error occurred",
-						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
-					}
-				},
-				"description": "Deletes the recovery kit of an account on an instance where people sign in with a username, so its key stops working. Creates audit log entry. Requires USER_DELETE_RECOVERY_KIT permission and every ACL the target account holds. Fails with USERNAME_SIGN_IN_ONLY on email instances.",
-				"security": [{"adminApiKey": []}],
-				"parameters": [
-					{
-						"name": "user_id",
-						"in": "path",
-						"required": true,
-						"schema": {"description": "The ID of the user", "allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
-						"description": "The ID of the user"
-					}
-				]
 			}
 		},
 		"/admin/users/{user_id}/relationships": {
@@ -8171,6 +8215,142 @@
 						"description": "The ID of the user"
 					}
 				]
+			}
+		},
+		"/admin/users/{user_id}/suspicious-activity-disablement": {
+			"put": {
+				"operationId": "disable_admin_user_suspicious",
+				"summary": "Disable user for suspicious activity",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserMutationResponse"}}}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Disable user account due to suspicious activity or abuse. Account is locked pending review. User cannot access services. Emails the user unless notify_user is false. Creates audit log entry. Requires USER_DISABLE_SUSPICIOUS permission.",
+				"security": [{"adminApiKey": []}],
+				"parameters": [
+					{
+						"name": "user_id",
+						"in": "path",
+						"required": true,
+						"schema": {"description": "The ID of the user", "allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
+						"description": "The ID of the user"
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {"schema": {"$ref": "#/components/schemas/AdminUserSuspiciousDisableRequest"}}
+					}
+				}
+			}
+		},
+		"/admin/users/{user_id}/suspicious-activity-flags": {
+			"put": {
+				"operationId": "update_admin_user_suspicious_activity_flags",
+				"summary": "Update suspicious activity flags",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserMutationResponse"}}}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Flag user as suspicious for account abuse, fraud, or policy violations. Enables enforcement actions and rate limiting. Creates audit log entry. Requires USER_UPDATE_SUSPICIOUS_ACTIVITY permission.",
+				"security": [{"adminApiKey": []}],
+				"parameters": [
+					{
+						"name": "user_id",
+						"in": "path",
+						"required": true,
+						"schema": {"description": "The ID of the user", "allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
+						"description": "The ID of the user"
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {
+						"application/json": {"schema": {"$ref": "#/components/schemas/AdminUserSuspiciousActivityFlagsRequest"}}
+					}
+				}
 			}
 		},
 		"/admin/users/{user_id}/system-status": {
@@ -9215,10 +9395,7 @@
 			"Error": {
 				"type": "object",
 				"properties": {
-					"code": {
-						"type": "string",
-						"description": "Machine-readable error code. Known values are listed in the APIErrorCode schema"
-					},
+					"code": {"type": "string", "description": "Machine-readable error code"},
 					"message": {"type": "string", "description": "Human-readable error message"},
 					"errors": {
 						"description": "Field-specific validation errors",
@@ -9241,10 +9418,7 @@
 			"ThrottledError": {
 				"type": "object",
 				"properties": {
-					"code": {
-						"type": "string",
-						"description": "Machine-readable error code. Known values are listed in the APIErrorCode schema"
-					},
+					"code": {"type": "string", "description": "Machine-readable error code"},
 					"message": {"type": "string", "description": "Human-readable error message"},
 					"errors": {
 						"description": "Field-specific validation errors",
@@ -9698,6 +9872,31 @@
 				},
 				"required": ["system"]
 			},
+			"AdminUserSuspiciousActivityFlagsRequest": {
+				"type": "object",
+				"properties": {
+					"flags": {
+						"description": "Bitmask of suspicious activity flags",
+						"allOf": [{"$ref": "#/components/schemas/SuspiciousActivityFlags"}]
+					}
+				},
+				"required": ["flags"]
+			},
+			"AdminUserSuspiciousDisableRequest": {
+				"type": "object",
+				"properties": {
+					"flags": {
+						"description": "Bitmask of suspicious activity flags that triggered the disable",
+						"allOf": [{"$ref": "#/components/schemas/SuspiciousActivityFlags"}]
+					},
+					"notify_user": {
+						"default": true,
+						"description": "Whether to email the user that the account was disabled",
+						"type": "boolean"
+					}
+				},
+				"required": ["flags"]
+			},
 			"AdminStorePurchaseListResponse": {
 				"type": "object",
 				"properties": {
@@ -9852,19 +10051,15 @@
 					}
 				}
 			},
-			"AdminPasswordResetLinkResponse": {
+			"AdminUserPhoneVerificationRequest": {
 				"type": "object",
 				"properties": {
-					"url": {"type": "string", "description": "Password reset link to hand to the user. It is shown only once"},
-					"expires_at": {
-						"type": "string",
-						"format": "date-time",
-						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-						"description": "ISO 8601 timestamp when the link stops working"
+					"has_verified_phone": {
+						"type": "boolean",
+						"description": "Whether the user should be treated as having completed phone verification"
 					}
 				},
-				"required": ["url", "expires_at"],
-				"additionalProperties": false
+				"required": ["has_verified_phone"]
 			},
 			"DeleteAllUserMessagesResponse": {
 				"type": "object",
@@ -10213,6 +10408,18 @@
 				},
 				"required": ["duration_hours"]
 			},
+			"BadgeAssignmentRequest": {
+				"type": "object",
+				"properties": {
+					"badge_ids": {
+						"maxItems": 10,
+						"type": "array",
+						"items": {"$ref": "#/components/schemas/SnowflakeType"},
+						"description": "IDs of the badges to write to the account record"
+					}
+				},
+				"required": ["badge_ids"]
+			},
 			"BanUserAvatarRequest": {
 				"type": "object",
 				"properties": {"reason": {"type": "string"}, "notes": {"type": "string"}}
@@ -10281,7 +10488,7 @@
 				"type": "object",
 				"properties": {
 					"acls": {
-						"maxItems": 106,
+						"maxItems": 114,
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AdminAclType"},
 						"description": "List of access control permissions to assign"
@@ -10400,41 +10607,6 @@
 					}
 				]
 			},
-			"ReportLegalHoldRequest": {
-				"type": "object",
-				"properties": {
-					"legal_hold_until": {
-						"nullable": true,
-						"description": "When the hold ends, as an ISO 8601 timestamp in the future. Null clears the hold",
-						"type": "string",
-						"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?$"
-					},
-					"legal_hold_reason": {
-						"description": "Why the report is kept past its retention period. Required to place a hold, ignored when clearing one",
-						"nullable": true,
-						"type": "string"
-					}
-				},
-				"required": ["legal_hold_until"]
-			},
-			"ReportLegalHoldResponse": {
-				"type": "object",
-				"properties": {
-					"report_id": {"$ref": "#/components/schemas/SnowflakeStringType"},
-					"legal_hold_until": {
-						"nullable": true,
-						"description": "When the hold ends. Null when the report has no hold",
-						"type": "string"
-					},
-					"legal_hold_reason": {
-						"nullable": true,
-						"description": "Why the report is held. Null when the report has no hold",
-						"type": "string"
-					}
-				},
-				"required": ["report_id", "legal_hold_until", "legal_hold_reason"],
-				"additionalProperties": false
-			},
 			"UpdateReportRequest": {
 				"type": "object",
 				"properties": {
@@ -10442,19 +10614,8 @@
 					"public_comment": {"description": "Public comment to include with the resolution", "type": "string"},
 					"notify_reporter": {
 						"default": true,
-						"description": "Whether to include the public comment in the notice sent to the reporter. The reporter is notified either way",
+						"description": "Whether to notify the reporter by system DM and email",
 						"type": "boolean"
-					},
-					"resolution": {
-						"description": "How the report was resolved",
-						"x-enumNames": ["actioned", "no_violation", "duplicate"],
-						"x-enumDescriptions": [
-							"The report was valid and action was taken",
-							"The report was reviewed and no violation was found",
-							"The report repeats one that was already handled"
-						],
-						"enum": ["actioned", "no_violation", "duplicate"],
-						"type": "string"
 					}
 				},
 				"required": ["status"]
@@ -10493,39 +10654,6 @@
 					"reported_user_global_name": {"nullable": true, "type": "string"},
 					"reported_user_discriminator": {"nullable": true, "type": "string"},
 					"reported_user_avatar_hash": {"nullable": true, "type": "string"},
-					"reported_user_bot": {
-						"description": "Whether the reported account is a bot. Null when there is no reported account or it no longer resolves.",
-						"nullable": true,
-						"type": "boolean"
-					},
-					"reported_webhook_id": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]},
-					"reported_webhook_name": {"nullable": true, "type": "string"},
-					"reported_webhook_avatar_hash": {"nullable": true, "type": "string"},
-					"reported_webhook_default_name": {"nullable": true, "type": "string"},
-					"reported_webhook_default_avatar_hash": {"nullable": true, "type": "string"},
-					"reported_webhook_type": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/WebhookType"}]},
-					"reported_webhook_application_id": {
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"reported_webhook_channel_id": {
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"reported_webhook_guild_id": {
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"reported_webhook_created_at": {"nullable": true, "type": "string"},
-					"reported_webhook_creator_id": {
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"reported_webhook_creator_tag": {"nullable": true, "type": "string"},
-					"reported_webhook_creator_username": {"nullable": true, "type": "string"},
-					"reported_webhook_creator_global_name": {"nullable": true, "type": "string"},
-					"reported_webhook_creator_discriminator": {"nullable": true, "type": "string"},
-					"reported_webhook_creator_avatar_hash": {"nullable": true, "type": "string"},
 					"reported_guild_id": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]},
 					"reported_guild_name": {"nullable": true, "type": "string"},
 					"reported_guild_icon_hash": {"nullable": true, "type": "string"},
@@ -10592,9 +10720,37 @@
 											"content_type": {"nullable": true, "type": "string"},
 											"width": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
 											"height": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
-											"size": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/NonNegativeSafeIntegerType"}]}
+											"size": {
+												"nullable": true,
+												"allOf": [{"$ref": "#/components/schemas/NonNegativeSafeIntegerType"}]
+											},
+											"ncmec_status": {
+												"description": "NCMEC submission status",
+												"x-enumNames": ["not_submitted", "submitting", "submitted", "failed"],
+												"x-enumDescriptions": [
+													"Report has not been submitted to NCMEC",
+													"Report submission to NCMEC is in progress",
+													"Report has been submitted to NCMEC",
+													"Report submission to NCMEC failed"
+												],
+												"enum": ["not_submitted", "submitting", "submitted", "failed"],
+												"type": "string"
+											},
+											"ncmec_report_id": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 256},
+											"ncmec_failure_reason": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 4000}
 										},
-										"required": ["id", "filename", "url", "nsfw", "content_type", "width", "height"],
+										"required": [
+											"id",
+											"filename",
+											"url",
+											"nsfw",
+											"content_type",
+											"width",
+											"height",
+											"ncmec_status",
+											"ncmec_report_id",
+											"ncmec_failure_reason"
+										],
 										"additionalProperties": false
 									}
 								},
@@ -10603,29 +10759,10 @@
 								"author_global_name": {"nullable": true, "type": "string"},
 								"author_discriminator": {"type": "string"},
 								"author_avatar": {"nullable": true, "type": "string"},
-								"webhook_id": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]},
-								"author_bot": {
-									"description": "Whether the author is a bot account. Null for a webhook message or an account that no longer resolves.",
-									"nullable": true,
-									"type": "boolean"
-								},
-								"missing_attachments": {
-									"description": "Attachments of the message that could not be copied into the report when it was filed",
+								"user_prior_ncmec_report_ids": {
+									"maxItems": 100,
 									"type": "array",
-									"items": {
-										"type": "object",
-										"properties": {
-											"id": {"$ref": "#/components/schemas/SnowflakeStringType"},
-											"filename": {"type": "string", "minLength": 1, "maxLength": 256},
-											"nsfw": {"nullable": true, "type": "boolean"},
-											"content_type": {"nullable": true, "type": "string"},
-											"width": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
-											"height": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
-											"size": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/NonNegativeSafeIntegerType"}]}
-										},
-										"required": ["id", "filename", "nsfw", "content_type", "width", "height", "size"],
-										"additionalProperties": false
-									}
+									"items": {"type": "string", "minLength": 1, "maxLength": 256}
 								}
 							},
 							"required": [
@@ -10646,218 +10783,7 @@
 							"additionalProperties": false
 						}
 					},
-					"message_responses": {"type": "array", "items": {"$ref": "#/components/schemas/MessageResponseSchema"}},
-					"reported_profile_snapshot": {
-						"description": "The reported profile as it was when the report was filed. Returned by the report detail only. Null for a report filed before snapshots were stored.",
-						"nullable": true,
-						"type": "object",
-						"properties": {
-							"captured_at": {"type": "string", "description": "When the snapshot was taken"},
-							"user": {
-								"nullable": true,
-								"description": "The reported account as it was when the report was filed",
-								"type": "object",
-								"properties": {
-									"id": {"$ref": "#/components/schemas/SnowflakeStringType"},
-									"username": {"nullable": true, "type": "string"},
-									"discriminator": {"nullable": true, "type": "string"},
-									"global_name": {"nullable": true, "type": "string"},
-									"bio": {"nullable": true, "type": "string"},
-									"pronouns": {"nullable": true, "type": "string"},
-									"avatar": {
-										"nullable": true,
-										"type": "object",
-										"properties": {
-											"hash": {"type": "string", "description": "The asset hash at the time the report was filed"},
-											"url": {
-												"nullable": true,
-												"description": "A download URL valid for 5 minutes. Null when the asset could not be copied into the report or no download URL could be made.",
-												"type": "string",
-												"minLength": 1,
-												"maxLength": 2048
-											}
-										},
-										"required": ["hash", "url"],
-										"additionalProperties": false
-									},
-									"banner": {
-										"nullable": true,
-										"type": "object",
-										"properties": {
-											"hash": {"type": "string", "description": "The asset hash at the time the report was filed"},
-											"url": {
-												"nullable": true,
-												"description": "A download URL valid for 5 minutes. Null when the asset could not be copied into the report or no download URL could be made.",
-												"type": "string",
-												"minLength": 1,
-												"maxLength": 2048
-											}
-										},
-										"required": ["hash", "url"],
-										"additionalProperties": false
-									}
-								},
-								"required": ["id", "username", "discriminator", "global_name", "bio", "pronouns", "avatar", "banner"],
-								"additionalProperties": false
-							},
-							"member": {
-								"nullable": true,
-								"description": "The community profile of the reported account when the report was filed from within a community",
-								"type": "object",
-								"properties": {
-									"guild_id": {"$ref": "#/components/schemas/SnowflakeStringType"},
-									"nick": {"nullable": true, "type": "string"},
-									"bio": {"nullable": true, "type": "string"},
-									"pronouns": {"nullable": true, "type": "string"},
-									"joined_at": {"nullable": true, "type": "string"},
-									"avatar": {
-										"nullable": true,
-										"type": "object",
-										"properties": {
-											"hash": {"type": "string", "description": "The asset hash at the time the report was filed"},
-											"url": {
-												"nullable": true,
-												"description": "A download URL valid for 5 minutes. Null when the asset could not be copied into the report or no download URL could be made.",
-												"type": "string",
-												"minLength": 1,
-												"maxLength": 2048
-											}
-										},
-										"required": ["hash", "url"],
-										"additionalProperties": false
-									},
-									"banner": {
-										"nullable": true,
-										"type": "object",
-										"properties": {
-											"hash": {"type": "string", "description": "The asset hash at the time the report was filed"},
-											"url": {
-												"nullable": true,
-												"description": "A download URL valid for 5 minutes. Null when the asset could not be copied into the report or no download URL could be made.",
-												"type": "string",
-												"minLength": 1,
-												"maxLength": 2048
-											}
-										},
-										"required": ["hash", "url"],
-										"additionalProperties": false
-									}
-								},
-								"required": ["guild_id", "nick", "bio", "pronouns", "joined_at", "avatar", "banner"],
-								"additionalProperties": false
-							},
-							"guild": {
-								"nullable": true,
-								"description": "The reported community as it was when the report was filed",
-								"type": "object",
-								"properties": {
-									"id": {"$ref": "#/components/schemas/SnowflakeStringType"},
-									"name": {"nullable": true, "type": "string"},
-									"vanity_url_code": {"nullable": true, "type": "string"},
-									"icon": {
-										"nullable": true,
-										"type": "object",
-										"properties": {
-											"hash": {"type": "string", "description": "The asset hash at the time the report was filed"},
-											"url": {
-												"nullable": true,
-												"description": "A download URL valid for 5 minutes. Null when the asset could not be copied into the report or no download URL could be made.",
-												"type": "string",
-												"minLength": 1,
-												"maxLength": 2048
-											}
-										},
-										"required": ["hash", "url"],
-										"additionalProperties": false
-									},
-									"banner": {
-										"nullable": true,
-										"type": "object",
-										"properties": {
-											"hash": {"type": "string", "description": "The asset hash at the time the report was filed"},
-											"url": {
-												"nullable": true,
-												"description": "A download URL valid for 5 minutes. Null when the asset could not be copied into the report or no download URL could be made.",
-												"type": "string",
-												"minLength": 1,
-												"maxLength": 2048
-											}
-										},
-										"required": ["hash", "url"],
-										"additionalProperties": false
-									},
-									"splash": {
-										"nullable": true,
-										"type": "object",
-										"properties": {
-											"hash": {"type": "string", "description": "The asset hash at the time the report was filed"},
-											"url": {
-												"nullable": true,
-												"description": "A download URL valid for 5 minutes. Null when the asset could not be copied into the report or no download URL could be made.",
-												"type": "string",
-												"minLength": 1,
-												"maxLength": 2048
-											}
-										},
-										"required": ["hash", "url"],
-										"additionalProperties": false
-									}
-								},
-								"required": ["id", "name", "vanity_url_code", "icon", "banner", "splash"],
-								"additionalProperties": false
-							}
-						},
-						"required": ["captured_at", "user", "member", "guild"],
-						"additionalProperties": false
-					},
-					"legal_hold_until": {
-						"description": "When the legal hold on the report ends. The report is kept past its retention period until then. Returned by the report detail only. Null when the report has no hold.",
-						"nullable": true,
-						"type": "string"
-					},
-					"legal_hold_reason": {
-						"description": "Why the report is held. Returned by the report detail only. Null when the report has no hold.",
-						"nullable": true,
-						"type": "string"
-					},
-					"reason": {"nullable": true, "type": "string"},
-					"reason_label": {"nullable": true, "type": "string"},
-					"reason_highest_priority": {"nullable": true, "type": "boolean"},
-					"flow": {
-						"nullable": true,
-						"type": "object",
-						"properties": {
-							"revision_hash": {"type": "string"},
-							"surface": {"type": "string"},
-							"locale": {"nullable": true, "type": "string"},
-							"steps": {
-								"type": "array",
-								"items": {
-									"type": "object",
-									"properties": {
-										"screen_id": {"type": "string"},
-										"screen_title": {"type": "string"},
-										"option_id": {"nullable": true, "type": "string"},
-										"option_label": {"nullable": true, "type": "string"},
-										"items": {
-											"type": "array",
-											"items": {
-												"type": "object",
-												"properties": {"id": {"type": "string"}, "label": {"type": "string"}},
-												"required": ["id", "label"],
-												"additionalProperties": false
-											}
-										}
-									},
-									"required": ["screen_id", "screen_title", "option_id", "option_label", "items"],
-									"additionalProperties": false
-								}
-							}
-						},
-						"required": ["revision_hash", "surface", "locale", "steps"],
-						"additionalProperties": false
-					},
-					"reporter_good_faith_confirmed": {"nullable": true, "type": "boolean"}
+					"message_responses": {"type": "array", "items": {"$ref": "#/components/schemas/MessageResponseSchema"}}
 				},
 				"required": [
 					"report_id",
@@ -10899,41 +10825,11 @@
 				"type": "object",
 				"properties": {
 					"reports": {"type": "array", "items": {"$ref": "#/components/schemas/ReportAdminResponseSchema"}},
-					"total": {"type": "number", "description": "Number of reports in the search index that match the filters"},
-					"offset": {"type": "number", "description": "The offset this page was read from"},
-					"limit": {"type": "number", "description": "The limit this page was read with"}
+					"total": {"type": "number"},
+					"offset": {"type": "number"},
+					"limit": {"type": "number"}
 				},
 				"required": ["reports", "total", "offset", "limit"],
-				"additionalProperties": false
-			},
-			"AdminReportReasonsResponse": {
-				"type": "object",
-				"properties": {
-					"reasons": {
-						"type": "array",
-						"items": {
-							"type": "object",
-							"properties": {
-								"key": {"type": "string"},
-								"label": {"type": "string"},
-								"highest_priority": {"type": "boolean"},
-								"legacy_category_message": {"type": "string"},
-								"legacy_category_user": {"type": "string"},
-								"legacy_category_guild": {"type": "string"}
-							},
-							"required": [
-								"key",
-								"label",
-								"highest_priority",
-								"legacy_category_message",
-								"legacy_category_user",
-								"legacy_category_guild"
-							],
-							"additionalProperties": false
-						}
-					}
-				},
-				"required": ["reasons"],
 				"additionalProperties": false
 			},
 			"MessageShredStatusResponse": {
@@ -10971,6 +10867,29 @@
 						"additionalProperties": false
 					}
 				]
+			},
+			"ReportAttachmentToNcmecRequest": {
+				"type": "object",
+				"properties": {
+					"channel_id": {"$ref": "#/components/schemas/SnowflakeType"},
+					"message_id": {"$ref": "#/components/schemas/SnowflakeType"},
+					"attachment_id": {"$ref": "#/components/schemas/SnowflakeType"},
+					"filename": {"type": "string", "minLength": 1, "maxLength": 255},
+					"source_report_id": {"allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
+					"reporter_full_name": {"type": "string", "minLength": 1, "maxLength": 200},
+					"confirmed_viewed": {"type": "boolean", "enum": [true]}
+				},
+				"required": ["channel_id", "message_id", "attachment_id", "filename", "reporter_full_name", "confirmed_viewed"]
+			},
+			"NcmecAttachmentSubmitResultResponse": {
+				"type": "object",
+				"properties": {
+					"success": {"type": "boolean", "enum": [true]},
+					"ncmec_report_id": {"type": "string", "minLength": 1, "maxLength": 256},
+					"audit_log_reason": {"type": "string", "minLength": 1, "maxLength": 4000}
+				},
+				"required": ["success", "ncmec_report_id", "audit_log_reason"],
+				"additionalProperties": false
 			},
 			"AdminMessageSearchResponse": {
 				"anyOf": [
@@ -11107,7 +11026,7 @@
 								"category": {"type": "string"},
 								"scope": {"type": "string"},
 								"isToggle": {"type": "boolean"},
-								"unit": {"type": "string", "enum": ["bytes", "count", "bps"]},
+								"unit": {"type": "string", "enum": ["bytes", "count"]},
 								"min": {"type": "number"},
 								"max": {"type": "number"}
 							},
@@ -11154,7 +11073,6 @@
 							"max_private_channels_per_user",
 							"max_reactions_per_message",
 							"max_relationships",
-							"max_screen_share_bitrate",
 							"max_users_per_message_reaction",
 							"max_voice_message_duration",
 							"max_webhooks_per_channel",
@@ -11269,7 +11187,6 @@
 					"gateway_rollout": {"$ref": "#/components/schemas/GatewayRolloutConfigResponse"},
 					"push_relay": {"$ref": "#/components/schemas/PushRelayConfigResponse"},
 					"domain_migration": {"$ref": "#/components/schemas/DomainMigrationConfigResponse"},
-					"voice_p2p": {"$ref": "#/components/schemas/VoiceP2pConfigResponse"},
 					"captcha": {"$ref": "#/components/schemas/CaptchaConfigResponse"},
 					"experiment_delivery": {"$ref": "#/components/schemas/ExperimentDeliveryConfigResponse"},
 					"registration": {
@@ -11368,19 +11285,6 @@
 						"additionalProperties": false
 					},
 					"self_hosted": {"type": "boolean"},
-					"account_identity": {
-						"type": "object",
-						"properties": {
-							"mode": {
-								"description": "Sign-in method in effect on this instance",
-								"allOf": [{"$ref": "#/components/schemas/AccountIdentityModeSchema"}]
-							},
-							"locked": {"type": "boolean", "description": "Whether the sign-in method can no longer change"},
-							"tag_style": {"allOf": [{"$ref": "#/components/schemas/TagStyleSchema"}]}
-						},
-						"required": ["mode", "locked", "tag_style"],
-						"additionalProperties": false
-					},
 					"app_public": {
 						"type": "object",
 						"properties": {
@@ -11424,10 +11328,9 @@
 								"type": "object",
 								"properties": {
 									"terms_url": {"nullable": true, "type": "string"},
-									"privacy_url": {"nullable": true, "type": "string"},
-									"guidelines_url": {"nullable": true, "type": "string"}
+									"privacy_url": {"nullable": true, "type": "string"}
 								},
-								"required": ["terms_url", "privacy_url", "guidelines_url"],
+								"required": ["terms_url", "privacy_url"],
 								"additionalProperties": false
 							},
 							"registration": {
@@ -11524,34 +11427,9 @@
 											"port": {"nullable": true, "type": "integer", "minimum": 1, "maximum": 65535},
 											"username": {"nullable": true, "type": "string"},
 											"password_set": {"type": "boolean"},
-											"tls_mode": {
-												"nullable": true,
-												"description": "Saved TLS mode, or null to pick one from the port",
-												"x-enumNames": ["IMPLICIT", "STARTTLS", "OPPORTUNISTIC", "NONE"],
-												"x-enumDescriptions": [
-													"TLS from the first byte, usually on port 465",
-													"Plain connection that must upgrade with STARTTLS, usually on port 587",
-													"Plain connection upgraded with STARTTLS when the server offers it",
-													"No TLS, even when the server offers STARTTLS"
-												],
-												"enum": ["implicit", "starttls", "opportunistic", "none"],
-												"type": "string"
-											},
-											"effective_tls_mode": {
-												"nullable": true,
-												"description": "How the SMTP connection is encrypted",
-												"x-enumNames": ["IMPLICIT", "STARTTLS", "OPPORTUNISTIC", "NONE"],
-												"x-enumDescriptions": [
-													"TLS from the first byte, usually on port 465",
-													"Plain connection that must upgrade with STARTTLS, usually on port 587",
-													"Plain connection upgraded with STARTTLS when the server offers it",
-													"No TLS, even when the server offers STARTTLS"
-												],
-												"enum": ["implicit", "starttls", "opportunistic", "none"],
-												"type": "string"
-											}
+											"secure": {"nullable": true, "type": "boolean"}
 										},
-										"required": ["host", "port", "username", "password_set", "tls_mode", "effective_tls_mode"],
+										"required": ["host", "port", "username", "password_set", "secure"],
 										"additionalProperties": false
 									},
 									"disable_new_ip_authorization": {"type": "boolean"},
@@ -11709,12 +11587,10 @@
 					"gateway_rollout",
 					"push_relay",
 					"domain_migration",
-					"voice_p2p",
 					"captcha",
 					"experiment_delivery",
 					"registration",
 					"self_hosted",
-					"account_identity",
 					"app_public",
 					"policy",
 					"integrations",
@@ -11814,24 +11690,13 @@
 			"InstanceEmailSmtpTestRequest": {
 				"type": "object",
 				"properties": {
-					"host": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 255},
-					"port": {"nullable": true, "type": "integer", "minimum": 1, "maximum": 65535},
-					"username": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 320},
-					"password": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 4096},
-					"tls_mode": {
-						"nullable": true,
-						"description": "How the SMTP connection is encrypted",
-						"x-enumNames": ["IMPLICIT", "STARTTLS", "OPPORTUNISTIC", "NONE"],
-						"x-enumDescriptions": [
-							"TLS from the first byte, usually on port 465",
-							"Plain connection that must upgrade with STARTTLS, usually on port 587",
-							"Plain connection upgraded with STARTTLS when the server offers it",
-							"No TLS, even when the server offers STARTTLS"
-						],
-						"enum": ["implicit", "starttls", "opportunistic", "none"],
-						"type": "string"
-					}
-				}
+					"host": {"type": "string", "minLength": 1, "maxLength": 255},
+					"port": {"type": "integer", "minimum": 1, "maximum": 65535},
+					"username": {"type": "string", "minLength": 1, "maxLength": 320},
+					"password": {"type": "string", "minLength": 1, "maxLength": 4096},
+					"secure": {"default": true, "type": "boolean"}
+				},
+				"required": ["host", "port", "username", "password"]
 			},
 			"InstanceEmailSmtpTestResponse": {
 				"type": "object",
@@ -11859,7 +11724,6 @@
 						"nullable": true,
 						"allOf": [{"$ref": "#/components/schemas/DomainMigrationConfigUpdateRequest"}]
 					},
-					"voice_p2p": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/VoiceP2pConfigUpdateRequest"}]},
 					"captcha": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/CaptchaConfigUpdateRequest"}]},
 					"experiment_delivery": {
 						"nullable": true,
@@ -11906,11 +11770,7 @@
 									"logo_url": {"nullable": true, "type": "string", "maxLength": 2048},
 									"wordmark_url": {"nullable": true, "type": "string", "maxLength": 2048},
 									"favicon_url": {"nullable": true, "type": "string", "maxLength": 2048},
-									"theme_color": {
-										"nullable": true,
-										"type": "string",
-										"pattern": "^(?:#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}))?$"
-									},
+									"theme_color": {"nullable": true, "type": "string", "maxLength": 64},
 									"status_page_url": {"nullable": true, "type": "string", "maxLength": 2048},
 									"status_page_incident_history_url": {"nullable": true, "type": "string", "maxLength": 2048},
 									"premium_product_name": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 40},
@@ -11923,8 +11783,7 @@
 								"type": "object",
 								"properties": {
 									"terms_url": {"nullable": true, "type": "string", "maxLength": 2048},
-									"privacy_url": {"nullable": true, "type": "string", "maxLength": 2048},
-									"guidelines_url": {"nullable": true, "type": "string", "maxLength": 2048}
+									"privacy_url": {"nullable": true, "type": "string", "maxLength": 2048}
 								}
 							},
 							"registration": {
@@ -11964,20 +11823,7 @@
 											"port": {"nullable": true, "type": "integer", "minimum": 1, "maximum": 65535},
 											"username": {"nullable": true, "type": "string", "maxLength": 320},
 											"password": {"nullable": true, "type": "string", "maxLength": 4096},
-											"tls_mode": {
-												"nullable": true,
-												"description": "How the SMTP connection is encrypted",
-												"x-enumNames": ["IMPLICIT", "STARTTLS", "OPPORTUNISTIC", "NONE"],
-												"x-enumDescriptions": [
-													"TLS from the first byte, usually on port 465",
-													"Plain connection that must upgrade with STARTTLS, usually on port 587",
-													"Plain connection upgraded with STARTTLS when the server offers it",
-													"No TLS, even when the server offers STARTTLS"
-												],
-												"enum": ["implicit", "starttls", "opportunistic", "none"],
-												"type": "string"
-											},
-											"secure": {"description": "Deprecated, use tls_mode", "nullable": true, "type": "boolean"}
+											"secure": {"nullable": true, "type": "boolean"}
 										}
 									},
 									"disable_new_ip_authorization": {"nullable": true, "type": "boolean"}
@@ -12078,18 +11924,6 @@
 					"billing": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/InstanceBillingUpdateRequest"}]}
 				}
 			},
-			"ListGuildThreadsResponse": {
-				"type": "object",
-				"properties": {
-					"threads": {
-						"type": "array",
-						"items": {"$ref": "#/components/schemas/ThreadChannelResponse"},
-						"description": "Every thread of the guild, active and archived, newest first"
-					}
-				},
-				"required": ["threads"],
-				"additionalProperties": false
-			},
 			"ListGuildStickersResponse": {
 				"type": "object",
 				"properties": {
@@ -12180,7 +12014,7 @@
 					}
 				}
 			},
-			"AuditLogActionTypeFilter": {
+			"AuditLogActionTypeInput": {
 				"description": "The type of action that occurred",
 				"type": "integer",
 				"minimum": 0,
@@ -12283,11 +12117,6 @@
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AuditLogWebhookResponse"},
 						"description": "Webhooks referenced in the audit log entries"
-					},
-					"threads": {
-						"description": "Threads referenced in the audit log entries, when the viewer can see threads",
-						"type": "array",
-						"items": {"allOf": [{"$ref": "#/components/schemas/ThreadChannelResponse"}]}
 					}
 				},
 				"required": ["audit_log_entries", "users", "webhooks"],
@@ -12368,6 +12197,12 @@
 						"type": "array",
 						"items": {"allOf": [{"$ref": "#/components/schemas/GuildFeatureSchema"}]}
 					},
+					"badge_ids": {
+						"maxItems": 10,
+						"type": "array",
+						"items": {"$ref": "#/components/schemas/SnowflakeType"},
+						"description": "IDs of the badges to write to the account record"
+					},
 					"fields": {
 						"maxItems": 10,
 						"type": "array",
@@ -12404,7 +12239,10 @@
 							"icon": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 256},
 							"banner": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 256},
 							"member_count": {"$ref": "#/components/schemas/Int32Type"},
-							"nsfw_level": {"allOf": [{"$ref": "#/components/schemas/NSFWLevel"}]}
+							"nsfw_level": {"allOf": [{"$ref": "#/components/schemas/NSFWLevel"}]},
+							"nsfw": {"type": "boolean"},
+							"content_warning_level": {"allOf": [{"$ref": "#/components/schemas/ContentWarningLevel"}]},
+							"content_warning_text": {"nullable": true, "type": "string", "maxLength": 200}
 						},
 						"required": ["id", "name", "features", "owner_id", "icon", "banner", "member_count"],
 						"additionalProperties": false
@@ -12436,6 +12274,7 @@
 								"type": "array",
 								"items": {"type": "string", "minLength": 1, "maxLength": 256}
 							},
+							"badge_ids": {"allOf": [{"$ref": "#/components/schemas/BadgeIdsResponse"}]},
 							"verification_level": {"allOf": [{"$ref": "#/components/schemas/GuildVerificationLevel"}]},
 							"mfa_level": {"allOf": [{"$ref": "#/components/schemas/GuildMFALevel"}]},
 							"nsfw_level": {"allOf": [{"$ref": "#/components/schemas/NSFWLevel"}]},
@@ -12507,6 +12346,7 @@
 							"splash",
 							"embed_splash",
 							"features",
+							"badge_ids",
 							"verification_level",
 							"mfa_level",
 							"nsfw_level",
@@ -12599,9 +12439,6 @@
 				"properties": {
 					"status": {"type": "string", "minLength": 1, "maxLength": 256},
 					"sessions": {"$ref": "#/components/schemas/Int32Type"},
-					"session_resumes_total": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
-					"websocket_dispatches_total": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
-					"websocket_dispatch_drops_total": {"type": "integer", "minimum": 0, "maximum": 9007199254740991},
 					"guilds": {"$ref": "#/components/schemas/Int32Type"},
 					"presences": {"$ref": "#/components/schemas/Int32Type"},
 					"calls": {"$ref": "#/components/schemas/Int32Type"},
@@ -12628,24 +12465,6 @@
 								"node_id": {"type": "string", "minLength": 1, "maxLength": 256},
 								"status": {"type": "string", "minLength": 1, "maxLength": 256},
 								"sessions": {"$ref": "#/components/schemas/Int32Type"},
-								"session_resumes_total": {
-									"nullable": true,
-									"type": "integer",
-									"minimum": 0,
-									"maximum": 9007199254740991
-								},
-								"websocket_dispatches_total": {
-									"nullable": true,
-									"type": "integer",
-									"minimum": 0,
-									"maximum": 9007199254740991
-								},
-								"websocket_dispatch_drops_total": {
-									"nullable": true,
-									"type": "integer",
-									"minimum": 0,
-									"maximum": 9007199254740991
-								},
 								"guilds": {"$ref": "#/components/schemas/Int32Type"},
 								"presences": {"$ref": "#/components/schemas/Int32Type"},
 								"calls": {"$ref": "#/components/schemas/Int32Type"},
@@ -12699,9 +12518,6 @@
 								"node_id",
 								"status",
 								"sessions",
-								"session_resumes_total",
-								"websocket_dispatches_total",
-								"websocket_dispatch_drops_total",
 								"guilds",
 								"presences",
 								"calls",
@@ -12717,9 +12533,6 @@
 				"required": [
 					"status",
 					"sessions",
-					"session_resumes_total",
-					"websocket_dispatches_total",
-					"websocket_dispatch_drops_total",
 					"guilds",
 					"presences",
 					"calls",
@@ -12979,6 +12792,37 @@
 					{
 						"type": "object",
 						"properties": {
+							"user_ids": {
+								"maxItems": 1000,
+								"type": "array",
+								"items": {"$ref": "#/components/schemas/SnowflakeType"},
+								"description": "List of user IDs to update"
+							},
+							"add_flags": {
+								"default": [],
+								"description": "Suspicious activity flag names to add to all specified users",
+								"maxItems": 32,
+								"type": "array",
+								"items": {"type": "string"}
+							},
+							"remove_flags": {
+								"default": [],
+								"description": "Suspicious activity flag names to remove from all specified users",
+								"maxItems": 32,
+								"type": "array",
+								"items": {"type": "string"}
+							},
+							"task": {
+								"type": "string",
+								"enum": ["update_suspicious_activity_flags"],
+								"description": "Adds and removes verification requirements on every targeted user"
+							}
+						},
+						"required": ["user_ids", "task"]
+					},
+					{
+						"type": "object",
+						"properties": {
 							"guild_ids": {
 								"maxItems": 1000,
 								"type": "array",
@@ -13104,15 +12948,8 @@
 			},
 			"BanCheckResponseSchema": {
 				"type": "object",
-				"properties": {
-					"banned": {"type": "boolean"},
-					"expires_at": {
-						"nullable": true,
-						"description": "ISO 8601 timestamp when the matching ban expires. Null when the ban is permanent, when nothing matches, and on every blocklist other than ip.",
-						"type": "string"
-					}
-				},
-				"required": ["banned", "expires_at"],
+				"properties": {"banned": {"type": "boolean"}},
+				"required": ["banned"],
 				"additionalProperties": false
 			},
 			"AdminBlocklistBulkDeleteRequest": {
@@ -13268,7 +13105,7 @@
 								},
 								"value_field": {
 									"type": "string",
-									"description": "The request body field that holds the entry value when adding to this blocklist"
+									"description": "The request body field that carries the entry value when adding to this blocklist"
 								},
 								"fields": {
 									"maxItems": 8,
@@ -13306,6 +13143,96 @@
 					}
 				},
 				"required": ["items"],
+				"additionalProperties": false
+			},
+			"UpdateBadgeRequest": {
+				"type": "object",
+				"properties": {
+					"name": {"description": "The name of the badge", "type": "string"},
+					"tooltip": {"description": "The text shown when hovering over the badge", "type": "string"},
+					"icon": {"type": "string", "minLength": 1, "maxLength": 25600, "description": "SVG markup of the badge icon"},
+					"url": {
+						"description": "The URL opened when the badge is clicked, or null to remove the URL",
+						"nullable": true,
+						"type": "string"
+					},
+					"position": {"description": "The display order of the badge", "type": "integer", "minimum": 0, "maximum": 10}
+				}
+			},
+			"BadgeMutationResponse": {
+				"type": "object",
+				"properties": {"badge": {"$ref": "#/components/schemas/BadgeResponse"}},
+				"required": ["badge"],
+				"additionalProperties": false
+			},
+			"UpdateBuiltinBadgeIconRequest": {
+				"type": "object",
+				"properties": {
+					"icon": {
+						"nullable": true,
+						"description": "SVG markup of the badge icon, or null to restore the default icon",
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 25600
+					}
+				},
+				"required": ["icon"]
+			},
+			"BuiltinBadgeEnum": {
+				"description": "Type of built-in icon override",
+				"x-enumNames": ["Staff", "Premium", "Verified", "Partnered", "Discoverable"],
+				"x-enumDescriptions": [
+					"Staff member badge",
+					"Premium subscriber badge",
+					"Verified community badge",
+					"Partnered community badge",
+					"Discoverable community badge"
+				],
+				"enum": ["staff", "premium", "verified", "partnered", "discoverable"],
+				"type": "string"
+			},
+			"BuiltinBadgeIconsResponse": {
+				"type": "object",
+				"properties": {
+					"staff": {"nullable": true, "type": "string"},
+					"premium": {"nullable": true, "type": "string"},
+					"verified": {"nullable": true, "type": "string"},
+					"partnered": {"nullable": true, "type": "string"},
+					"discoverable": {"nullable": true, "type": "string"}
+				},
+				"required": ["staff", "premium", "verified", "partnered", "discoverable"],
+				"additionalProperties": false,
+				"description": "SVG markup to override the built-in badge with, or null to reset to default"
+			},
+			"CreateBadgeRequest": {
+				"type": "object",
+				"properties": {
+					"type": {"allOf": [{"$ref": "#/components/schemas/BadgeTypeEnum"}]},
+					"name": {"description": "The name of the badge", "type": "string"},
+					"tooltip": {"description": "The text shown when hovering over the badge", "type": "string"},
+					"icon": {"type": "string", "minLength": 1, "maxLength": 25600, "description": "SVG markup of the badge icon"},
+					"url": {"description": "The URL opened when the badge is clicked", "nullable": true, "type": "string"},
+					"position": {"description": "The display order of the badge", "type": "integer", "minimum": 0, "maximum": 10}
+				},
+				"required": ["type", "name", "tooltip", "icon"]
+			},
+			"BadgesResponse": {
+				"type": "object",
+				"properties": {
+					"version": {
+						"type": "integer",
+						"minimum": -9007199254740991,
+						"maximum": 9007199254740991,
+						"description": "Version of the badge configuration"
+					},
+					"badges": {
+						"type": "array",
+						"items": {"$ref": "#/components/schemas/BadgeResponse"},
+						"description": "Badges defined on this instance"
+					},
+					"builtin_icons": {"allOf": [{"$ref": "#/components/schemas/BuiltinBadgeIconsResponse"}]}
+				},
+				"required": ["version", "badges", "builtin_icons"],
 				"additionalProperties": false
 			},
 			"AdminAuditLogResponseSchema": {
@@ -13515,7 +13442,7 @@
 					},
 					"acls": {
 						"description": "Replacement list of access control permissions for the key",
-						"maxItems": 106,
+						"maxItems": 114,
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AdminAclType"}
 					}
@@ -13533,7 +13460,7 @@
 						"type": "string"
 					},
 					"acls": {
-						"maxItems": 106,
+						"maxItems": 114,
 						"type": "array",
 						"items": {"type": "string"},
 						"description": "List of access control permissions for the key"
@@ -13563,7 +13490,7 @@
 						"maximum": 365
 					},
 					"acls": {
-						"maxItems": 106,
+						"maxItems": 114,
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AdminAclType"},
 						"description": "List of access control permissions for the key"
@@ -13584,7 +13511,7 @@
 						"type": "string"
 					},
 					"acls": {
-						"maxItems": 106,
+						"maxItems": 114,
 						"type": "array",
 						"items": {"type": "string"},
 						"description": "List of access control permissions for the key"
@@ -13597,7 +13524,7 @@
 				"type": "object",
 				"properties": {
 					"acls": {
-						"maxItems": 106,
+						"maxItems": 114,
 						"type": "array",
 						"items": {"type": "string", "minLength": 1, "maxLength": 64},
 						"description": "Every admin access control permission the admin API recognises"
@@ -13623,6 +13550,10 @@
 					"admin:authenticate",
 					"jobs:view",
 					"jobs:cancel",
+					"badge:create",
+					"badge:delete",
+					"badge:list",
+					"badge:update",
 					"ban:email:add",
 					"ban:email:check",
 					"ban:email:remove",
@@ -13651,7 +13582,9 @@
 					"bulk:delete:users",
 					"bulk:delete:user_messages",
 					"bulk:update:guild_features",
+					"bulk:update:suspicious_activity",
 					"bulk:update:user_flags",
+					"csam:submit_ncmec",
 					"discovery:remove",
 					"discovery:review",
 					"gateway:memory_stats",
@@ -13667,6 +13600,7 @@
 					"guild:reload",
 					"guild:shutdown",
 					"guild:transfer_ownership",
+					"guild:update:badges",
 					"guild:update:features",
 					"guild:update:name",
 					"guild:update:settings",
@@ -13679,15 +13613,13 @@
 					"message:delete",
 					"message:lookup",
 					"message:shred",
-					"report:delete",
 					"report:resolve",
 					"report:view",
 					"report:view:reporter_pii",
 					"system_dm:send",
 					"user:cancel:bulk_message_deletion",
-					"user:create:password_reset_link",
-					"user:delete:recovery_kit",
 					"user:delete",
+					"user:disable:suspicious",
 					"user:list:dm_channels",
 					"user:list:guilds",
 					"user:list:relationships",
@@ -13699,12 +13631,15 @@
 					"user:view:email",
 					"user:view:ip",
 					"user:temp_ban",
+					"user:update:badges",
 					"user:update:bot_status",
 					"user:update:dob",
 					"user:update:email",
 					"user:update:flags",
 					"user:update:mfa",
+					"user:update:phone",
 					"user:update:profile",
+					"user:update:suspicious_activity",
 					"user:update:traits",
 					"user:update:username",
 					"voice:region:create",
@@ -13834,7 +13769,7 @@
 			"ChannelType": {
 				"description": "The type of the channel",
 				"type": "integer",
-				"enum": [0, 1, 2, 3, 4, 5, 10, 11, 12, 15, 16, 998, 999],
+				"enum": [0, 1, 2, 3, 4, 998, 999],
 				"format": "int32",
 				"x-enumNames": [
 					"GUILD_TEXT",
@@ -13842,12 +13777,6 @@
 					"GUILD_VOICE",
 					"GROUP_DM",
 					"GUILD_CATEGORY",
-					"GUILD_ANNOUNCEMENT",
-					"ANNOUNCEMENT_THREAD",
-					"PUBLIC_THREAD",
-					"PRIVATE_THREAD",
-					"GUILD_FORUM",
-					"GUILD_MEDIA",
 					"GUILD_LINK",
 					"DM_PERSONAL_NOTES"
 				],
@@ -13857,15 +13786,35 @@
 					"A voice channel within a guild",
 					"A group direct message between users",
 					"A category that contains channels",
-					"A guild channel whose messages can be published to channels that follow it",
-					"A public thread within an announcement channel",
-					"A public thread within a text, forum or media channel",
-					"A private thread within a text channel",
-					"A channel that can only contain threads",
-					"A channel that can only contain threads in a gallery view",
 					"A link channel for external resources",
 					"Personal notes DM channel"
 				]
+			},
+			"BadgeResponse": {
+				"type": "object",
+				"properties": {
+					"id": {"description": "The ID of the badge", "allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]},
+					"type": {"allOf": [{"$ref": "#/components/schemas/BadgeTypeEnum"}]},
+					"name": {"type": "string", "description": "The name of the badge"},
+					"tooltip": {"type": "string", "description": "The text shown when hovering over the badge"},
+					"icon": {"type": "string", "description": "SVG markup of the badge icon"},
+					"url": {"nullable": true, "description": "The URL opened when the badge is clicked", "type": "string"},
+					"position": {
+						"type": "integer",
+						"minimum": -9007199254740991,
+						"maximum": 9007199254740991,
+						"description": "Display order of the badge"
+					}
+				},
+				"required": ["id", "type", "name", "tooltip", "icon", "url", "position"],
+				"additionalProperties": false
+			},
+			"BadgeTypeEnum": {
+				"description": "The target entity type of the badge",
+				"x-enumNames": ["User", "Guild"],
+				"x-enumDescriptions": ["Badge shown on user profiles", "Badge shown next to community names"],
+				"enum": ["user", "guild"],
+				"type": "string"
 			},
 			"BanProfileSubstringRequest": {
 				"type": "object",
@@ -13882,12 +13831,7 @@
 				"properties": {
 					"hashes": {"minItems": 1, "maxItems": 1000, "type": "array", "items": {"type": "string"}},
 					"category": {"type": "string"},
-					"severity": {
-						"description": "Stored severity label: 0 allow, 1 warn, 2 block, 3 block and report (default 2). The label is informational and every row blocks whatever its severity.",
-						"type": "integer",
-						"minimum": 0,
-						"maximum": 3
-					},
+					"severity": {"type": "integer", "minimum": 0, "maximum": 3},
 					"source_url": {"type": "string"},
 					"reason": {"type": "string"},
 					"notes": {"type": "string"}
@@ -13899,12 +13843,7 @@
 				"properties": {
 					"sha256_hex": {"description": "SHA-256 in hex", "type": "string"},
 					"category": {"type": "string"},
-					"severity": {
-						"description": "Stored severity label: 0 allow, 1 warn, 2 block, 3 block and report (default 2). The label is informational and every row blocks whatever its severity.",
-						"type": "integer",
-						"minimum": 0,
-						"maximum": 3
-					},
+					"severity": {"type": "integer", "minimum": 0, "maximum": 3},
 					"content_type": {"description": "Optional MIME type hint for observability", "type": "string"},
 					"source_url": {"type": "string"},
 					"notes": {"type": "string"}
@@ -13914,18 +13853,15 @@
 			"BanUrlDomainRequest": {
 				"type": "object",
 				"properties": {
-					"domain": {
-						"description": "Domain to ban (e.g. example.com), or a pattern whose leftmost label contains * under a registrable domain (e.g. *shop*.example.com). Internationalized names are stored in ASCII form.",
-						"type": "string"
-					},
+					"domain": {"description": "Domain to ban (e.g. example.com)", "type": "string"},
 					"match_subdomains": {
 						"default": true,
-						"description": "If true, any subdomain rooted at this domain, or at a host the pattern matches, is also banned",
+						"description": "If true, any subdomain rooted at this domain is also banned",
 						"type": "boolean"
 					},
 					"category": {"description": "Category / source slug (defaults to \"manual\")", "type": "string"},
 					"severity": {
-						"description": "Stored severity label: 0 allow, 1 warn, 2 block, 3 block and report (default 2). The label is informational and every row blocks whatever its severity.",
+						"description": "Severity: 0 allow, 1 warn, 2 block, 3 block+report (default 2)",
 						"type": "integer",
 						"minimum": 0,
 						"maximum": 3
@@ -13941,7 +13877,7 @@
 					"url": {"description": "Absolute URL to ban. Canonicalized before storage.", "type": "string"},
 					"category": {"description": "Category / source slug (defaults to \"manual\")", "type": "string"},
 					"severity": {
-						"description": "Stored severity label: 0 allow, 1 warn, 2 block, 3 block and report (default 2). The label is informational and every row blocks whatever its severity.",
+						"description": "Severity: 0 allow, 1 warn, 2 block, 3 block+report (default 2)",
 						"type": "integer",
 						"minimum": 0,
 						"maximum": 3
@@ -13964,27 +13900,16 @@
 			"BanEmailRequest": {
 				"type": "object",
 				"properties": {
-					"email": {
-						"description": "Email address to ban, or a domain written as @example.com to ban every address at it and its subdomains",
-						"allOf": [{"$ref": "#/components/schemas/EmailBlocklistEntryType"}]
-					}
+					"email": {"description": "Email address to ban", "allOf": [{"$ref": "#/components/schemas/EmailType"}]}
 				},
 				"required": ["email"]
 			},
 			"BanIpRequest": {
 				"type": "object",
-				"properties": {
-					"ip": {"description": "IPv4/IPv6 address or CIDR range to ban", "type": "string"},
-					"duration_hours": {
-						"description": "Hours until the ban expires and its entry is removed. Omit it or use 0 for a permanent ban.",
-						"type": "integer",
-						"minimum": 0,
-						"maximum": 8760
-					}
-				},
+				"properties": {"ip": {"description": "IPv4/IPv6 address or CIDR range to ban", "type": "string"}},
 				"required": ["ip"]
 			},
-			"EmailBlocklistEntryType": {"type": "string"},
+			"EmailType": {"type": "string"},
 			"CheckAvatarHashRequest": {
 				"type": "object",
 				"properties": {"hashes": {"minItems": 1, "maxItems": 1000, "type": "array", "items": {"type": "string"}}},
@@ -14003,12 +13928,7 @@
 				"type": "object",
 				"properties": {
 					"category": {"type": "string"},
-					"severity": {
-						"description": "Stored severity label: 0 allow, 1 warn, 2 block, 3 block and report (default 2). The label is informational and every row blocks whatever its severity.",
-						"type": "integer",
-						"minimum": 0,
-						"maximum": 3
-					},
+					"severity": {"type": "integer", "minimum": 0, "maximum": 3},
 					"source_url": {"type": "string"},
 					"reason": {"type": "string"},
 					"notes": {"type": "string"}
@@ -14018,12 +13938,7 @@
 				"type": "object",
 				"properties": {
 					"category": {"type": "string"},
-					"severity": {
-						"description": "Stored severity label: 0 allow, 1 warn, 2 block, 3 block and report (default 2). The label is informational and every row blocks whatever its severity.",
-						"type": "integer",
-						"minimum": 0,
-						"maximum": 3
-					},
+					"severity": {"type": "integer", "minimum": 0, "maximum": 3},
 					"content_type": {"description": "Optional MIME type hint for observability", "type": "string"},
 					"source_url": {"type": "string"},
 					"notes": {"type": "string"}
@@ -14034,12 +13949,12 @@
 				"properties": {
 					"match_subdomains": {
 						"default": true,
-						"description": "If true, any subdomain rooted at this domain, or at a host the pattern matches, is also banned",
+						"description": "If true, any subdomain rooted at this domain is also banned",
 						"type": "boolean"
 					},
 					"category": {"description": "Category / source slug (defaults to \"manual\")", "type": "string"},
 					"severity": {
-						"description": "Stored severity label: 0 allow, 1 warn, 2 block, 3 block and report (default 2). The label is informational and every row blocks whatever its severity.",
+						"description": "Severity: 0 allow, 1 warn, 2 block, 3 block+report (default 2)",
 						"type": "integer",
 						"minimum": 0,
 						"maximum": 3
@@ -14053,7 +13968,7 @@
 				"properties": {
 					"category": {"description": "Category / source slug (defaults to \"manual\")", "type": "string"},
 					"severity": {
-						"description": "Stored severity label: 0 allow, 1 warn, 2 block, 3 block and report (default 2). The label is informational and every row blocks whatever its severity.",
+						"description": "Severity: 0 allow, 1 warn, 2 block, 3 block+report (default 2)",
 						"type": "integer",
 						"minimum": 0,
 						"maximum": 3
@@ -14095,7 +14010,7 @@
 				"enum": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]
 			},
 			"GuildFeatureSchema": {
-				"description": "A guild feature flag Known values: ANIMATED_ICON, ANIMATED_BANNER, AUDIO_BITRATE_128_KBPS, AUDIO_BITRATE_256_KBPS, AUDIO_BITRATE_384_KBPS, BANNER, CLONE_EMOJI_DISABLED, CLONE_EMOJI_ENABLED, CLONE_STICKER_DISABLED, CLONE_STICKER_ENABLED, DETACHED_BANNER, INVITE_SPLASH, INVITES_DISABLED, RAID_DETECTED, TEXT_CHANNEL_FLEXIBLE_NAMES, HIDE_OWNER_CROWN, MORE_EMOJI, MORE_STICKERS, UNLIMITED_EMOJI, UNLIMITED_STICKERS, EXPRESSION_PURGE_ALLOWED, VANITY_URL, DISCOVERABLE, PARTNERED, VERIFIED, VIP_VOICE, VOICE_E2EE, UNAVAILABLE_FOR_EVERYONE, UNAVAILABLE_FOR_EVERYONE_BUT_STAFF, UNAVAILABLE_HIDDEN, VISIONARY, LARGE_GUILD_OVERRIDE, VERY_LARGE_GUILD, ANNOUNCEMENT_CHANNELS_DISABLED (other values allowed)",
+				"description": "A guild feature flag Known values: ANIMATED_ICON, ANIMATED_BANNER, AUDIO_BITRATE_128_KBPS, AUDIO_BITRATE_256_KBPS, AUDIO_BITRATE_384_KBPS, BANNER, CLONE_EMOJI_DISABLED, CLONE_EMOJI_ENABLED, CLONE_STICKER_DISABLED, CLONE_STICKER_ENABLED, DETACHED_BANNER, INVITE_SPLASH, INVITES_DISABLED, RAID_DETECTED, TEXT_CHANNEL_FLEXIBLE_NAMES, HIDE_OWNER_CROWN, MORE_EMOJI, MORE_STICKERS, UNLIMITED_EMOJI, UNLIMITED_STICKERS, EXPRESSION_PURGE_ALLOWED, VANITY_URL, DISCOVERABLE, PARTNERED, VERIFIED, VIP_VOICE, VOICE_E2EE, UNAVAILABLE_FOR_EVERYONE, UNAVAILABLE_FOR_EVERYONE_BUT_STAFF, UNAVAILABLE_HIDDEN, VISIONARY, LARGE_GUILD_OVERRIDE, VERY_LARGE_GUILD (other values allowed)",
 				"x-enumNames": [
 					"ANIMATED_ICON",
 					"ANIMATED_BANNER",
@@ -14129,8 +14044,7 @@
 					"UNAVAILABLE_HIDDEN",
 					"VISIONARY",
 					"LARGE_GUILD_OVERRIDE",
-					"VERY_LARGE_GUILD",
-					"ANNOUNCEMENT_CHANNELS_DISABLED"
+					"VERY_LARGE_GUILD"
 				],
 				"x-enumDescriptions": [
 					"Guild can have an animated icon",
@@ -14165,8 +14079,7 @@
 					"Guild is hidden when it is force unavailable",
 					"Guild is a visionary guild",
 					"Guild has large guild overrides enabled",
-					"Guild has increased member capacity enabled",
-					"Guild cannot publish announcement messages or gain new followers"
+					"Guild has increased member capacity enabled"
 				],
 				"type": "string"
 			},
@@ -14191,8 +14104,12 @@
 						"description": "Bot requires manual approval for friend requests"
 					},
 					{"name": "SPAMMER", "value": "64", "description": "User is flagged as a spammer"},
-					{"name": "PROFILE_HIDDEN", "value": "128", "description": "User profile details are hidden from other users"},
 					{"name": "DELETED", "value": "17179869184", "description": "User account has been deleted"},
+					{
+						"name": "DISABLED_SUSPICIOUS_ACTIVITY",
+						"value": "34359738368",
+						"description": "User account disabled due to suspicious activity"
+					},
 					{"name": "SELF_DELETED", "value": "68719476736", "description": "User account was self-deleted"},
 					{"name": "DISABLED", "value": "274877906944", "description": "User account is disabled"},
 					{"name": "HAS_SESSION_STARTED", "value": "549755813888", "description": "User has started a session"},
@@ -14203,7 +14120,6 @@
 						"value": "562949953421312",
 						"description": "User is verified as not underage"
 					},
-					{"name": "ACCOUNT_LIMITED", "value": "1125899906842624", "description": "User account is limited"},
 					{
 						"name": "HAS_DISMISSED_PREMIUM_ONBOARDING",
 						"value": "2251799813685248",
@@ -14221,9 +14137,14 @@
 						"description": "User has verified their age as an adult via credit card verification"
 					},
 					{
-						"name": "LIMIT_EXEMPT",
+						"name": "FORCE_INBOUND_PHONE_VERIFICATION",
+						"value": "2305843009213693952",
+						"description": "User is forced through inbound phone verification, for debugging"
+					},
+					{
+						"name": "NOT_SUSPICIOUS",
 						"value": "4611686018427387904",
-						"description": "User is permanently exempt from account limitation"
+						"description": "User is permanently exempt from automatic suspicious-activity flagging"
 					}
 				]
 			},
@@ -14325,8 +14246,7 @@
 								"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
 							},
 							"message_id": {
-								"description": "The ID of the referenced message, absent on a channel follow system message and on thread created messages that reference only a thread",
-								"nullable": true,
+								"description": "The ID of the referenced message",
 								"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
 							},
 							"guild_id": {
@@ -14336,7 +14256,7 @@
 							},
 							"type": {"allOf": [{"$ref": "#/components/schemas/MessageReferenceType"}]}
 						},
-						"required": ["channel_id", "type"],
+						"required": ["channel_id", "message_id", "type"],
 						"additionalProperties": false
 					},
 					"message_snapshots": {
@@ -14371,12 +14291,8 @@
 						"required": ["participants"],
 						"additionalProperties": false
 					},
-					"thread": {
-						"description": "The thread started from this message, when the viewer can see threads",
-						"allOf": [{"$ref": "#/components/schemas/ThreadChannelResponse"}]
-					},
 					"referenced_message": {
-						"description": "The reply target. Present and populated when the target resolved, present and null when the target is gone, absent when this message has no default reference. Clients must tell null apart from absent by key presence.",
+						"description": "The reply target. Present and populated when the target resolved, present and null when the target is gone, absent when this message carries no default reference. Clients must tell null apart from absent by key presence.",
 						"nullable": true,
 						"type": "object",
 						"properties": {
@@ -14475,8 +14391,7 @@
 										"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
 									},
 									"message_id": {
-										"description": "The ID of the referenced message, absent on a channel follow system message and on thread created messages that reference only a thread",
-										"nullable": true,
+										"description": "The ID of the referenced message",
 										"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
 									},
 									"guild_id": {
@@ -14486,7 +14401,7 @@
 									},
 									"type": {"allOf": [{"$ref": "#/components/schemas/MessageReferenceType"}]}
 								},
-								"required": ["channel_id", "type"],
+								"required": ["channel_id", "message_id", "type"],
 								"additionalProperties": false
 							},
 							"message_snapshots": {
@@ -14520,10 +14435,6 @@
 								},
 								"required": ["participants"],
 								"additionalProperties": false
-							},
-							"thread": {
-								"description": "The thread started from this message, when the viewer can see threads",
-								"allOf": [{"$ref": "#/components/schemas/ThreadChannelResponse"}]
 							}
 						},
 						"required": [
@@ -14600,11 +14511,41 @@
 								"content_type": {"nullable": true, "type": "string"},
 								"width": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
 								"height": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
-								"size": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/NonNegativeSafeIntegerType"}]}
+								"size": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/NonNegativeSafeIntegerType"}]},
+								"ncmec_status": {
+									"description": "NCMEC submission status",
+									"x-enumNames": ["not_submitted", "submitting", "submitted", "failed"],
+									"x-enumDescriptions": [
+										"Report has not been submitted to NCMEC",
+										"Report submission to NCMEC is in progress",
+										"Report has been submitted to NCMEC",
+										"Report submission to NCMEC failed"
+									],
+									"enum": ["not_submitted", "submitting", "submitted", "failed"],
+									"type": "string"
+								},
+								"ncmec_report_id": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 256},
+								"ncmec_failure_reason": {"nullable": true, "type": "string", "minLength": 1, "maxLength": 4000}
 							},
-							"required": ["id", "filename", "url", "nsfw", "content_type", "width", "height"],
+							"required": [
+								"id",
+								"filename",
+								"url",
+								"nsfw",
+								"content_type",
+								"width",
+								"height",
+								"ncmec_status",
+								"ncmec_report_id",
+								"ncmec_failure_reason"
+							],
 							"additionalProperties": false
 						}
+					},
+					"user_prior_ncmec_report_ids": {
+						"maxItems": 100,
+						"type": "array",
+						"items": {"type": "string", "minLength": 1, "maxLength": 256}
 					}
 				},
 				"required": [
@@ -14645,222 +14586,6 @@
 				"format": "int32",
 				"x-enumNames": ["SAFE", "AGE_RESTRICTED"],
 				"x-enumDescriptions": ["Guild is safe for all ages", "Guild is age-restricted"]
-			},
-			"ThreadChannelResponse": {
-				"type": "object",
-				"properties": {
-					"id": {
-						"description": "The unique identifier (snowflake) for this channel",
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"guild_id": {
-						"description": "The ID of the guild this channel belongs to",
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"name": {"description": "The name of the channel", "nullable": true, "type": "string"},
-					"topic": {"description": "The topic of the channel", "nullable": true, "type": "string"},
-					"url": {
-						"description": "The URL associated with the channel",
-						"nullable": true,
-						"type": "string",
-						"format": "uri"
-					},
-					"icon": {"description": "The icon hash of the channel (for group DMs)", "nullable": true, "type": "string"},
-					"owner_id": {
-						"description": "The ID of the owner of the channel (for group DMs)",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"type": {
-						"description": "The type of the channel",
-						"type": "integer",
-						"enum": [0, 1, 2, 3, 4, 5, 10, 11, 12, 15, 16, 998, 999],
-						"format": "int32",
-						"x-enumNames": [
-							"GUILD_TEXT",
-							"DM",
-							"GUILD_VOICE",
-							"GROUP_DM",
-							"GUILD_CATEGORY",
-							"GUILD_ANNOUNCEMENT",
-							"ANNOUNCEMENT_THREAD",
-							"PUBLIC_THREAD",
-							"PRIVATE_THREAD",
-							"GUILD_FORUM",
-							"GUILD_MEDIA",
-							"GUILD_LINK",
-							"DM_PERSONAL_NOTES"
-						],
-						"x-enumDescriptions": [
-							"A text channel within a guild",
-							"A direct message between users",
-							"A voice channel within a guild",
-							"A group direct message between users",
-							"A category that contains channels",
-							"A guild channel whose messages can be published to channels that follow it",
-							"A public thread within an announcement channel",
-							"A public thread within a text, forum or media channel",
-							"A private thread within a text channel",
-							"A channel that can only contain threads",
-							"A channel that can only contain threads in a gallery view",
-							"A link channel for external resources",
-							"Personal notes DM channel"
-						]
-					},
-					"position": {
-						"description": "The sorting position of the channel",
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"parent_id": {
-						"description": "The ID of the parent category for this channel",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"bitrate": {
-						"description": "The bitrate of the voice channel in bits per second",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"user_limit": {
-						"description": "The maximum number of users allowed in the voice channel",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"voice_connection_limit": {
-						"description": "The maximum active voice connections allowed per user in the voice channel",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"rtc_region": {
-						"description": "The voice region ID for the voice channel",
-						"nullable": true,
-						"type": "string"
-					},
-					"rtc_p2p": {
-						"description": "Whether calls in the voice channel connect participants directly instead of through a voice server",
-						"type": "boolean"
-					},
-					"last_message_id": {
-						"description": "The ID of the last message sent in this channel",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"last_pin_timestamp": {
-						"description": "The ISO 8601 timestamp of when the last pinned message was pinned",
-						"nullable": true,
-						"type": "string",
-						"format": "date-time",
-						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-					},
-					"permission_overwrites": {
-						"description": "The permission overwrites for this channel",
-						"type": "array",
-						"items": {"$ref": "#/components/schemas/ChannelOverwriteResponse"}
-					},
-					"recipients": {
-						"description": "The recipients of the DM channel",
-						"maxItems": 49,
-						"type": "array",
-						"items": {"allOf": [{"$ref": "#/components/schemas/UserPartialResponse"}]}
-					},
-					"nsfw": {
-						"description": "Whether the channel is marked as NSFW (effective value, walking channel → category → guild)",
-						"type": "boolean"
-					},
-					"nsfw_override": {
-						"description": "Per-channel adult-content override; null means inherit from parent category and then guild. Categories use this same field as their own override.",
-						"nullable": true,
-						"type": "boolean"
-					},
-					"content_warning_level": {
-						"description": "Channel-level content warning override (0=inherit, 1=force-warn)",
-						"allOf": [{"$ref": "#/components/schemas/ContentWarningLevel"}]
-					},
-					"content_warning_text": {
-						"description": "Custom channel content warning text (max 200 characters); null inherits from parent or guild",
-						"nullable": true,
-						"type": "string",
-						"maxLength": 200
-					},
-					"rate_limit_per_user": {
-						"description": "The slowmode rate limit in seconds",
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"nicks": {
-						"description": "Custom nicknames for users in this channel (for group DMs)",
-						"type": "object",
-						"additionalProperties": {"type": "string", "minLength": 1, "maxLength": 32}
-					},
-					"flags": {"description": "Channel flags", "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
-					"thread_metadata": {
-						"description": "Thread-specific fields",
-						"allOf": [{"$ref": "#/components/schemas/ThreadMetadataResponse"}]
-					},
-					"applied_tags": {
-						"description": "IDs of the tags applied to a forum or media post",
-						"maxItems": 5,
-						"type": "array",
-						"items": {"$ref": "#/components/schemas/SnowflakeStringType"}
-					},
-					"message_count": {
-						"description": "Messages in the thread, excluding the starter and deleted messages",
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"total_message_sent": {
-						"description": "Messages ever sent in the thread, never decremented",
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"member_count": {
-						"description": "Approximate number of thread members, capped at 50",
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"member_ids_preview": {
-						"description": "IDs of the most recently joined members of a forum or media post, newest first",
-						"maxItems": 8,
-						"type": "array",
-						"items": {"$ref": "#/components/schemas/SnowflakeStringType"}
-					},
-					"member": {
-						"description": "The thread member object for the current user",
-						"allOf": [{"$ref": "#/components/schemas/ThreadMemberResponse"}]
-					},
-					"default_auto_archive_duration": {
-						"description": "Default auto archive duration for new threads",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"default_thread_rate_limit_per_user": {
-						"description": "Slowmode copied onto new threads",
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"available_tags": {
-						"description": "Tags that can be applied to posts",
-						"maxItems": 20,
-						"type": "array",
-						"items": {"$ref": "#/components/schemas/ForumTagResponse"}
-					},
-					"default_reaction_emoji": {
-						"description": "Default reaction for posts",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/DefaultReactionEmojiResponse"}]
-					},
-					"default_sort_order": {
-						"description": "Default sort order for posts",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"default_forum_layout": {
-						"description": "Default layout for forum posts",
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"default_tag_setting": {
-						"description": "Default tag search setting",
-						"type": "string",
-						"enum": ["match_some", "match_all"]
-					}
-				},
-				"required": ["id", "type"],
-				"additionalProperties": false
 			},
 			"MessageSnapshotResponse": {
 				"type": "object",
@@ -15078,7 +14803,7 @@
 					"provider": {
 						"description": "The provider of the embed (e.g., YouTube, Twitter)",
 						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/EmbedProviderResponse"}]
+						"allOf": [{"$ref": "#/components/schemas/EmbedAuthorResponse"}]
 					},
 					"video": {
 						"description": "The video of the embed",
@@ -15168,24 +14893,9 @@
 				"format": "int32",
 				"x-bitflagValues": [
 					{
-						"name": "CROSSPOSTED",
-						"value": "1",
-						"description": "This message has been published to channels that follow this announcement channel"
-					},
-					{
-						"name": "IS_CROSSPOST",
-						"value": "2",
-						"description": "This message was delivered from an announcement channel this channel follows"
-					},
-					{
 						"name": "SUPPRESS_EMBEDS",
 						"value": "4",
 						"description": "Do not include embeds when serialising this message"
-					},
-					{
-						"name": "SOURCE_MESSAGE_DELETED",
-						"value": "8",
-						"description": "The published message this copy came from has been deleted"
 					},
 					{
 						"name": "SUPPRESS_NOTIFICATIONS",
@@ -15198,7 +14908,7 @@
 			"MessageType": {
 				"description": "The type of message",
 				"type": "integer",
-				"enum": [0, 1, 2, 3, 4, 5, 6, 7, 12, 18, 19, 21],
+				"enum": [0, 1, 2, 3, 4, 5, 6, 7, 19],
 				"format": "int32",
 				"x-enumNames": [
 					"DEFAULT",
@@ -15209,10 +14919,7 @@
 					"CHANNEL_ICON_CHANGE",
 					"CHANNEL_PINNED_MESSAGE",
 					"USER_JOIN",
-					"CHANNEL_FOLLOW_ADD",
-					"THREAD_CREATED",
-					"REPLY",
-					"THREAD_STARTER_MESSAGE"
+					"REPLY"
 				],
 				"x-enumDescriptions": [
 					"A regular message",
@@ -15223,10 +14930,7 @@
 					"A system message indicating the channel icon changed",
 					"A system message indicating a message was pinned",
 					"A system message indicating a user joined",
-					"System message posted when a channel starts following an announcement channel",
-					"A system message indicating a thread was created",
-					"A reply message",
-					"The first message of a thread, pointing at its source"
+					"A reply message"
 				]
 			},
 			"MentionReplyPreferences": {
@@ -15311,7 +15015,7 @@
 					"provider": {
 						"description": "The provider of the embed (e.g., YouTube, Twitter)",
 						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/EmbedProviderResponse"}]
+						"allOf": [{"$ref": "#/components/schemas/EmbedAuthorResponse"}]
 					},
 					"video": {
 						"description": "The video of the embed",
@@ -15381,11 +15085,23 @@
 				"required": ["url", "flags"],
 				"additionalProperties": false
 			},
-			"EmbedProviderResponse": {
+			"EmbedAuthorResponse": {
 				"type": "object",
 				"properties": {
-					"name": {"type": "string", "description": "The name of the provider"},
-					"url": {"description": "The URL of the provider", "nullable": true, "type": "string", "format": "uri"}
+					"name": {"type": "string", "description": "The name of the author"},
+					"url": {"description": "The URL of the author", "nullable": true, "type": "string", "format": "uri"},
+					"icon_url": {
+						"description": "The URL of the author icon",
+						"nullable": true,
+						"type": "string",
+						"format": "uri"
+					},
+					"proxy_icon_url": {
+						"description": "The proxied URL of the author icon",
+						"nullable": true,
+						"type": "string",
+						"format": "uri"
+					}
 				},
 				"required": ["name"],
 				"additionalProperties": false
@@ -15420,27 +15136,6 @@
 				"required": ["text"],
 				"additionalProperties": false
 			},
-			"EmbedAuthorResponse": {
-				"type": "object",
-				"properties": {
-					"name": {"type": "string", "description": "The name of the author"},
-					"url": {"description": "The URL of the author", "nullable": true, "type": "string", "format": "uri"},
-					"icon_url": {
-						"description": "The URL of the author icon",
-						"nullable": true,
-						"type": "string",
-						"format": "uri"
-					},
-					"proxy_icon_url": {
-						"description": "The proxied URL of the author icon",
-						"nullable": true,
-						"type": "string",
-						"format": "uri"
-					}
-				},
-				"required": ["name"],
-				"additionalProperties": false
-			},
 			"EmbedMediaFlags": {
 				"type": "integer",
 				"minimum": 0,
@@ -15466,262 +15161,6 @@
 						"description": "Attachment contains explicit media content"
 					},
 					{"name": "IS_ANIMATED", "value": "32", "description": "Attachment is animated"}
-				]
-			},
-			"DefaultReactionEmojiResponse": {
-				"type": "object",
-				"properties": {
-					"emoji_id": {
-						"nullable": true,
-						"description": "The ID of a custom guild emoji",
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"emoji_name": {"nullable": true, "description": "The unicode character of the emoji", "type": "string"}
-				},
-				"required": ["emoji_id", "emoji_name"],
-				"additionalProperties": false
-			},
-			"ForumTagResponse": {
-				"type": "object",
-				"properties": {
-					"id": {"description": "The ID of the tag", "allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]},
-					"name": {"type": "string", "maxLength": 50, "description": "The name of the tag"},
-					"moderated": {"type": "boolean", "description": "Whether only moderators can add or remove this tag"},
-					"emoji_id": {
-						"nullable": true,
-						"description": "The ID of a custom guild emoji",
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"emoji_name": {"nullable": true, "description": "The unicode character of the emoji", "type": "string"}
-				},
-				"required": ["id", "name", "moderated", "emoji_id", "emoji_name"],
-				"additionalProperties": false
-			},
-			"ThreadMemberResponse": {
-				"type": "object",
-				"properties": {
-					"id": {
-						"description": "The ID of the thread",
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"user_id": {
-						"description": "The ID of the user",
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"join_timestamp": {
-						"type": "string",
-						"format": "date-time",
-						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-						"description": "When the user last joined the thread"
-					},
-					"flags": {"description": "Thread member flags", "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
-					"muted": {"description": "Whether the user has muted the thread (current user only)", "type": "boolean"},
-					"mute_config": {
-						"description": "The mute configuration for the thread (current user only)",
-						"nullable": true,
-						"type": "object",
-						"properties": {
-							"end_time": {
-								"nullable": true,
-								"description": "ISO8601 timestamp of when the mute expires",
-								"type": "string"
-							},
-							"selected_time_window": {
-								"description": "The selected mute duration in seconds",
-								"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-							}
-						},
-						"required": ["end_time", "selected_time_window"],
-						"additionalProperties": false
-					},
-					"member": {
-						"description": "The guild member object for the user",
-						"allOf": [{"$ref": "#/components/schemas/GuildMemberResponse"}]
-					}
-				},
-				"required": ["join_timestamp", "flags"],
-				"additionalProperties": false
-			},
-			"ThreadMetadataResponse": {
-				"type": "object",
-				"properties": {
-					"archived": {"type": "boolean", "description": "Whether the thread is archived"},
-					"auto_archive_duration": {
-						"description": "Minutes of inactivity before the thread stops showing in the channel list",
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"archive_timestamp": {
-						"type": "string",
-						"format": "date-time",
-						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-						"description": "When the archive status of the thread last changed"
-					},
-					"locked": {"type": "boolean", "description": "Whether only moderators can interact with the thread"},
-					"invitable": {
-						"description": "Whether non-moderators can add other non-moderators (private threads)",
-						"type": "boolean"
-					},
-					"create_timestamp": {
-						"type": "string",
-						"format": "date-time",
-						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-						"description": "When the thread was created"
-					}
-				},
-				"required": ["archived", "auto_archive_duration", "archive_timestamp", "locked", "create_timestamp"],
-				"additionalProperties": false
-			},
-			"ChannelOverwriteResponse": {
-				"type": "object",
-				"properties": {
-					"id": {
-						"description": "The unique identifier for the role or user this overwrite applies to",
-						"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
-					},
-					"type": {"allOf": [{"$ref": "#/components/schemas/ChannelOverwriteType"}]},
-					"allow": {
-						"description": "The bitwise value of allowed permissions",
-						"allOf": [{"$ref": "#/components/schemas/Permissions"}]
-					},
-					"deny": {
-						"description": "The bitwise value of denied permissions",
-						"allOf": [{"$ref": "#/components/schemas/Permissions"}]
-					}
-				},
-				"required": ["id", "type", "allow", "deny"],
-				"additionalProperties": false
-			},
-			"Permissions": {
-				"type": "string",
-				"pattern": "^\\d+$",
-				"description": "Permission bitfield as string",
-				"format": "int64",
-				"x-bitflagValues": [
-					{"name": "CREATE_INSTANT_INVITE", "value": "1", "description": "Allows creation of instant invites"},
-					{"name": "KICK_MEMBERS", "value": "2", "description": "Allows kicking members from the guild"},
-					{"name": "BAN_MEMBERS", "value": "4", "description": "Allows banning members from the guild"},
-					{
-						"name": "ADMINISTRATOR",
-						"value": "8",
-						"description": "Grants all permissions and bypasses channel permission overwrites"
-					},
-					{
-						"name": "MANAGE_CHANNELS",
-						"value": "16",
-						"description": "Allows management, editing, and deletion of channels"
-					},
-					{"name": "MANAGE_GUILD", "value": "32", "description": "Allows management and editing of the guild"},
-					{"name": "ADD_REACTIONS", "value": "64", "description": "Allows adding reactions to messages"},
-					{"name": "VIEW_AUDIT_LOG", "value": "128", "description": "Allows viewing of the audit log"},
-					{
-						"name": "PRIORITY_SPEAKER",
-						"value": "256",
-						"description": "Allows using priority speaker in a voice channel"
-					},
-					{"name": "STREAM", "value": "512", "description": "Allows the user to go live"},
-					{"name": "VIEW_CHANNEL", "value": "1024", "description": "Allows viewing a channel"},
-					{"name": "SEND_MESSAGES", "value": "2048", "description": "Allows sending messages in a channel"},
-					{"name": "SEND_TTS_MESSAGES", "value": "4096", "description": "Allows sending text-to-speech messages"},
-					{"name": "MANAGE_MESSAGES", "value": "8192", "description": "Allows for deleting and pinning messages"},
-					{"name": "EMBED_LINKS", "value": "16384", "description": "Links sent will have an embed automatically"},
-					{"name": "ATTACH_FILES", "value": "32768", "description": "Allows uploading files"},
-					{"name": "READ_MESSAGE_HISTORY", "value": "65536", "description": "Allows reading message history"},
-					{"name": "MENTION_EVERYONE", "value": "131072", "description": "Allows using @everyone and @here mentions"},
-					{"name": "USE_EXTERNAL_EMOJIS", "value": "262144", "description": "Allows using emojis from other guilds"},
-					{"name": "CONNECT", "value": "1048576", "description": "Allows connecting to a voice channel"},
-					{"name": "SPEAK", "value": "2097152", "description": "Allows speaking in a voice channel"},
-					{"name": "MUTE_MEMBERS", "value": "4194304", "description": "Allows muting members in voice channels"},
-					{"name": "DEAFEN_MEMBERS", "value": "8388608", "description": "Allows deafening members in voice channels"},
-					{"name": "MOVE_MEMBERS", "value": "16777216", "description": "Allows moving members between voice channels"},
-					{"name": "USE_VAD", "value": "33554432", "description": "Allows using voice activity detection"},
-					{"name": "CHANGE_NICKNAME", "value": "67108864", "description": "Allows changing own nickname"},
-					{"name": "MANAGE_NICKNAMES", "value": "134217728", "description": "Allows changing other members nicknames"},
-					{"name": "MANAGE_ROLES", "value": "268435456", "description": "Allows management and editing of roles"},
-					{"name": "MANAGE_WEBHOOKS", "value": "536870912", "description": "Allows management and editing of webhooks"},
-					{
-						"name": "MANAGE_EXPRESSIONS",
-						"value": "1073741824",
-						"description": "Allows management of guild expressions"
-					},
-					{
-						"name": "USE_EXTERNAL_STICKERS",
-						"value": "137438953472",
-						"description": "Allows using stickers from other guilds"
-					},
-					{"name": "MODERATE_MEMBERS", "value": "1099511627776", "description": "Allows timing out users"},
-					{"name": "CREATE_EXPRESSIONS", "value": "8796093022208", "description": "Allows creating guild expressions"},
-					{"name": "PIN_MESSAGES", "value": "2251799813685248", "description": "Allows pinning messages"},
-					{"name": "BYPASS_SLOWMODE", "value": "4503599627370496", "description": "Allows bypassing slowmode"},
-					{"name": "UPDATE_RTC_REGION", "value": "9007199254740992", "description": "Allows updating the voice region"},
-					{
-						"name": "VIEW_CHANNEL_MEMBERS",
-						"value": "18014398509481984",
-						"description": "Allows viewing the member list in a channel"
-					}
-				]
-			},
-			"ChannelOverwriteType": {
-				"description": "The type of entity the overwrite applies to",
-				"x-enumNames": ["ROLE", "MEMBER"],
-				"x-enumDescriptions": ["Overwrite applies to a role", "Overwrite applies to a member"],
-				"enum": [0, 1],
-				"type": "integer"
-			},
-			"GuildMemberResponse": {
-				"type": "object",
-				"properties": {
-					"user": {
-						"description": "The user this guild member represents",
-						"allOf": [{"$ref": "#/components/schemas/UserPartialResponse"}]
-					},
-					"nick": {"description": "The nickname of the member in this guild", "nullable": true, "type": "string"},
-					"avatar": {"description": "The hash of the member guild-specific avatar", "nullable": true, "type": "string"},
-					"banner": {"description": "The hash of the member guild-specific banner", "nullable": true, "type": "string"},
-					"accent_color": {
-						"description": "The accent colour of the member guild profile as an integer",
-						"nullable": true,
-						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
-					},
-					"roles": {
-						"maxItems": 250,
-						"type": "array",
-						"items": {"type": "string"},
-						"description": "Array of role IDs the member has"
-					},
-					"joined_at": {
-						"type": "string",
-						"format": "date-time",
-						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
-						"description": "ISO8601 timestamp of when the user joined the guild"
-					},
-					"mute": {"type": "boolean", "description": "Whether the member is muted in voice channels"},
-					"deaf": {"type": "boolean", "description": "Whether the member is deafened in voice channels"},
-					"communication_disabled_until": {
-						"description": "ISO8601 timestamp until which the member is timed out",
-						"nullable": true,
-						"type": "string",
-						"format": "date-time",
-						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
-					},
-					"profile_flags": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/GuildMemberProfileFlags"}]},
-					"mention_flags": {
-						"nullable": true,
-						"description": "Per-guild reply mention preference override; NO_PREFERENCE means inherit the user-level mention_flags.",
-						"allOf": [{"$ref": "#/components/schemas/MentionReplyPreferences"}]
-					}
-				},
-				"required": ["user", "roles", "joined_at", "mute", "deaf"],
-				"additionalProperties": false
-			},
-			"GuildMemberProfileFlags": {
-				"type": "integer",
-				"minimum": 0,
-				"maximum": 2147483647,
-				"description": "Member profile flags",
-				"format": "int32",
-				"x-bitflagValues": [
-					{"name": "AVATAR_UNSET", "value": "1", "description": "Guild member avatar is unset"},
-					{"name": "BANNER_UNSET", "value": "2", "description": "Guild member banner is unset"}
 				]
 			},
 			"DiscoveryAdminPendingApplicationResponse": {
@@ -15915,6 +15354,75 @@
 				],
 				"additionalProperties": false
 			},
+			"Permissions": {
+				"type": "string",
+				"pattern": "^\\d+$",
+				"description": "Permission bitfield as string",
+				"format": "int64",
+				"x-bitflagValues": [
+					{"name": "CREATE_INSTANT_INVITE", "value": "1", "description": "Allows creation of instant invites"},
+					{"name": "KICK_MEMBERS", "value": "2", "description": "Allows kicking members from the guild"},
+					{"name": "BAN_MEMBERS", "value": "4", "description": "Allows banning members from the guild"},
+					{
+						"name": "ADMINISTRATOR",
+						"value": "8",
+						"description": "Grants all permissions and bypasses channel permission overwrites"
+					},
+					{
+						"name": "MANAGE_CHANNELS",
+						"value": "16",
+						"description": "Allows management, editing, and deletion of channels"
+					},
+					{"name": "MANAGE_GUILD", "value": "32", "description": "Allows management and editing of the guild"},
+					{"name": "ADD_REACTIONS", "value": "64", "description": "Allows adding reactions to messages"},
+					{"name": "VIEW_AUDIT_LOG", "value": "128", "description": "Allows viewing of the audit log"},
+					{
+						"name": "PRIORITY_SPEAKER",
+						"value": "256",
+						"description": "Allows using priority speaker in a voice channel"
+					},
+					{"name": "STREAM", "value": "512", "description": "Allows the user to go live"},
+					{"name": "VIEW_CHANNEL", "value": "1024", "description": "Allows viewing a channel"},
+					{"name": "SEND_MESSAGES", "value": "2048", "description": "Allows sending messages in a channel"},
+					{"name": "SEND_TTS_MESSAGES", "value": "4096", "description": "Allows sending text-to-speech messages"},
+					{"name": "MANAGE_MESSAGES", "value": "8192", "description": "Allows for deleting and pinning messages"},
+					{"name": "EMBED_LINKS", "value": "16384", "description": "Links sent will have an embed automatically"},
+					{"name": "ATTACH_FILES", "value": "32768", "description": "Allows uploading files"},
+					{"name": "READ_MESSAGE_HISTORY", "value": "65536", "description": "Allows reading message history"},
+					{"name": "MENTION_EVERYONE", "value": "131072", "description": "Allows using @everyone and @here mentions"},
+					{"name": "USE_EXTERNAL_EMOJIS", "value": "262144", "description": "Allows using emojis from other guilds"},
+					{"name": "CONNECT", "value": "1048576", "description": "Allows connecting to a voice channel"},
+					{"name": "SPEAK", "value": "2097152", "description": "Allows speaking in a voice channel"},
+					{"name": "MUTE_MEMBERS", "value": "4194304", "description": "Allows muting members in voice channels"},
+					{"name": "DEAFEN_MEMBERS", "value": "8388608", "description": "Allows deafening members in voice channels"},
+					{"name": "MOVE_MEMBERS", "value": "16777216", "description": "Allows moving members between voice channels"},
+					{"name": "USE_VAD", "value": "33554432", "description": "Allows using voice activity detection"},
+					{"name": "CHANGE_NICKNAME", "value": "67108864", "description": "Allows changing own nickname"},
+					{"name": "MANAGE_NICKNAMES", "value": "134217728", "description": "Allows changing other members nicknames"},
+					{"name": "MANAGE_ROLES", "value": "268435456", "description": "Allows management and editing of roles"},
+					{"name": "MANAGE_WEBHOOKS", "value": "536870912", "description": "Allows management and editing of webhooks"},
+					{
+						"name": "MANAGE_EXPRESSIONS",
+						"value": "1073741824",
+						"description": "Allows management of guild expressions"
+					},
+					{
+						"name": "USE_EXTERNAL_STICKERS",
+						"value": "137438953472",
+						"description": "Allows using stickers from other guilds"
+					},
+					{"name": "MODERATE_MEMBERS", "value": "1099511627776", "description": "Allows timing out users"},
+					{"name": "CREATE_EXPRESSIONS", "value": "8796093022208", "description": "Allows creating guild expressions"},
+					{"name": "PIN_MESSAGES", "value": "2251799813685248", "description": "Allows pinning messages"},
+					{"name": "BYPASS_SLOWMODE", "value": "4503599627370496", "description": "Allows bypassing slowmode"},
+					{"name": "UPDATE_RTC_REGION", "value": "9007199254740992", "description": "Allows updating the voice region"},
+					{
+						"name": "VIEW_CHANNEL_MEMBERS",
+						"value": "18014398509481984",
+						"description": "Allows viewing the member list in a channel"
+					}
+				]
+			},
 			"SystemChannelFlags": {
 				"type": "integer",
 				"minimum": 0,
@@ -15960,15 +15468,22 @@
 			"GuildVerificationLevel": {
 				"description": "Required verification level for members",
 				"type": "integer",
-				"enum": [0, 1, 2, 3],
+				"enum": [0, 1, 2, 3, 4],
 				"format": "int32",
-				"x-enumNames": ["NONE", "LOW", "MEDIUM", "HIGH"],
+				"x-enumNames": ["NONE", "LOW", "MEDIUM", "HIGH", "VERY_HIGH"],
 				"x-enumDescriptions": [
 					"Unrestricted",
 					"Must have verified email",
 					"Registered for more than 5 minutes",
-					"Member of the server for more than 10 minutes"
+					"Member of the server for more than 10 minutes",
+					"Must have a verified phone number"
 				]
+			},
+			"BadgeIdsResponse": {
+				"maxItems": 10,
+				"type": "array",
+				"items": {"$ref": "#/components/schemas/SnowflakeStringType"},
+				"description": "IDs of the badges assigned to the entity"
 			},
 			"GuildOperations": {
 				"type": "integer",
@@ -16049,14 +15564,15 @@
 				"minimum": 0,
 				"maximum": 2147483647,
 				"format": "int32",
-				"x-enumNames": ["NONE", "LOW", "MEDIUM", "HIGH"],
+				"x-enumNames": ["NONE", "LOW", "MEDIUM", "HIGH", "VERY_HIGH"],
 				"x-enumDescriptions": [
 					"Unrestricted",
 					"Must have verified email",
 					"Registered for more than 5 minutes",
-					"Member of the server for more than 10 minutes"
+					"Member of the server for more than 10 minutes",
+					"Must have a verified phone number"
 				],
-				"enum": [0, 1, 2, 3]
+				"enum": [0, 1, 2, 3, 4]
 			},
 			"PurgeGuildAssetErrorSchema": {
 				"type": "object",
@@ -16235,7 +15751,7 @@
 				"type": "integer",
 				"enum": [
 					1, 10, 11, 12, 13, 14, 15, 20, 21, 22, 23, 24, 25, 26, 27, 28, 30, 31, 32, 40, 41, 42, 50, 51, 52, 60, 61, 62,
-					90, 91, 92, 72, 73, 74, 75, 110, 111, 112
+					90, 91, 92, 72, 73, 74, 75
 				],
 				"format": "int32",
 				"x-enumNames": [
@@ -16273,10 +15789,7 @@
 					"MESSAGE_DELETE",
 					"MESSAGE_BULK_DELETE",
 					"MESSAGE_PIN",
-					"MESSAGE_UNPIN",
-					"THREAD_CREATE",
-					"THREAD_UPDATE",
-					"THREAD_DELETE"
+					"MESSAGE_UNPIN"
 				],
 				"x-enumDescriptions": [
 					"Guild settings were updated",
@@ -16313,10 +15826,7 @@
 					"Message was deleted",
 					"Messages were bulk deleted",
 					"Message was pinned",
-					"Message was unpinned",
-					"Thread was created",
-					"Thread was updated",
-					"Thread was deleted"
+					"Message was unpinned"
 				]
 			},
 			"WebhookType": {
@@ -16326,6 +15836,63 @@
 				"format": "int32",
 				"x-enumNames": ["INCOMING", "CHANNEL_FOLLOWER"],
 				"x-enumDescriptions": ["Incoming webhook", "Channel follower webhook"]
+			},
+			"GuildMemberResponse": {
+				"type": "object",
+				"properties": {
+					"user": {
+						"description": "The user this guild member represents",
+						"allOf": [{"$ref": "#/components/schemas/UserPartialResponse"}]
+					},
+					"nick": {"description": "The nickname of the member in this guild", "nullable": true, "type": "string"},
+					"avatar": {"description": "The hash of the member guild-specific avatar", "nullable": true, "type": "string"},
+					"banner": {"description": "The hash of the member guild-specific banner", "nullable": true, "type": "string"},
+					"accent_color": {
+						"description": "The accent colour of the member guild profile as an integer",
+						"nullable": true,
+						"allOf": [{"$ref": "#/components/schemas/Int32Type"}]
+					},
+					"roles": {
+						"maxItems": 250,
+						"type": "array",
+						"items": {"type": "string"},
+						"description": "Array of role IDs the member has"
+					},
+					"joined_at": {
+						"type": "string",
+						"format": "date-time",
+						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+						"description": "ISO8601 timestamp of when the user joined the guild"
+					},
+					"mute": {"type": "boolean", "description": "Whether the member is muted in voice channels"},
+					"deaf": {"type": "boolean", "description": "Whether the member is deafened in voice channels"},
+					"communication_disabled_until": {
+						"description": "ISO8601 timestamp until which the member is timed out",
+						"nullable": true,
+						"type": "string",
+						"format": "date-time",
+						"pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+					},
+					"profile_flags": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/GuildMemberProfileFlags"}]},
+					"mention_flags": {
+						"nullable": true,
+						"description": "Per-guild reply mention preference override; NO_PREFERENCE means inherit the user-level mention_flags.",
+						"allOf": [{"$ref": "#/components/schemas/MentionReplyPreferences"}]
+					}
+				},
+				"required": ["user", "roles", "joined_at", "mute", "deaf"],
+				"additionalProperties": false
+			},
+			"GuildMemberProfileFlags": {
+				"type": "integer",
+				"minimum": 0,
+				"maximum": 2147483647,
+				"description": "Member profile flags",
+				"format": "int32",
+				"x-bitflagValues": [
+					{"name": "AVATAR_UNSET", "value": "1", "description": "Guild member avatar is unset"},
+					{"name": "BANNER_UNSET", "value": "2", "description": "Guild member banner is unset"}
+				]
 			},
 			"InstanceBillingUpdateRequest": {
 				"type": "object",
@@ -16375,38 +15942,11 @@
 					"max_counter": {"type": "integer", "minimum": 100, "maximum": 20000}
 				}
 			},
-			"VoiceP2pConfigUpdateRequest": {
-				"type": "object",
-				"properties": {
-					"enabled": {"type": "boolean"},
-					"rollout_basis_points": {"type": "integer", "minimum": 0, "maximum": 10000},
-					"rollout_country_codes": {"allOf": [{"$ref": "#/components/schemas/ExperimentRolloutCountryCodesSchema"}]},
-					"rollout_salt": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[\\x20-\\x7e]+$"},
-					"included_user_ids": {
-						"maxItems": 1000,
-						"type": "array",
-						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
-					},
-					"included_guild_ids": {
-						"maxItems": 1000,
-						"type": "array",
-						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
-					},
-					"include_premium_users": {"type": "boolean"},
-					"excluded_user_ids": {
-						"maxItems": 1000,
-						"type": "array",
-						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
-					},
-					"max_participants": {"type": "integer", "minimum": 2, "maximum": 4}
-				}
-			},
 			"DomainMigrationConfigUpdateRequest": {
 				"type": "object",
 				"properties": {
 					"enabled": {"type": "boolean"},
 					"rollout_basis_points": {"type": "integer", "minimum": 0, "maximum": 10000},
-					"rollout_country_codes": {"allOf": [{"$ref": "#/components/schemas/ExperimentRolloutCountryCodesSchema"}]},
 					"rollout_salt": {"type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[\\x20-\\x7e]+$"},
 					"included_user_ids": {
 						"maxItems": 1000,
@@ -16442,11 +15982,6 @@
 					"gateway_dispatch_relay_max_queue": {"type": "integer", "minimum": 0, "maximum": 1000000},
 					"voice_e2ee_scope": {"type": "string", "enum": ["guild_feature_only", "platform_wide"]}
 				}
-			},
-			"ExperimentRolloutCountryCodesSchema": {
-				"maxItems": 250,
-				"type": "array",
-				"items": {"type": "string", "pattern": "^[A-Z]{2}$"}
 			},
 			"BillingLegacyPricesSchema": {
 				"type": "object",
@@ -16527,23 +16062,6 @@
 				],
 				"additionalProperties": false
 			},
-			"TagStyleSchema": {
-				"description": "How usernames are tagged",
-				"x-enumNames": ["NONE", "RANDOM"],
-				"x-enumDescriptions": ["Usernames are unique and shown without a tag", "Every account gets a random tag"],
-				"enum": ["none", "random"],
-				"type": "string"
-			},
-			"AccountIdentityModeSchema": {
-				"description": "How people identify themselves when they sign in",
-				"x-enumNames": ["EMAIL", "USERNAME"],
-				"x-enumDescriptions": [
-					"People sign in with an email address",
-					"People sign in with a username and no email is collected"
-				],
-				"enum": ["email", "username"],
-				"type": "string"
-			},
 			"ExperimentDeliveryConfigResponse": {
 				"type": "object",
 				"properties": {
@@ -16563,68 +16081,12 @@
 				"required": ["enabled", "cost", "max_counter"],
 				"additionalProperties": false
 			},
-			"VoiceP2pConfigResponse": {
-				"type": "object",
-				"properties": {
-					"enabled": {"default": false, "type": "boolean"},
-					"config_version": {"default": 0, "type": "integer", "minimum": 0, "maximum": 9007199254740991},
-					"rollout_basis_points": {"default": 0, "type": "integer", "minimum": 0, "maximum": 10000},
-					"rollout_country_codes": {
-						"default": [],
-						"allOf": [{"$ref": "#/components/schemas/ExperimentRolloutCountryCodesSchema"}]
-					},
-					"rollout_salt": {
-						"default": "voice-p2p-v1",
-						"type": "string",
-						"minLength": 1,
-						"maxLength": 64,
-						"pattern": "^[\\x20-\\x7e]+$"
-					},
-					"included_user_ids": {
-						"default": [],
-						"maxItems": 1000,
-						"type": "array",
-						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
-					},
-					"included_guild_ids": {
-						"default": [],
-						"maxItems": 1000,
-						"type": "array",
-						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
-					},
-					"include_premium_users": {"default": false, "type": "boolean"},
-					"excluded_user_ids": {
-						"default": [],
-						"maxItems": 1000,
-						"type": "array",
-						"items": {"type": "string", "pattern": "^\\d{1,20}$"}
-					},
-					"max_participants": {"default": 2, "type": "integer", "minimum": 2, "maximum": 4}
-				},
-				"required": [
-					"enabled",
-					"config_version",
-					"rollout_basis_points",
-					"rollout_country_codes",
-					"rollout_salt",
-					"included_user_ids",
-					"included_guild_ids",
-					"include_premium_users",
-					"excluded_user_ids",
-					"max_participants"
-				],
-				"additionalProperties": false
-			},
 			"DomainMigrationConfigResponse": {
 				"type": "object",
 				"properties": {
 					"enabled": {"default": false, "type": "boolean"},
 					"config_version": {"default": 0, "type": "integer", "minimum": 0, "maximum": 9007199254740991},
 					"rollout_basis_points": {"default": 0, "type": "integer", "minimum": 0, "maximum": 10000},
-					"rollout_country_codes": {
-						"default": [],
-						"allOf": [{"$ref": "#/components/schemas/ExperimentRolloutCountryCodesSchema"}]
-					},
 					"rollout_salt": {
 						"default": "domain-migration-v1",
 						"type": "string",
@@ -16658,7 +16120,6 @@
 					"enabled",
 					"config_version",
 					"rollout_basis_points",
-					"rollout_country_codes",
 					"rollout_salt",
 					"included_user_ids",
 					"included_guild_ids",
@@ -16812,6 +16273,7 @@
 					"email": {"nullable": true, "type": "string"},
 					"email_verified": {"type": "boolean"},
 					"email_bounced": {"type": "boolean"},
+					"has_verified_phone": {"type": "boolean"},
 					"date_of_birth": {"nullable": true, "type": "string"},
 					"locale": {"nullable": true, "type": "string"},
 					"premium_type": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
@@ -16819,6 +16281,11 @@
 					"premium_until": {"nullable": true, "type": "string"},
 					"premium_grace_ends_at": {"nullable": true, "type": "string"},
 					"premium_lifetime_sequence": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
+					"suspicious_activity_flags": {"allOf": [{"$ref": "#/components/schemas/SuspiciousActivityFlags"}]},
+					"phone_verification_deferred": {
+						"type": "boolean",
+						"description": "Whether a stored phone requirement is deferred and not enforced"
+					},
 					"temp_banned_until": {"nullable": true, "type": "string"},
 					"pending_deletion_at": {"nullable": true, "type": "string"},
 					"pending_bulk_message_deletion_at": {"nullable": true, "type": "string"},
@@ -16839,8 +16306,9 @@
 						"description": "ISO 8601 timestamp when the pending deletion was scheduled",
 						"type": "string"
 					},
-					"acls": {"maxItems": 106, "type": "array", "items": {"type": "string"}},
+					"acls": {"maxItems": 114, "type": "array", "items": {"type": "string"}},
 					"traits": {"maxItems": 100, "type": "array", "items": {"type": "string"}},
+					"badge_ids": {"allOf": [{"$ref": "#/components/schemas/BadgeIdsResponse"}]},
 					"has_totp": {"type": "boolean"},
 					"authenticator_types": {"maxItems": 10, "type": "array", "items": {"$ref": "#/components/schemas/Int32Type"}},
 					"last_active_at": {"nullable": true, "type": "string"},
@@ -16865,6 +16333,7 @@
 					"email",
 					"email_verified",
 					"email_bounced",
+					"has_verified_phone",
 					"date_of_birth",
 					"locale",
 					"premium_type",
@@ -16872,6 +16341,8 @@
 					"premium_until",
 					"premium_grace_ends_at",
 					"premium_lifetime_sequence",
+					"suspicious_activity_flags",
+					"phone_verification_deferred",
 					"temp_banned_until",
 					"pending_deletion_at",
 					"pending_bulk_message_deletion_at",
@@ -16882,6 +16353,7 @@
 					"deletion_scheduled_at",
 					"acls",
 					"traits",
+					"badge_ids",
 					"has_totp",
 					"authenticator_types",
 					"last_active_at",
@@ -16890,6 +16362,44 @@
 					"last_active_location"
 				],
 				"additionalProperties": false
+			},
+			"SuspiciousActivityFlags": {
+				"type": "integer",
+				"minimum": 0,
+				"maximum": 2147483647,
+				"description": "Suspicious activity indicators",
+				"format": "int32",
+				"x-bitflagValues": [
+					{"name": "REQUIRE_VERIFIED_EMAIL", "value": "1", "description": "Requires verified email address"},
+					{"name": "REQUIRE_REVERIFIED_EMAIL", "value": "2", "description": "Requires re-verified email address"},
+					{"name": "REQUIRE_VERIFIED_PHONE", "value": "4", "description": "Requires verified phone number"},
+					{"name": "REQUIRE_REVERIFIED_PHONE", "value": "8", "description": "Requires re-verified phone number"},
+					{
+						"name": "REQUIRE_VERIFIED_EMAIL_OR_VERIFIED_PHONE",
+						"value": "16",
+						"description": "Requires verified email or verified phone"
+					},
+					{
+						"name": "REQUIRE_REVERIFIED_EMAIL_OR_VERIFIED_PHONE",
+						"value": "32",
+						"description": "Requires re-verified email or re-verified phone"
+					},
+					{
+						"name": "REQUIRE_VERIFIED_EMAIL_OR_REVERIFIED_PHONE",
+						"value": "64",
+						"description": "Requires verified email or re-verified phone"
+					},
+					{
+						"name": "REQUIRE_REVERIFIED_EMAIL_OR_REVERIFIED_PHONE",
+						"value": "128",
+						"description": "Requires re-verified email or re-verified phone"
+					},
+					{
+						"name": "REQUIRE_INBOUND_PHONE_VERIFICATION",
+						"value": "256",
+						"description": "Requires inbound SMS verification (user must text code to platform number)"
+					}
+				]
 			},
 			"PremiumFlags": {
 				"type": "integer",
@@ -16917,7 +16427,6 @@
 					{"name": "PERKS_DISABLED", "value": "256", "description": "User has temporarily disabled premium perks"}
 				]
 			},
-			"EmailType": {"type": "string"},
 			"AdminRelationshipEntrySchema": {
 				"type": "object",
 				"properties": {
@@ -17255,598 +16764,6 @@
 					"updated_at"
 				],
 				"additionalProperties": false
-			},
-			"APIErrorCode": {
-				"type": "string",
-				"enum": [
-					"ACCESS_DENIED",
-					"ANNOUNCEMENT_CHANNEL_REQUIRED",
-					"BAD_GATEWAY",
-					"BAD_REQUEST",
-					"BLUESKY_OAUTH_AUTHORIZATION_FAILED",
-					"BLUESKY_OAUTH_NOT_ENABLED",
-					"ACCOUNT_LIMITED",
-					"ACCOUNT_IDENTITY_LOCKED",
-					"ACCOUNT_SUSPENDED_PERMANENTLY",
-					"ACCOUNT_SUSPENDED_TEMPORARILY",
-					"ACCOUNT_TOO_NEW_FOR_GUILD",
-					"ACLS_MUST_BE_NON_EMPTY",
-					"ADMIN_API_KEY_NOT_FOUND",
-					"ALREADY_FRIENDS",
-					"BOTS_CANNOT_CREATE_GUILDS",
-					"BOTS_CANNOT_SEND_FRIEND_REQUESTS",
-					"BOT_ALREADY_IN_GUILD",
-					"BOT_IS_PRIVATE",
-					"BOT_USER_AUTH_ENDPOINT_ACCESS_DENIED",
-					"BOT_USER_AUTH_SESSION_CREATION_DENIED",
-					"BOT_USER_GENERATION_FAILED",
-					"BOT_USER_NOT_FOUND",
-					"CALL_ALREADY_EXISTS",
-					"CANNOT_EDIT_OTHER_USER_MESSAGE",
-					"CANNOT_EXECUTE_ON_DM",
-					"CANNOT_BLOCK_SYSTEM_USER",
-					"CANNOT_MODIFY_SYSTEM_WEBHOOK",
-					"CANNOT_REDEEM_PLUTONIUM_WITH_VISIONARY",
-					"CANNOT_REPORT_GUILD",
-					"CANNOT_REPORT_OWN_GUILD",
-					"CANNOT_REPORT_OWN_MESSAGE",
-					"CANNOT_REPORT_YOURSELF",
-					"CANNOT_SEND_EMPTY_MESSAGE",
-					"CANNOT_SEND_FRIEND_REQUEST_TO_BLOCKED_USER",
-					"CANNOT_SEND_FRIEND_REQUEST_TO_SELF",
-					"CANNOT_SEND_MESSAGES_IN_NON_TEXT_CHANNEL",
-					"CANNOT_SEND_MESSAGES_TO_USER",
-					"CANNOT_TRANSFER_OWNERSHIP_TO_BOT",
-					"CAPTCHA_REQUIRED",
-					"CHANNEL_ALREADY_FOLLOWED",
-					"CHANNEL_HAS_FOLLOWED_CHANNELS",
-					"CHANNEL_HAS_THREADS",
-					"CHANNEL_TYPE_CONVERSION_NOT_SUPPORTED",
-					"COMMUNICATION_DISABLED",
-					"CONNECTION_ALREADY_EXISTS",
-					"CONNECTION_INITIATION_TOKEN_INVALID",
-					"CONNECTION_INVALID_TYPE",
-					"CONNECTION_LIMIT_REACHED",
-					"CONNECTION_NOT_FOUND",
-					"CONNECTION_VERIFICATION_FAILED",
-					"CONFLICT",
-					"CONTENT_BLOCKED",
-					"DELETION_FAILED",
-					"DISCOVERY_ALREADY_APPLIED",
-					"DISCOVERY_APPLICATION_ALREADY_REVIEWED",
-					"DISCOVERY_APPLICATION_NOT_FOUND",
-					"DISCOVERY_DISABLED",
-					"DISCOVERY_INSUFFICIENT_MEMBERS",
-					"DISCOVERY_NOT_DISCOVERABLE",
-					"DISCRIMINATOR_REQUIRED",
-					"EMAIL_SERVICE_NOT_TESTABLE",
-					"EMAIL_UNAVAILABLE_ON_INSTANCE",
-					"EMAIL_VERIFICATION_REQUIRED",
-					"DIRECT_MESSAGE_EMAIL_VERIFICATION_REQUIRED",
-					"FOLLOW_TARGET_CONTENT_WARNING_REQUIRED",
-					"FOLLOW_TARGET_NOT_AGE_RESTRICTED",
-					"FRIEND_REQUEST_EMAIL_VERIFICATION_REQUIRED",
-					"GUILD_CREATION_EMAIL_VERIFICATION_REQUIRED",
-					"GUILD_CREATION_PERMISSION_REQUIRED",
-					"GUILD_EMAIL_VERIFICATION_REQUIRED",
-					"INVALID_FOLLOW_TARGET_CHANNEL",
-					"MESSAGE_ALREADY_CROSSPOSTED",
-					"MESSAGE_CROSSPOST_RATE_LIMITED",
-					"MESSAGE_NOT_CROSSPOSTABLE",
-					"MFA_EMAIL_VERIFICATION_REQUIRED",
-					"PROFILE_EMAIL_VERIFICATION_REQUIRED",
-					"PUBLISHED_MESSAGE_EDIT_RATE_LIMITED",
-					"PURCHASE_EMAIL_VERIFICATION_REQUIRED",
-					"REACTION_EMAIL_VERIFICATION_REQUIRED",
-					"REPORT_EMAIL_VERIFICATION_REQUIRED",
-					"REGISTRATION_CLOSED",
-					"REGISTRATION_PENDING_APPROVAL",
-					"REGISTRATION_REJECTED",
-					"REGISTRATION_URL_INVALID",
-					"EXPLICIT_CONTENT_CANNOT_BE_SENT",
-					"FEATURE_NOT_AVAILABLE_SELF_HOSTED",
-					"FEATURE_TEMPORARILY_DISABLED",
-					"FILE_SIZE_TOO_LARGE",
-					"FORBIDDEN",
-					"FORUM_TAG_NAMES_MUST_BE_UNIQUE",
-					"FORUM_TAG_REQUIRED",
-					"FRIEND_REQUEST_BLOCKED",
-					"GATEWAY_TIMEOUT",
-					"GENERAL_ERROR",
-					"GONE",
-					"GIFT_CODE_ALREADY_REDEEMED",
-					"GUILD_TEMPLATE_INVALID",
-					"GUILD_VERIFICATION_REQUIRED",
-					"HANDOFF_CODE_EXPIRED",
-					"HARVEST_EXPIRED",
-					"HARVEST_FAILED",
-					"HARVEST_NOT_READY",
-					"HIDE_MEDIA_DOWNLOAD_OPTION_MEDIA_ONLY",
-					"INTERNAL_SERVER_ERROR",
-					"INVALID_ACLS_FORMAT",
-					"INVALID_API_ORIGIN",
-					"INVALID_AUTH_TOKEN",
-					"INVALID_BOT_FLAG",
-					"INVALID_CAPTCHA",
-					"INVALID_CHANNEL_TYPE_FOR_CALL",
-					"INVALID_CHANNEL_TYPE",
-					"INVALID_DSA_REPORT_TARGET",
-					"INVALID_DSA_TICKET",
-					"INVALID_DSA_VERIFICATION_CODE",
-					"INVALID_FLAGS_FORMAT",
-					"INVALID_FORM_BODY",
-					"INVALID_HANDOFF_CODE",
-					"INVALID_ORIGIN_HANDOFF_NONCE",
-					"INVALID_PASSKEY_BRIDGE_NONCE",
-					"INVALID_PERMISSIONS_INTEGER",
-					"INVALID_PERMISSIONS_NEGATIVE",
-					"INVALID_REPORT_FLOW_ANSWERS",
-					"INVALID_REQUEST",
-					"INVALID_STREAM_KEY_FORMAT",
-					"INVALID_STREAM_THUMBNAIL_PAYLOAD",
-					"INVALID_SYSTEM_FLAG",
-					"INVALID_TIMESTAMP",
-					"INVALID_TOKEN",
-					"INVALID_THREAD_NOTIFICATION_SETTINGS",
-					"INVALID_WEBAUTHN_AUTHENTICATION_COUNTER",
-					"INVALID_WEBAUTHN_CREDENTIAL_COUNTER",
-					"INVALID_WEBAUTHN_CREDENTIAL",
-					"INVALID_WEBAUTHN_PUBLIC_KEY_FORMAT",
-					"INVITES_DISABLED",
-					"IP_AUTHORIZATION_REQUIRED",
-					"IP_AUTHORIZATION_RESEND_COOLDOWN",
-					"IP_AUTHORIZATION_RESEND_LIMIT_EXCEEDED",
-					"GLOBAL_IP_BANNED",
-					"GLOBAL_IP_TEMPORARILY_BANNED",
-					"IP_BAN_DECLINED",
-					"MAX_APPLICATIONS",
-					"MAX_BOOKMARKS",
-					"MAX_ACTIVE_THREADS",
-					"MAX_CATEGORY_CHANNELS",
-					"MAX_EMOJIS",
-					"MAX_FAVORITE_MEMES",
-					"MAX_FRIENDS",
-					"MAX_FORUM_TAGS",
-					"MAX_GROUP_DM_RECIPIENTS",
-					"MAX_GROUP_DMS",
-					"GROUP_DM_RECIPIENTS_NOT_ADDABLE",
-					"GROUP_DM_MATURE_CONTENT_INELIGIBLE",
-					"MAX_GUILD_CHANNELS",
-					"MAX_GUILD_MEMBERS",
-					"MAX_GUILD_ROLES",
-					"MAX_GUILDS",
-					"MAX_PINNED_THREADS_IN_FORUM",
-					"MAX_INVITES",
-					"MAX_REACTIONS",
-					"MAX_STICKERS",
-					"MAX_THREAD_MEMBERS",
-					"MAX_WEBHOOKS_PER_CHANNEL",
-					"MAX_WEBHOOKS_PER_GUILD",
-					"MEDIA_METADATA_ERROR",
-					"METHOD_NOT_ALLOWED",
-					"MISSING_ACCESS",
-					"MISSING_ACL",
-					"MISSING_AUTHORIZATION",
-					"MISSING_OAUTH_SCOPE",
-					"MISSING_PERMISSIONS",
-					"NO_ACTIVE_CALL",
-					"NO_ACTIVE_SUBSCRIPTION",
-					"NO_TAGS_AVAILABLE_TO_NON_MODERATORS",
-					"NOT_FOUND",
-					"NOT_IMPLEMENTED",
-					"NO_PASSKEYS_REGISTERED",
-					"NO_PENDING_DELETION",
-					"NO_USERS_WITH_FLUXERTAG_EXIST",
-					"NOT_A_BOT_APPLICATION",
-					"NOT_FRIENDS_WITH_USER",
-					"NSFW_CONTENT_AGE_RESTRICTED",
-					"PASSKEY_AUTHENTICATION_FAILED",
-					"PREMIUM_PURCHASE_BLOCKED",
-					"PREVIEW_MUST_BE_JPEG",
-					"PROCESSING_FAILED",
-					"RATE_LIMITED",
-					"REPORT_ALREADY_RESOLVED",
-					"REPORT_BANNED",
-					"REPORT_FLOW_OUTDATED",
-					"REPORT_UNDER_LEGAL_HOLD",
-					"RESPONSE_VALIDATION_ERROR",
-					"RESOURCE_LOCKED",
-					"SERVICE_UNAVAILABLE",
-					"SESSION_TOKEN_MISMATCH",
-					"SINGLE_COMMUNITY_CANNOT_CREATE_GUILDS",
-					"SINGLE_COMMUNITY_CANNOT_DELETE",
-					"SINGLE_COMMUNITY_CANNOT_LEAVE",
-					"INSTANCE_POLICY_TRANSITION_NOT_ALLOWED",
-					"SLOWMODE_RATE_LIMITED",
-					"SEARCH_INDEX_NOT_READY",
-					"SSO_REQUIRED",
-					"STORE_BILLING_UNAVAILABLE",
-					"STORE_NOTIFICATION_UNAUTHORIZED",
-					"STORE_PURCHASE_INVALID",
-					"STORE_PURCHASE_OWNED_BY_OTHER_ACCOUNT",
-					"STORE_PURCHASE_SANDBOX_NOT_ENTITLED",
-					"STREAM_KEY_CHANNEL_MISMATCH",
-					"STREAM_KEY_SCOPE_MISMATCH",
-					"STRIPE_ERROR",
-					"STRIPE_GIFT_REDEMPTION_IN_PROGRESS",
-					"STRIPE_INVALID_PRODUCT",
-					"STRIPE_INVALID_PRODUCT_CONFIGURATION",
-					"STRIPE_NO_ACTIVE_SUBSCRIPTION",
-					"STRIPE_NO_PURCHASE_HISTORY",
-					"STRIPE_REFUND_OUTSIDE_WINDOW",
-					"STRIPE_REFUND_COOLDOWN_ACTIVE",
-					"STRIPE_NO_SUBSCRIPTION",
-					"STRIPE_PAYMENT_NOT_AVAILABLE",
-					"STRIPE_SUBSCRIPTION_ALREADY_CANCELING",
-					"STRIPE_SUBSCRIPTION_NOT_CANCELING",
-					"STRIPE_WEBHOOK_NOT_AVAILABLE",
-					"STRIPE_WEBHOOK_SIGNATURE_INVALID",
-					"STRIPE_WEBHOOK_SIGNATURE_MISSING",
-					"DIRECT_MESSAGES_DISABLED",
-					"NEW_CONVERSATIONS_LIMITED",
-					"DONATION_AMOUNT_INVALID",
-					"DONATION_MAGIC_LINK_EXPIRED",
-					"DONATION_MAGIC_LINK_INVALID",
-					"DONATION_MAGIC_LINK_USED",
-					"SUDO_MODE_REQUIRED",
-					"TAG_ALREADY_TAKEN",
-					"TEMPORARY_INVITE_REQUIRES_PRESENCE",
-					"TEST_HARNESS_DISABLED",
-					"TEST_HARNESS_FORBIDDEN",
-					"THREAD_ALREADY_CREATED_FOR_MESSAGE",
-					"THREAD_ARCHIVED",
-					"THREAD_LOCKED",
-					"TWO_FA_NOT_ENABLED",
-					"TWO_FACTOR_REQUIRED",
-					"UNAUTHORIZED",
-					"UNCLAIMED_ACCOUNT_CANNOT_ACCEPT_FRIEND_REQUESTS",
-					"UNCLAIMED_ACCOUNT_CANNOT_ADD_REACTIONS",
-					"UNCLAIMED_ACCOUNT_CANNOT_CREATE_APPLICATIONS",
-					"UNCLAIMED_ACCOUNT_CANNOT_CREATE_GUILDS",
-					"UNCLAIMED_ACCOUNT_CANNOT_JOIN_GROUP_DMS",
-					"UNCLAIMED_ACCOUNT_CANNOT_JOIN_ONE_ON_ONE_VOICE_CALLS",
-					"UNCLAIMED_ACCOUNT_CANNOT_JOIN_VOICE_CHANNELS",
-					"UNCLAIMED_ACCOUNT_CANNOT_MAKE_PURCHASES",
-					"UNCLAIMED_ACCOUNT_CANNOT_SEND_DIRECT_MESSAGES",
-					"UNCLAIMED_ACCOUNT_CANNOT_SEND_FRIEND_REQUESTS",
-					"UNCLAIMED_ACCOUNT_CANNOT_SEND_MESSAGES",
-					"UNCLAIMED_ACCOUNT_CANNOT_SUBMIT_REPORTS",
-					"UNKNOWN_CHANNEL",
-					"UNKNOWN_EMOJI",
-					"UNKNOWN_FAVORITE_MEME",
-					"UNKNOWN_FORUM_TAG",
-					"UNKNOWN_GIFT_CODE",
-					"UNKNOWN_GUILD",
-					"UNKNOWN_HARVEST",
-					"UNKNOWN_INVITE",
-					"UNKNOWN_MEMBER",
-					"UNKNOWN_MESSAGE",
-					"UNKNOWN_ORIGIN_HANDOFF",
-					"UNKNOWN_PASSKEY_BRIDGE",
-					"UNKNOWN_PASSKEY_MIGRATION",
-					"UNKNOWN_REPORT",
-					"UNKNOWN_ROLE",
-					"UNKNOWN_STICKER",
-					"UNKNOWN_STORE_PURCHASE",
-					"UNKNOWN_THREAD_MEMBER",
-					"UNKNOWN_USER_FLAG",
-					"UNKNOWN_USER",
-					"UNKNOWN_VOICE_REGION",
-					"UNKNOWN_VOICE_SERVER",
-					"UNKNOWN_WEBAUTHN_CREDENTIAL",
-					"UNKNOWN_APPLICATION",
-					"UNKNOWN_WEBHOOK",
-					"WEBHOOK_FORUM_TARGET_CONFLICT",
-					"WEBHOOK_FORUM_TARGET_REQUIRED",
-					"WEBHOOK_SERVICE_FORUM_UNSUPPORTED",
-					"WEBHOOK_THREAD_NAME_REQUIRES_FORUM",
-					"USERNAME_NOT_AVAILABLE",
-					"USERNAME_SIGN_IN_ONLY",
-					"UPDATE_FAILED",
-					"USER_BANNED_FROM_GUILD",
-					"USER_IP_BANNED_FROM_GUILD",
-					"USER_NOT_IN_VOICE",
-					"USER_OWNS_GUILDS",
-					"VALIDATION_ERROR",
-					"VOICE_CHANNEL_FULL",
-					"WEBAUTHN_CREDENTIAL_LIMIT_REACHED",
-					"AGE_VERIFICATION_ALREADY_VERIFIED"
-				],
-				"description": "Known error codes returned by API operations",
-				"x-enumDescriptions": [
-					"You don't have access to this resource or feature.",
-					"This action is only available in announcement channels.",
-					"Bad gateway.",
-					"Bad request.",
-					"We couldn't resolve that Bluesky handle. Please check it and try again.",
-					"Bluesky connections are not enabled on this instance.",
-					"Messaging is paused on your account. Check your email for a quick step to continue.",
-					"The sign-in method is already set and can't be changed.",
-					"This account has been permanently suspended.",
-					"This account has been temporarily suspended.",
-					"Your account is too new to send messages in this community.",
-					"ACLs must be non-empty.",
-					"Admin API key wasn't found.",
-					"You're already friends with this user.",
-					"Bots can't create communities.",
-					"Bots can't send friend requests.",
-					"This bot is already in the community.",
-					"This bot is private.",
-					"Bot users can't use auth endpoints.",
-					"Bot users can't create auth sessions.",
-					"Bot user generation failed.",
-					"Bot user wasn't found.",
-					"A call is already in progress in this channel.",
-					"You can't edit another user's message.",
-					"This action can't be performed in a DM.",
-					"You can't block the system user.",
-					"You can't edit system messages.",
-					"You can't redeem {premium_tier_name} with Visionary.",
-					"You can't report this community.",
-					"You can't report your own community.",
-					"You can't report your own message.",
-					"You can't report yourself.",
-					"You can't send an empty message.",
-					"You can't send a friend request to a blocked user.",
-					"You can't send a friend request to yourself.",
-					"You can't send messages in a non-text channel.",
-					"You can't send messages to this user.",
-					"Community ownership can't be transferred to a bot.",
-					"Verification required. Try again.",
-					"This channel already receives updates from that announcement channel.",
-					"Remove the followed channels posting here before converting it to an announcement channel.",
-					"Channels with threads can't be converted to announcement channels.",
-					"Only text and announcement channels can be converted into each other.",
-					"Communication is disabled.",
-					"A connection of this type with this identifier already exists.",
-					"The connection initiation token is invalid or has expired.",
-					"The connection type is not supported.",
-					"You've reached the maximum number of connections ({limit}).",
-					"Unknown connection.",
-					"Connection verification failed. Make sure the verification token is correctly placed.",
-					"Conflict.",
-					"This content was blocked by safety systems.",
-					"We couldn't delete the resource. Please try again.",
-					"This community has already applied for Discovery.",
-					"This Discovery application has already been reviewed.",
-					"Discovery application wasn't found.",
-					"Discovery isn't available on this instance.",
-					"This community doesn't meet the minimum member count for Discovery.",
-					"This community isn't listed in Discovery.",
-					"Discriminator is required.",
-					"Email service is temporarily unavailable. Please try again later.",
-					"This instance doesn't use email.",
-					"Email verification is required for this action.",
-					"Email verification is required for this action.",
-					"Updates from a channel with a content warning can only go to a channel with a content warning or an age restriction.",
-					"Updates from an age-restricted channel can only go to an age-restricted channel.",
-					"Email verification is required for this action.",
-					"Email verification is required for this action.",
-					"You don't have permission to create communities on this instance. Contact your instance administrator to request access.",
-					"Email verification is required for this action.",
-					"Followed channels can only post into text channels.",
-					"This message has already been published.",
-					"This channel has reached its publishing limit. It can publish 10 messages in a row, then one more every 6 minutes.",
-					"This message cannot be published.",
-					"Email verification is required for this action.",
-					"Email verification is required for this action.",
-					"This published message has reached its editing limit. It allows 3 quick edits, then 1 every 20 minutes.",
-					"Email verification is required for this action.",
-					"Email verification is required for this action.",
-					"Email verification is required for this action.",
-					"Registration is closed on this instance.",
-					"This registration is waiting for admin approval.",
-					"This registration request was rejected.",
-					"This registration link is invalid or has expired.",
-					"Explicit content can't be sent.",
-					"This feature isn't available on self-hosted instances.",
-					"This feature is temporarily disabled.",
-					"File size is too large. Maximum file size is {maxSize}.",
-					"Forbidden.",
-					"Tag names must be unique.",
-					"A tag is required to create a post in this channel.",
-					"User does not accept friend requests at this time.",
-					"Gateway timeout.",
-					"Something went wrong. Please try again later.",
-					"Gone.",
-					"Gift code is already redeemed.",
-					"The community template data is invalid or malformed.",
-					"Community verification is required.",
-					"Handoff code expired.",
-					"Your data export request has expired. Please request a new export.",
-					"Your data export request failed. Please try again.",
-					"Your data export is still being prepared. Please check back in a few moments.",
-					"Hiding media download options is only available in media channels.",
-					"Internal server error.",
-					"Invalid ACL format.",
-					"Invalid API origin.",
-					"Invalid or expired authorization token.",
-					"Invalid bot flag.",
-					"Verification failed. Try again.",
-					"Calls can only be made in direct messages or group DMs.",
-					"Invalid channel type.",
-					"Invalid DSA report target.",
-					"Invalid DSA ticket.",
-					"Invalid DSA verification code.",
-					"Invalid flags format.",
-					"Invalid form body.",
-					"Invalid handoff code.",
-					"This sign-in transfer doesn't match the one you started.",
-					"This passkey request could not be confirmed. Try again.",
-					"Permissions must be a valid integer.",
-					"Permissions must be non-negative.",
-					"These answers don't match the report form. Start the report again.",
-					"Invalid request.",
-					"Invalid stream key format.",
-					"Invalid stream thumbnail payload.",
-					"Invalid system flag.",
-					"Invalid timestamp.",
-					"Invalid or expired authorization token.",
-					"Invalid thread notification settings.",
-					"Invalid WebAuthn authentication counter.",
-					"Invalid WebAuthn credential counter.",
-					"Failed to verify WebAuthn credential.",
-					"Invalid WebAuthn public key format.",
-					"Invites are disabled.",
-					"IP authorization is required.",
-					"IP authorization resend is on cooldown.",
-					"IP authorization resend limit exceeded.",
-					"Your IP address {ipAddress} has been permanently blocked from the {product_name} API by platform administrators. {appealEmail, select, null {If you believe this is a mistake, contact the administrators of this instance to appeal.} other {If you believe this is a mistake, contact {appealEmail} to appeal.}} Include this IP address in your appeal.",
-					"Your IP address {ipAddress} has been temporarily blocked from the {product_name} API. The block lifts on its own when it expires. {appealEmail, select, null {If you think this is a mistake, contact the administrators of this instance and include this IP address.} other {If you think this is a mistake, contact {appealEmail} and include this IP address.}}",
-					"This IP address cannot be added to the blocklist.",
-					"You've reached the maximum of {limit, plural, one {# application} other {# applications}}.",
-					"You've reached the maximum of {count, plural, one {# bookmark} other {# bookmarks}}.",
-					"This community has reached its active thread limit of {count}.",
-					"You've reached the maximum of {count, plural, one {# category channel} other {# category channels}}.",
-					"You've reached the maximum of {count, plural, one {# emoji} other {# emojis}}.",
-					"You've reached the maximum of {count, plural, one {# saved media item} other {# saved media items}}.",
-					"You've reached the maximum of {count, plural, one {# friend} other {# friends}}.",
-					"This channel has reached its tag limit of {count}.",
-					"You've reached the maximum of {count, plural, one {# group DM recipient} other {# group DM recipients}}.",
-					"You've reached the maximum of {count, plural, one {# group DM} other {# group DMs}}.",
-					"One or more selected users can't be added to this group DM.",
-					"Not everyone in this group is eligible for mature content.",
-					"You've reached the maximum of {count, plural, one {# community channel} other {# community channels}}.",
-					"You've reached the maximum of {count, plural, one {# community member} other {# community members}}.",
-					"You've reached the maximum of {count, plural, one {# community role} other {# community roles}}.",
-					"You've reached the maximum of {count, plural, one {# community} other {# communities}}.",
-					"This channel has reached its pinned post limit of {count}.",
-					"You've reached the maximum of {count, plural, one {# invite} other {# invites}}.",
-					"You've reached the maximum of {count, plural, one {# reaction} other {# reactions}}.",
-					"You've reached the maximum of {count, plural, one {# sticker} other {# stickers}}.",
-					"This thread has reached its member limit of {count}.",
-					"You've reached the maximum of {count, plural, one {# webhook} other {# webhooks}} per channel.",
-					"You've reached the maximum of {count, plural, one {# webhook} other {# webhooks}} per community.",
-					"Media metadata error.",
-					"Method not allowed.",
-					"You don't have access to this resource or feature.",
-					"Missing ACL.",
-					"Missing or invalid authorization header.",
-					"The requested scope isn't supported or you don't have permission to request it.",
-					"You don't have the permissions required to perform this action.",
-					"No active call.",
-					"No active subscription.",
-					"A tag is required, but only moderators can apply the tags in this channel.",
-					"Not found.",
-					"Not implemented.",
-					"No passkeys are registered.",
-					"Invalid request.",
-					"There are too many users with this username.",
-					"This application isn't a bot.",
-					"You're not friends with this user.",
-					"NSFW content is age restricted.",
-					"Passkey authentication failed.",
-					"No active subscription.",
-					"Preview must be JPEG.",
-					"We couldn't process the request. Please try again.",
-					"You're being rate limited.",
-					"Report already resolved.",
-					"You've been banned from submitting reports.",
-					"The report form changed while you were filling it in. Start the report again.",
-					"This report is under a legal hold and can't be deleted.",
-					"Response validation failed: {errors}.",
-					"This resource is being modified. Please try again shortly.",
-					"Service unavailable.",
-					"Session token mismatch.",
-					"This instance is a single community, so additional communities cannot be created.",
-					"The community for this instance cannot be deleted.",
-					"You cannot leave the community for this instance.",
-					"This instance policy change is not allowed.",
-					"Slowmode rate limited.",
-					"The search index isn't ready yet. Try again in a moment.",
-					"Invalid request.",
-					"In-app purchases are unavailable right now. Try again later.",
-					"The notification signature is invalid.",
-					"This purchase could not be verified.",
-					"This purchase is linked to a different account.",
-					"Test purchases cannot be applied to this account.",
-					"Stream key channel mismatch.",
-					"Stream key scope mismatch.",
-					"{supportEmail, select, null {Payment processing encountered an error. Please try again or contact the administrators of this instance.} other {Payment processing encountered an error. Please try again or contact support.}}",
-					"Gift code redemption is in progress. Try again in a moment.",
-					"Invalid product selection.",
-					"Invalid product configuration.",
-					"No active subscription found.",
-					"No purchase history found. Customer portal isn't available.",
-					"This purchase is outside the 3-day self-serve refund window.",
-					"You can request a self-serve refund once every 30 days. Please try again later.",
-					"No subscription found.",
-					"Payment processing is temporarily unavailable. Please try again later.",
-					"Subscription is already set to cancel at period end.",
-					"Subscription isn't set to cancel.",
-					"Webhook processing isn't available.",
-					"Stripe webhook signature is invalid.",
-					"Stripe webhook signature is missing.",
-					"Direct messages and friend requests are disabled on this instance.",
-					"You can't start new conversations right now. Please try again later.",
-					"Donation amount is invalid.",
-					"Magic link has expired.",
-					"Magic link is invalid.",
-					"Magic link has already been used.",
-					"Sudo mode is required.",
-					"This tag is already taken.",
-					"Temporary invite requires presence.",
-					"Test harness is disabled.",
-					"Test harness is forbidden.",
-					"A thread has already been created for this message.",
-					"This thread is archived.",
-					"This thread is locked.",
-					"Two-factor authentication isn't enabled.",
-					"Two-factor authentication is required.",
-					"Unauthorized.",
-					"You're not friends with this user.",
-					"Invalid request.",
-					"Invalid request.",
-					"You need to complete your account setup before you can create communities.",
-					"You can't add yourself to a group DM.",
-					"Invalid request.",
-					"Invalid request.",
-					"Invalid request.",
-					"You can't send messages to this user.",
-					"Bots can't send friend requests.",
-					"Invalid request.",
-					"You need to complete your account setup before you can submit reports.",
-					"Channel wasn't found.",
-					"Unknown emoji.",
-					"Unknown saved media.",
-					"Tag wasn't found.",
-					"Unknown gift code.",
-					"Community wasn't found.",
-					"Unknown data export.",
-					"Invite wasn't found or is no longer valid.",
-					"Member wasn't found in this community.",
-					"Message wasn't found.",
-					"This sign-in transfer has expired or was already used.",
-					"This passkey request has expired. Try again.",
-					"There is no passkey to update right now.",
-					"Unknown report.",
-					"Role wasn't found.",
-					"Unknown sticker.",
-					"Unknown store purchase.",
-					"Thread member wasn't found.",
-					"The specified user flag isn't recognized.",
-					"User wasn't found.",
-					"Unknown voice region.",
-					"Unknown voice server.",
-					"Unknown WebAuthn credential.",
-					"Unknown application.",
-					"Unknown webhook.",
-					"You can't specify both `thread_id` and `thread_name`.",
-					"Webhooks posting to this channel need a `thread_id` or a `thread_name`.",
-					"This webhook service can't post to a forum or media channel without a `thread_id`.",
-					"`thread_name` and `applied_tags` only work in forum and media channels.",
-					"This username is not available.",
-					"This is only available on instances where people sign in with a username.",
-					"We couldn't update the resource. Please try again.",
-					"This user is banned from this community.",
-					"This user's IP is banned from this community.",
-					"This user isn't in voice.",
-					"This user owns communities.",
-					"Validation failed.",
-					"Voice channel is full.",
-					"You've reached the maximum of {count, plural, one {# WebAuthn credential} other {# WebAuthn credentials}}.",
-					"You've already completed age verification."
-				]
 			}
 		},
 		"securitySchemes": {

@@ -9,10 +9,10 @@ import {
 	SettingsTabSection,
 } from '@app/features/app/components/dialogs/shared/SettingsTabLayout';
 import {ExternalLink} from '@app/features/app/components/shared/ExternalLink';
-import {I18N_WEBLATE_DOMAIN, I18N_WEBLATE_URL} from '@app/features/app/config/I18nDisplayConstants';
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {I18N_WEBLATE_DOMAIN, I18N_WEBLATE_URL, PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import * as EmojiUtils from '@app/features/expressions/utils/EmojiUtils';
 import Spellcheck from '@app/features/messaging/state/Spellcheck';
+import type {SpellcheckEngine} from '@app/features/platform/types/Electron';
 import {Button} from '@app/features/ui/button/Button';
 import {Combobox, type ComboboxFilterOption, type ComboboxOption} from '@app/features/ui/components/form/FormCombobox';
 import {Switch} from '@app/features/ui/components/form/FormSwitch';
@@ -24,15 +24,10 @@ import * as UserSettingsCommands from '@app/features/user/commands/UserSettingsC
 import styles from '@app/features/user/components/modals/tabs/LanguageTab.module.css';
 import UserSettings from '@app/features/user/state/UserSettings';
 import * as LocaleUtils from '@app/features/user/utils/LocaleUtils';
-import {
-	INTERFACE_LANGUAGE_DESCRIPTOR,
-	PERSONAL_DICTIONARY_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
-import type {SpellcheckEngine} from '@app/types/electron.d';
 import {TimeFormatTypes} from '@fluxer/constants/src/UserConstants';
 import {getFormattedTime} from '@fluxer/date_utils/src/DateFormatting';
 import {localeUses12Hour} from '@fluxer/date_utils/src/DateHourCycle';
-import {msg, ph} from '@lingui/core/macro';
+import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
@@ -84,7 +79,10 @@ const SELECT_INTERFACE_LANGUAGE_DESCRIPTOR = msg({
 	message: 'Select interface language',
 	comment: 'Button or menu action label in the language tab. Keep it concise.',
 });
-
+const INTERFACE_LANGUAGE_DESCRIPTOR = msg({
+	message: 'Interface language',
+	comment: 'Settings section title in the language tab. Keep it concise.',
+});
 const ENABLE_SPELLCHECK_DESCRIPTOR = msg({
 	message: 'Enable spellcheck',
 	comment: 'Button or menu action label in the language tab. Keep it concise.',
@@ -130,7 +128,10 @@ const AUTO_DETECT_LANGUAGE_DESCRIPTOR = msg({
 	comment:
 		'Spellcheck language mode label in the language tab. The app detects the draft message language and switches dictionaries as the user types.',
 });
-
+const PERSONAL_DICTIONARY_DESCRIPTOR = msg({
+	message: 'Personal dictionary',
+	comment: 'Subsection title for personal dictionary settings. Keep it concise.',
+});
 const PICK_ONE_OR_MORE_DICTIONARIES_DESCRIPTOR = msg({
 	message:
 		'Pick one or more dictionaries. Words from any selected dictionary are accepted, which is useful for multilingual chats.',
@@ -273,7 +274,7 @@ export const LanguageSelector = observer(function LanguageSelector({
 		return query.length === 0 || option.data.searchText.includes(query);
 	}, []);
 	return (
-		<Combobox<string, LanguageSelectOption>
+		<Combobox<string, false, LanguageSelectOption>
 			options={localeOptions}
 			value={value}
 			onChange={onChange}
@@ -299,7 +300,7 @@ const LanguageTab = observer(() => {
 	const {timeFormat} = UserSettings;
 	const isDesktop = NativeUtils.isDesktop();
 	const getAutoTimeFormatDescription = () => {
-		const appLocale = UserSettings.locale;
+		const appLocale = UserSettings.getLocale();
 		const browserLocale = navigator.language;
 		const effectiveLocale = Accessibility.useBrowserLocaleForTimeFormat ? browserLocale : appLocale;
 		const uses12Hour = localeUses12Hour(effectiveLocale);
@@ -311,12 +312,12 @@ const LanguageTab = observer(() => {
 		return i18n._(APP_LANGUAGE_DESCRIPTOR, {format});
 	};
 	const get12HourExample = () => {
-		const locale = UserSettings.locale;
+		const locale = UserSettings.getLocale();
 		const sampleDate = new Date(2025, 0, 1, 14, 30, 0);
 		return getFormattedTime(sampleDate, locale, true);
 	};
 	const get24HourExample = () => {
-		const locale = UserSettings.locale;
+		const locale = UserSettings.getLocale();
 		const sampleDate = new Date(2025, 0, 1, 14, 30, 0);
 		return getFormattedTime(sampleDate, locale, false);
 	};
@@ -345,7 +346,7 @@ const LanguageTab = observer(() => {
 						<div className={styles.notice} data-flx="user.language-tab.notice">
 							<p className={styles.noticeText} data-flx="user.language-tab.notice-text">
 								<Trans>
-									Help translate {ph({PRODUCT_NAME: RuntimeConfig.productName})} into your language on{' '}
+									Help translate {PRODUCT_NAME} into your language on{' '}
 									<ExternalLink href={I18N_WEBLATE_URL} className={styles.link} data-flx="user.language-tab.link">
 										{I18N_WEBLATE_DOMAIN}
 									</ExternalLink>
@@ -413,14 +414,12 @@ const SpellcheckSettingsSection = observer(() => {
 		{
 			value: 'auto',
 			name: i18n._(RECOMMENDED_DESCRIPTOR),
-			desc: i18n._(USE_THE_IN_APP_HUNSPELL_ENGINE_WHEN_A_DESCRIPTOR, {productName: RuntimeConfig.productName}),
+			desc: i18n._(USE_THE_IN_APP_HUNSPELL_ENGINE_WHEN_A_DESCRIPTOR, {productName: PRODUCT_NAME}),
 		},
 		{
 			value: 'hunspell',
 			name: i18n._(IN_APP_HUNSPELL_DESCRIPTOR),
-			desc: i18n._(ALWAYS_USE_S_HUNSPELL_DICTIONARIES_DOWNLOADED_ON_DEMAND_DESCRIPTOR, {
-				productName: RuntimeConfig.productName,
-			}),
+			desc: i18n._(ALWAYS_USE_S_HUNSPELL_DICTIONARIES_DOWNLOADED_ON_DEMAND_DESCRIPTOR, {productName: PRODUCT_NAME}),
 		},
 		{
 			value: 'system',
@@ -470,9 +469,8 @@ const SpellcheckSettingsSection = observer(() => {
 							data-flx="user.language-tab.spellcheck-settings-section.spellcheck-restart-banner"
 						>
 							<Trans>
-								Reload {ph({PRODUCT_NAME: RuntimeConfig.productName})} to fully apply the engine change. Switching
-								between in-app and system spellcheck requires a renderer reload because Electron can't swap providers
-								while running.
+								Reload {PRODUCT_NAME} to fully apply the engine change. Switching between in-app and system spellcheck
+								requires a renderer reload because Electron can't swap providers while running.
 							</Trans>{' '}
 							<Button
 								small
@@ -547,9 +545,8 @@ const SpellcheckSettingsSection = observer(() => {
 										data-flx="user.language-tab.spellcheck-settings-section.spellcheck-hint--2"
 									>
 										<Trans>
-											In "Operating system" mode, dictionaries listed above are advisory.{' '}
-											{ph({PRODUCT_NAME: RuntimeConfig.productName})} will pass these language tags to your OS
-											spellchecker when supported. Tags it doesn't recognize are ignored.
+											In "Operating system" mode, dictionaries listed above are advisory. {PRODUCT_NAME} will pass these
+											language tags to your OS spellchecker when supported. Tags it doesn't recognize are ignored.
 										</Trans>
 									</div>
 								)}

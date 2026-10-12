@@ -2,21 +2,15 @@
 
 import type {ChannelID, UserID} from '@app/api/BrandedTypes';
 import {createUserID} from '@app/api/BrandedTypes';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {IChannelRepositoryAggregate} from '@app/api/channel/repositories/IChannelRepositoryAggregate';
 import {ChannelAuthService} from '@app/api/channel/services/channel_data/ChannelAuthService';
-import type {
-	ChannelTypeConversion,
-	ChannelUpdateData,
-} from '@app/api/channel/services/channel_data/ChannelOperationsService';
+import type {ChannelUpdateData} from '@app/api/channel/services/channel_data/ChannelOperationsService';
 import {ChannelOperationsService} from '@app/api/channel/services/channel_data/ChannelOperationsService';
 import {ChannelUtilsService} from '@app/api/channel/services/channel_data/ChannelUtilsService';
 import {GroupDmUpdateService} from '@app/api/channel/services/channel_data/GroupDmUpdateService';
 import type {MessagePersistenceService} from '@app/api/channel/services/message/MessagePersistenceService';
-import {ThreadModifyService} from '@app/api/channel/services/thread/ThreadModifyService';
-import {pickThreadParentSettings} from '@app/api/channel/services/thread/ThreadParentSettings';
-import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildAuditLogService} from '@app/api/guild/GuildAuditLogService';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {AvatarService} from '@app/api/infrastructure/AvatarService';
 import type {IPurgeQueue} from '@app/api/infrastructure/CachePurgeQueue';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
@@ -25,24 +19,19 @@ import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService'
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
 import type {IVoiceRoomStore} from '@app/api/infrastructure/IVoiceRoomStore';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
-import type {InviteRepository} from '@app/api/invite/InviteRepository';
+import type {IInviteRepository} from '@app/api/invite/IInviteRepository';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {Channel} from '@app/api/models/Channel';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import type {VoiceAvailabilityService} from '@app/api/voice/VoiceAvailabilityService';
-import type {WebhookRepository} from '@app/api/webhook/WebhookRepository';
+import type {IWebhookRepository} from '@app/api/webhook/IWebhookRepository';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
-import type {
-	ChannelUpdateGatedRequest,
-	ChannelUpdateNonThreadRequest,
-	ChannelUpdateThreadRequest,
-} from '@fluxer/schema/src/domains/channel/ChannelRequestSchemas';
-import type {ICacheService} from '@pkgs/cache/src/ICacheService';
+import type {ChannelUpdateRequest} from '@fluxer/schema/src/domains/channel/ChannelRequestSchemas';
 import type {IRateLimitService} from '@pkgs/rate_limit/src/IRateLimitService';
 
 type GuildChannelUpdateRequest = Exclude<
-	ChannelUpdateNonThreadRequest,
+	ChannelUpdateRequest,
 	{
 		type: typeof ChannelTypes.GROUP_DM;
 	}
@@ -54,12 +43,11 @@ export class ChannelDataService {
 	public readonly operations: ChannelOperationsService;
 	public readonly groupDmUpdate: GroupDmUpdateService;
 	public readonly utils: ChannelUtilsService;
-	public readonly threadModify: ThreadModifyService;
 
 	constructor(
-		channelRepository: ChannelRepository,
-		userRepository: UserRepository,
-		guildRepository: GuildRepository,
+		channelRepository: IChannelRepositoryAggregate,
+		userRepository: IUserRepository,
+		guildRepository: IGuildRepositoryAggregate,
 		userCacheService: UserCacheService,
 		storageService: IStorageService,
 		gatewayService: IGatewayService,
@@ -71,11 +59,10 @@ export class ChannelDataService {
 		voiceAvailabilityService: VoiceAvailabilityService | null,
 		messagePersistenceService: MessagePersistenceService,
 		guildAuditLogService: GuildAuditLogService,
-		inviteRepository: InviteRepository,
-		webhookRepository: WebhookRepository,
+		inviteRepository: IInviteRepository,
+		webhookRepository: IWebhookRepository,
 		limitConfigService: LimitConfigService,
 		rateLimitService: IRateLimitService,
-		cacheService: ICacheService,
 	) {
 		this.utils = new ChannelUtilsService(
 			channelRepository,
@@ -89,7 +76,6 @@ export class ChannelDataService {
 			channelRepository,
 			userRepository,
 			gatewayService,
-			userCacheService,
 			this.auth,
 			this.utils,
 			voiceRoomStore,
@@ -101,19 +87,7 @@ export class ChannelDataService {
 			guildRepository,
 			limitConfigService,
 			rateLimitService,
-			cacheService,
-			snowflakeService,
 		);
-		this.threadModify = new ThreadModifyService({
-			channelRepository,
-			gatewayService,
-			guildAuditLogService,
-			rateLimitService,
-			cacheService,
-			snowflakeService,
-			messagePersistence: messagePersistenceService,
-			utils: this.utils,
-		});
 		this.groupDmUpdate = new GroupDmUpdateService(
 			channelRepository,
 			userRepository,
@@ -121,69 +95,33 @@ export class ChannelDataService {
 			snowflakeService,
 			this.utils,
 			messagePersistenceService,
-			gatewayService,
 		);
-	}
-
-	async deleteThread({
-		userId,
-		viewer,
-		channelId,
-		requestCache,
-		auditLogReason,
-	}: {
-		userId: UserID;
-		viewer: ThreadViewer;
-		channelId: ChannelID;
-		requestCache: RequestCache;
-		auditLogReason: string | null;
-	}): Promise<void> {
-		const authChannel = await this.auth.getChannelAuthenticated({userId, channelId, viewer, skipNsfwValidation: true});
-		await this.threadModify.deleteThread({authChannel, userId, requestCache, auditLogReason});
 	}
 
 	async editChannel({
 		userId,
-		viewer,
 		channelId,
 		data,
 		clientFeatures,
 		requestCache,
 		auditLogReason,
-		typeConversion,
-		countryCode,
 	}: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		channelId: ChannelID;
-		data: Omit<ChannelUpdateGatedRequest, 'type'>;
+		data: Omit<ChannelUpdateRequest, 'type'>;
 		clientFeatures: ReadonlySet<string>;
 		requestCache: RequestCache;
 		auditLogReason: string | null;
-		typeConversion?: ChannelTypeConversion | null;
-		countryCode?: string | null;
 	}): Promise<Channel> {
-		const authChannel = await this.auth.getChannelAuthenticated({userId, channelId, viewer, skipNsfwValidation: true});
-		const {channel} = authChannel;
-		if (authChannel.thread) {
-			return this.threadModify.updateThread({
-				authChannel,
-				userId,
-				data: data as Omit<ChannelUpdateThreadRequest, 'type'>,
-				requestCache,
-				auditLogReason,
-			});
-		}
+		const {channel} = await this.auth.getChannelAuthenticated({userId, channelId, skipNsfwValidation: true});
 		if (channel.type === ChannelTypes.GROUP_DM) {
-			const groupDmData = data as Omit<Extract<ChannelUpdateNonThreadRequest, {type: 3}>, 'type'>;
 			return await this.groupDmUpdate.updateGroupDmChannel({
 				userId,
 				channelId,
-				name: groupDmData.name !== undefined ? groupDmData.name : undefined,
-				icon: groupDmData.icon !== undefined ? groupDmData.icon : undefined,
-				ownerId: groupDmData.owner_id ? createUserID(groupDmData.owner_id) : undefined,
-				nicks: groupDmData.nicks,
-				nsfw: groupDmData.nsfw ?? undefined,
+				name: data.name !== undefined ? data.name : undefined,
+				icon: data.icon !== undefined ? data.icon : undefined,
+				ownerId: data.owner_id ? createUserID(data.owner_id) : undefined,
+				nicks: data.nicks,
 				requestCache,
 			});
 		}
@@ -231,9 +169,6 @@ export class ChannelDataService {
 		if (guildChannelData.rtc_region !== undefined) {
 			channelUpdateData.rtc_region = guildChannelData.rtc_region ?? null;
 		}
-		if (guildChannelData.rtc_p2p !== undefined) {
-			channelUpdateData.rtc_p2p = guildChannelData.rtc_p2p;
-		}
 		if (guildChannelData.icon !== undefined) {
 			channelUpdateData.icon = guildChannelData.icon ?? null;
 		}
@@ -245,15 +180,11 @@ export class ChannelDataService {
 		}
 		return this.operations.editChannel({
 			userId,
-			viewer,
 			channelId,
 			data: channelUpdateData,
-			threadParent: pickThreadParentSettings(channel.type, guildChannelData),
 			clientFeatures,
 			requestCache,
 			auditLogReason,
-			typeConversion,
-			countryCode,
 		});
 	}
 }

@@ -1,8 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import modalI18n from '@app/app/I18n';
-import {showDmActionErrorModal} from '@app/features/app/components/alerts/DmActionErrorModal';
-import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
 import * as Modal from '@app/features/app/components/dialogs/Modal';
 import type {ForwardDestination} from '@app/features/app/components/dialogs/shared/ForwardDefaultDestinations';
 import {MAX_FORWARD_DESTINATIONS} from '@app/features/app/components/dialogs/shared/ForwardDestinationSelection';
@@ -22,6 +19,8 @@ import {ExpressionPickerPopout} from '@app/features/expressions/components/popou
 import {dropTrailingEmptyBlockquoteLines} from '@app/features/lexical/composer/blockquoteLines';
 import {LexicalRichInput, type LexicalRichInputHandle} from '@app/features/lexical/composer/LexicalRichInput';
 import * as MessageCommands from '@app/features/messaging/commands/MessageCommands';
+import {MessageForwardFailedModal} from '@app/features/messaging/components/alerts/MessageForwardFailedModal';
+import {showMessagingErrorModal} from '@app/features/messaging/components/alerts/MessagingErrorModalUtils';
 import {ForwardDestinationIcon} from '@app/features/messaging/components/modals/ForwardDestinationIcon';
 import {ForwardMessagePreview} from '@app/features/messaging/components/modals/ForwardMessagePreview';
 import modalStyles from '@app/features/messaging/components/modals/ForwardModal.module.css';
@@ -32,10 +31,10 @@ import type {MentionSegment} from '@app/features/messaging/utils/TextareaSegment
 import * as NavigationCommands from '@app/features/navigation/commands/NavigationCommands';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {shouldDisableAutofocusOnMobile} from '@app/features/platform/utils/AutofocusUtils';
-import {failureCode} from '@app/features/platform/utils/ResponseInspection';
 import {Button} from '@app/features/ui/button/Button';
 import {Checkbox} from '@app/features/ui/checkbox/Checkbox';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
+import {modal} from '@app/features/ui/commands/ModalCommands';
 import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
 import {Input} from '@app/features/ui/components/form/FormInput';
 import {Scroller} from '@app/features/ui/components/Scroller';
@@ -43,8 +42,6 @@ import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import {Popout} from '@app/features/ui/popover/PopoverPopout';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import type {User} from '@app/features/user/models/User';
-import Users from '@app/features/user/state/Users';
-import {blockIfAccountLimited, showAccountLimitedModal} from '@app/features/user/utils/AccountLimitUtils';
 import {MAX_MESSAGE_LENGTH_PREMIUM} from '@fluxer/constants/src/LimitConstants';
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
@@ -53,15 +50,6 @@ import {MagnifyingGlassIcon, SmileyIcon} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 import {type MouseEvent, useCallback, useEffect, useId, useRef, useState} from 'react';
-
-const MessageForwardFailedModal_FAILED_TO_FORWARD_MESSAGE_DESCRIPTOR = msg({
-	message: 'Failed to forward message',
-	comment: 'Error message in the message forward failed modal.',
-});
-const MessageForwardFailedModal_WE_COULDN_T_FORWARD_THE_MESSAGE_AT_THIS_DESCRIPTOR = msg({
-	message: "We couldn't forward the message at this time.",
-	comment: 'Error message in the message forward failed modal.',
-});
 
 const MESSAGE_IS_TOO_LONG_DESCRIPTOR = msg({
 	message: 'Message is too long',
@@ -240,7 +228,7 @@ export const ForwardModal = observer(
 		}, []);
 		const richInputRef = useRef<LexicalRichInputHandle>(null);
 		const commentNoticeId = useId();
-		const premiumMaxLength = Limits.getStockValue('max_message_length', MAX_MESSAGE_LENGTH_PREMIUM);
+		const premiumMaxLength = Limits.getPremiumValue('max_message_length', MAX_MESSAGE_LENGTH_PREMIUM);
 		const isMobileLayout = MobileLayout.enabled;
 		const shouldFocusSearch = !shouldDisableAutofocusOnMobile();
 		useEffect(() => {
@@ -250,7 +238,7 @@ export const ForwardModal = observer(
 			searchInputRef.current?.focus();
 		}, [filterText]);
 		const handleOptionalMessageExceedsLimit = useCallback(() => {
-			showGenericErrorModal({
+			showMessagingErrorModal({
 				title: i18n._(MESSAGE_IS_TOO_LONG_DESCRIPTOR),
 				message: i18n._(SHORTEN_THE_MESSAGE_AND_TRY_AGAIN_DESCRIPTOR),
 				dataFlx: 'messaging.forward-modal.optional-message-too-long.generic-error-modal',
@@ -281,7 +269,6 @@ export const ForwardModal = observer(
 		const isCommentCounterVisible = actualOptionalMessage.length > user.maxMessageLength * 0.8;
 		const handleForward = async (skipNavigation = false) => {
 			if (selected.length === 0) return;
-			if (blockIfAccountLimited()) return;
 			if (isForwarding) return;
 			if (isSendBlockedBySlowmode) return;
 			if (!isCommentComposerDisabled && isCommentOverLimit) {
@@ -315,9 +302,6 @@ export const ForwardModal = observer(
 					actualMessage,
 				);
 				if (!forwarded) {
-					if (Users.currentUser?.accountLimited === true) {
-						showAccountLimitedModal();
-					}
 					return;
 				}
 				ToastCommands.createToast({
@@ -344,15 +328,11 @@ export const ForwardModal = observer(
 				}
 			} catch (error) {
 				logger.error('Failed to forward message:', error);
-				if (failureCode(error)) {
-					showDmActionErrorModal(error);
-					return;
-				}
-				showGenericErrorModal({
-					title: () => modalI18n._(MessageForwardFailedModal_FAILED_TO_FORWARD_MESSAGE_DESCRIPTOR),
-					message: () => modalI18n._(MessageForwardFailedModal_WE_COULDN_T_FORWARD_THE_MESSAGE_AT_THIS_DESCRIPTOR),
-					dataFlx: 'messaging.message-forward-failed-modal.generic-error-modal',
-				});
+				ModalCommands.push(
+					modal(() => (
+						<MessageForwardFailedModal data-flx="messaging.forward-modal.handle-forward.message-forward-failed-modal" />
+					)),
+				);
 			} finally {
 				setIsForwarding(false);
 			}
@@ -361,7 +341,6 @@ export const ForwardModal = observer(
 			<Modal.Root
 				size="small"
 				centered
-				className={selectorStyles.selectorRoot}
 				initialFocusRef={shouldFocusSearch ? searchInputRef : undefined}
 				data-flx="messaging.forward-modal.modal-root"
 			>
@@ -389,7 +368,7 @@ export const ForwardModal = observer(
 				</Modal.Header>
 				<Modal.Content
 					padding="none"
-					className={selectorStyles.selectorContent}
+					className={modalStyles.destinationList}
 					data-flx="messaging.forward-modal.modal-content"
 				>
 					<div className={selectorStyles.listContainer} data-flx="messaging.forward-modal.div--2">
@@ -639,6 +618,7 @@ export const ForwardModal = observer(
 							}
 						}}
 						visibleTabs={['emojis']}
+						selectedTab="emojis"
 						zIndex={30000}
 						data-flx="messaging.forward-modal.expression-picker-sheet"
 					/>

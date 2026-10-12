@@ -102,13 +102,13 @@ export const InstanceConfigAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase
 			return {
 				request: {
 					path: '/admin/instance/config/smtp-tests',
-					body: {host: '127.0.0.1', port: 1, username: 'coverage', password: 'coverage-password', tls_mode: 'none'},
+					body: {host: '127.0.0.1', port: 1, username: 'coverage', password: 'coverage-password', secure: false},
 				},
 				expected: {
 					action: 'test_smtp_connection',
 					targetType: 'instance_config',
 					targetId: '0',
-					metadata: {port: '1', tls_mode: 'none', ok: 'false'},
+					metadata: {port: '1', secure: 'false', ok: 'false'},
 				},
 			};
 		},

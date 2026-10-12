@@ -5,6 +5,7 @@ import {
 	calculateAroundPaginationState,
 } from '@app/features/messaging/utils/MessagePaginationUtils';
 import {compare as compareSnowflakes} from '@fluxer/snowflake/src/SnowflakeUtils';
+import {assign, initialTransition, type SnapshotFrom, setup, transition} from 'xstate';
 
 export interface MessagePageStateInput {
 	before: string | null;
@@ -31,6 +32,11 @@ export interface MessagePageStateModel {
 		pageFilled: boolean;
 	} | null;
 }
+
+export type MessagePageStateEvent = {
+	type: 'messagePageState.updated';
+	input: MessagePageStateInput;
+};
 
 function getBasePageState(
 	context: MessagePageStateInput,
@@ -107,6 +113,63 @@ function buildMessagePageState(state: MessagePageStateValue, input: MessagePageS
 			pageFilled: input.messageCount === input.limit,
 		},
 	};
+}
+
+export const messagePageStateMachine = setup({
+	types: {} as {
+		context: MessagePageStateInput;
+		events: MessagePageStateEvent;
+		input: MessagePageStateInput;
+	},
+	actions: {
+		applyInput: assign(({event}) => {
+			if (event.type !== 'messagePageState.updated') return {};
+			return event.input;
+		}),
+	},
+	guards: {
+		hasMissingAroundTarget: ({context}) => context.aroundMessageId != null && context.aroundTargetIndex === -1,
+		hasAroundTarget: ({context}) => context.aroundMessageId != null,
+	},
+}).createMachine({
+	id: 'messagePageState',
+	context: ({input}) => input,
+	initial: 'routing',
+	states: {
+		routing: {
+			always: [
+				{guard: 'hasMissingAroundTarget', target: 'aroundMissing'},
+				{guard: 'hasAroundTarget', target: 'aroundFound'},
+				{target: 'standard'},
+			],
+		},
+		aroundMissing: {
+			on: {'messagePageState.updated': {target: 'routing', actions: 'applyInput'}},
+		},
+		aroundFound: {
+			on: {'messagePageState.updated': {target: 'routing', actions: 'applyInput'}},
+		},
+		standard: {
+			on: {'messagePageState.updated': {target: 'routing', actions: 'applyInput'}},
+		},
+	},
+});
+
+export type MessagePageStateSnapshot = SnapshotFrom<typeof messagePageStateMachine>;
+
+export function createMessagePageStateSnapshot(input: MessagePageStateInput): MessagePageStateSnapshot {
+	return initialTransition(messagePageStateMachine, input)[0];
+}
+
+export function transitionMessagePageStateSnapshot(
+	snapshot: MessagePageStateSnapshot,
+	event: MessagePageStateEvent,
+): MessagePageStateSnapshot {
+	return transition(messagePageStateMachine, snapshot, event)[0] as MessagePageStateSnapshot;
+}
+
+export function selectMessagePageState(snapshot: MessagePageStateSnapshot): MessagePageStateModel {
+	return buildMessagePageState(snapshot.value as MessagePageStateValue, snapshot.context);
 }
 
 export function resolveMessagePageState(input: MessagePageStateInput): MessagePageStateModel {

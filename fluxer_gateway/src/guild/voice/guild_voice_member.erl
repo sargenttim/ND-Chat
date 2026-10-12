@@ -1,13 +1,11 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_voice_member).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -typing([eqwalizer]).
 
 -export([update_member_voice/2]).
+-export([find_member_by_user_id/2]).
+-export([find_channel_by_id/2]).
 
 -export_type([
     guild_state/0,
@@ -27,12 +25,16 @@
     deaf := boolean()
 }.
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -spec update_member_voice(request(), guild_state()) -> guild_reply(map()).
 update_member_voice(Request, State) ->
     #{user_id := UserId, mute := Mute, deaf := Deaf} = Request,
     VoiceStates = voice_state_utils:voice_states(State),
     GuildId = state_guild_id(State),
-    case guild_permissions_check:find_member_by_user_id(UserId, State) of
+    case find_member_by_user_id(UserId, State) of
         undefined ->
             {reply, gateway_errors:error(voice_member_not_found), State};
         Member ->
@@ -88,6 +90,14 @@ apply_member_voice_update(
     broadcast_voice_state_updates(Updated, FinalState),
     {reply, #{success => true}, FinalState}.
 
+-spec find_member_by_user_id(integer(), guild_state()) -> member() | undefined.
+find_member_by_user_id(UserId, State) ->
+    guild_permissions:find_member_by_user_id(UserId, State).
+
+-spec find_channel_by_id(integer(), guild_state()) -> map() | undefined.
+find_channel_by_id(ChannelId, State) ->
+    guild_permissions:find_channel_by_id(ChannelId, State).
+
 -spec enforce_participant_state_in_livekit(
     integer(), integer(), integer(), boolean(), boolean(), voice_utils:voice_permissions()
 ) ->
@@ -110,7 +120,7 @@ guild_data(State) ->
 -spec member_user_id(member()) -> integer() | undefined.
 member_user_id(Member) when is_map(Member) ->
     User = map_utils:ensure_map(maps:get(<<"user">>, Member, #{})),
-    snowflake_id:parse_maybe(
+    guild_voice_connection_normalize:normalize_positive_snowflake(
         maps:get(<<"id">>, User, undefined)
     ).
 
@@ -125,7 +135,7 @@ store_member(Member, State) ->
             State;
         _TargetId ->
             Data = guild_data(State),
-            UpdatedData = guild_data_index_members:put_member(Member, Data),
+            UpdatedData = guild_data_index:put_member(Member, Data),
             State#{data => UpdatedData}
     end.
 
@@ -237,7 +247,7 @@ spawn_livekit_enforcement(GuildId, ChannelId, UserId, Mute, Deaf, VoicePermissio
 
 -spec state_guild_id(guild_state()) -> integer() | undefined.
 state_guild_id(State) ->
-    snowflake_id:parse_maybe(
+    guild_voice_connection_normalize:normalize_positive_snowflake(
         maps:get(id, State, undefined)
     ).
 
@@ -261,9 +271,7 @@ update_member_voice_updates_member_flags_test() ->
     State = voice_member_test_state(#{}),
     Request = #{user_id => 10, mute => true, deaf => false},
     {reply, #{success := true}, UpdatedState} = update_member_voice(Request, State),
-    #{<<"mute">> := true, <<"deaf">> := false} = guild_permissions_check:find_member_by_user_id(
-        10, UpdatedState
-    ).
+    #{<<"mute">> := true, <<"deaf">> := false} = find_member_by_user_id(10, UpdatedState).
 
 update_member_voice_updates_voice_states_test() ->
     VoiceState = voice_state_fixture(10, 500),

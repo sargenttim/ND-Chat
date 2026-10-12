@@ -25,10 +25,7 @@ import type {
 	SearchableGuildMember,
 	SearchableMessage,
 	SearchableReport,
-	SearchableThread,
 	SearchableUser,
-	ThreadSearchCursor,
-	ThreadSearchFilters,
 	UserSearchFilters,
 } from '@fluxer/schema/src/contracts/search/SearchDocumentTypes';
 import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
@@ -174,6 +171,9 @@ function buildUserFilters(filters: UserSearchFilters): Array<MeilisearchFilter |
 		);
 	}
 	if (filters.hasAcl && filters.hasAcl.length > 0) clauses.push(...meiliAndTerms('acls', filters.hasAcl));
+	if (filters.minSuspiciousActivityFlags !== undefined) {
+		clauses.push(meiliRangeFilter('suspiciousActivityFlags', {gte: filters.minSuspiciousActivityFlags}));
+	}
 	if (filters.createdAtGreaterThanOrEqual !== undefined) {
 		clauses.push(meiliRangeFilter('createdAt', {gte: filters.createdAtGreaterThanOrEqual}));
 	}
@@ -189,12 +189,9 @@ function buildReportFilters(filters: ReportSearchFilters): Array<MeilisearchFilt
 	if (filters.status !== undefined) clauses.push(meiliTermFilter('status', filters.status));
 	if (filters.reportType !== undefined) clauses.push(meiliTermFilter('reportType', filters.reportType));
 	if (filters.category) clauses.push(meiliTermFilter('category', filters.category));
-	if (filters.reason) clauses.push(meiliTermFilter('reason', filters.reason));
 	if (filters.reportedUserId) clauses.push(meiliTermFilter('reportedUserId', filters.reportedUserId));
-	if (filters.reportedWebhookId) clauses.push(meiliTermFilter('reportedWebhookId', filters.reportedWebhookId));
 	if (filters.reportedGuildId) clauses.push(meiliTermFilter('reportedGuildId', filters.reportedGuildId));
 	if (filters.reportedMessageId) clauses.push(meiliTermFilter('reportedMessageId', filters.reportedMessageId));
-	if (filters.reportedChannelId) clauses.push(meiliTermFilter('reportedChannelId', filters.reportedChannelId));
 	if (filters.guildContextId) clauses.push(meiliTermFilter('guildContextId', filters.guildContextId));
 	if (filters.resolvedByAdminId) clauses.push(meiliTermFilter('resolvedByAdminId', filters.resolvedByAdminId));
 	if (filters.isResolved !== undefined)
@@ -301,54 +298,6 @@ export class MeilisearchGuildMemberAdapter extends MeilisearchIndexAdapter<
 			index: MEILISEARCH_INDEX_DEFINITIONS.guild_members,
 			buildFilters: buildGuildMemberFilters,
 			buildSort: (filters) => buildSort(filters.sortBy ?? 'joinedAt', filters.sortOrder),
-		});
-	}
-}
-
-const THREAD_SORT_FIELDS = {
-	last_message_time: 'lastMessageAt',
-	archive_time: 'archivedAt',
-	creation_time: 'createdAt',
-} as const;
-
-function threadCursorFilter(cursor: ThreadSearchCursor, op: '>' | '<'): MeilisearchFilter {
-	return `(createdAt ${op} ${cursor.createdAt} OR (createdAt = ${cursor.createdAt} AND idSequence ${op} ${cursor.idSequence}))`;
-}
-
-function buildThreadFilters(filters: ThreadSearchFilters): Array<MeilisearchFilter | undefined> {
-	const clauses: Array<MeilisearchFilter | undefined> = [
-		meiliTermFilter('guildId', filters.guildId),
-		meiliTermFilter('parentId', filters.parentId),
-	];
-	if (filters.publicOnly) {
-		const privateIds = meiliTermsFilter('id', filters.privateThreadIds ?? []);
-		const publicTypes = meiliTermsFilter('type', [10, 11]);
-		clauses.push(privateIds ? `(${publicTypes} OR ${privateIds})` : publicTypes);
-	}
-	if (filters.archived !== undefined) clauses.push(meiliTermFilter('archived', filters.archived));
-	if (filters.tagIds && filters.tagIds.length > 0) {
-		if (filters.tagSetting === 'match_all') clauses.push(...meiliAndTerms('appliedTagIds', filters.tagIds));
-		else clauses.push(meiliTermsFilter('appliedTagIds', filters.tagIds));
-	}
-	if (filters.after) clauses.push(threadCursorFilter(filters.after, '>'));
-	if (filters.before) clauses.push(threadCursorFilter(filters.before, '<'));
-	return compactMeiliFilters(clauses);
-}
-
-export class MeilisearchThreadAdapter extends MeilisearchIndexAdapter<ThreadSearchFilters, SearchableThread> {
-	constructor(options: MeilisearchAdapterOptions) {
-		super({
-			client: options.client,
-			index: MEILISEARCH_INDEX_DEFINITIONS.threads,
-			buildFilters: buildThreadFilters,
-			buildSort: (filters) => {
-				const sortBy = filters.sortBy ?? 'last_message_time';
-				if (sortBy === 'relevance') return undefined;
-				const direction = filters.sortOrder ?? 'desc';
-				return [...new Set([THREAD_SORT_FIELDS[sortBy], 'createdAt', 'idSequence'])].map(
-					(field) => `${field}:${direction}`,
-				);
-			},
 		});
 	}
 }

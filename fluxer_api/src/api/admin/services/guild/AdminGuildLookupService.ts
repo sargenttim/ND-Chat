@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {formatOwnerFields, mapGuildsToAdminResponse} from '@app/api/admin/models/GuildTypes';
+import {mapGuildsToAdminResponse} from '@app/api/admin/models/GuildTypes';
 import type {GuildID} from '@app/api/BrandedTypes';
 import {createGuildID, createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
 import {mapGuildFeatures} from '@app/api/guild/GuildFeatureUtils';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {MEDIA_PROXY_ICON_SIZE_DEFAULT} from '@fluxer/constants/src/MediaProxyAssetSizes';
 import type {MediaProxyImageSize} from '@fluxer/constants/src/MediaProxyImageSizes';
 import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
@@ -22,9 +22,9 @@ import type {ListGuildEmojisResponse, ListGuildStickersResponse} from '@fluxer/s
 const ADMIN_STICKER_MEDIA_RUNG: MediaProxyImageSize = 320;
 
 interface AdminGuildLookupServiceDeps {
-	guildRepository: GuildRepository;
-	userRepository: UserRepository;
-	channelRepository: ChannelRepository;
+	guildRepository: IGuildRepositoryAggregate;
+	userRepository: IUserRepository;
+	channelRepository: IChannelRepository;
 	gatewayService: IGatewayService;
 }
 
@@ -39,7 +39,7 @@ export class AdminGuildLookupService {
 			return {guild: null};
 		}
 		const [channels, roles, ownerUser] = await Promise.all([
-			channelRepository.channelData.listGuildChannels(guildId, 'maintenance'),
+			channelRepository.listGuildChannels(guildId),
 			guildRepository.listRoles(guildId),
 			userRepository.findUnique(guild.ownerId),
 		]);
@@ -47,7 +47,9 @@ export class AdminGuildLookupService {
 			guild: {
 				id: guild.id.toString(),
 				owner_id: guild.ownerId.toString(),
-				...formatOwnerFields(ownerUser),
+				owner_username: ownerUser?.username ?? null,
+				owner_global_name: ownerUser?.globalName ?? null,
+				owner_discriminator: ownerUser ? String(ownerUser.discriminator).padStart(4, '0') : null,
 				name: guild.name,
 				vanity_url_code: guild.vanityUrlCode,
 				icon: guild.iconHash,
@@ -55,12 +57,10 @@ export class AdminGuildLookupService {
 				splash: guild.splashHash,
 				embed_splash: guild.embedSplashHash,
 				features: mapGuildFeatures(guild.features),
+				badge_ids: Array.from(guild.badgeIds, String),
 				verification_level: guild.verificationLevel,
 				mfa_level: guild.mfaLevel,
 				nsfw_level: guild.nsfwLevel,
-				nsfw: guild.nsfw,
-				content_warning_level: guild.contentWarningLevel as 0 | 1,
-				content_warning_text: guild.contentWarningText,
 				explicit_content_filter: guild.explicitContentFilter,
 				default_message_notifications: guild.defaultMessageNotifications,
 				afk_channel_id: guild.afkChannelId?.toString() ?? null,
@@ -77,9 +77,6 @@ export class AdminGuildLookupService {
 					position: c.position,
 					parent_id: c.parentId?.toString() ?? null,
 					nsfw: c.isNsfw,
-					nsfw_override: c.nsfwOverride,
-					content_warning_level: c.contentWarningLevel as 0 | 1,
-					content_warning_text: c.contentWarningText,
 					url: c.url,
 				})),
 				roles: roles.map((r) => ({

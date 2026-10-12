@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import * as Modal from '@app/features/app/components/dialogs/Modal';
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {GuildIcon} from '@app/features/guild/components/popouts/GuildIcon';
 import Guilds from '@app/features/guild/state/Guilds';
 import {
 	CANCEL_DESCRIPTOR,
 	CONTINUE_DESCRIPTOR,
 	GO_BACK_DESCRIPTOR,
-	COMMUNITIES_DESCRIPTOR as KIND_COMMUNITIES_LABEL_DESCRIPTOR,
-	COMMUNITIES_DESCRIPTOR as SUMMARY_COMMUNITIES_INCLUDED_DESCRIPTOR,
-	COMMUNITIES_DESCRIPTOR as SUMMARY_COMMUNITIES_LABEL_DESCRIPTOR,
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {getCachedDateTimeFormat} from '@app/features/i18n/utils/IntlCache';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
@@ -23,19 +20,7 @@ import {SteppedCarousel} from '@app/features/ui/stepped_carousel/SteppedCarousel
 import type {BulkDeleteMyMessagesFilter} from '@app/features/user/commands/UserCommands';
 import * as UserCommands from '@app/features/user/commands/UserCommands';
 import styles from '@app/features/user/components/modals/tabs/privacy_safety_tab/data_request_modal/DataRequestModal.module.css';
-import {
-	SUMMARY_ALL_TIME_DESCRIPTOR as DATE_MODE_ALL_TIME_DESCRIPTOR,
-	DATE_MODE_LABEL_DESCRIPTOR,
-	DELETE_MESSAGES_DESCRIPTOR as DELETE_SUBMIT_DESCRIPTOR,
-	KIND_GROUP_DMS_LABEL_DESCRIPTOR,
-	SUMMARY_ALL_TIME_DESCRIPTOR,
-	KIND_GROUP_DMS_LABEL_DESCRIPTOR as SUMMARY_GROUP_DMS_DESCRIPTOR,
-	SUMMARY_NONE_DESCRIPTOR,
-	DATE_MODE_LABEL_DESCRIPTOR as SUMMARY_TIME_RANGE_LABEL_DESCRIPTOR,
-	DATE_MODE_LABEL_DESCRIPTOR as WHEN_STEP_TITLE_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
 import * as FormUtils from '@app/lib/forms';
-import {getDateFormatter} from '@fluxer/date_utils/src/DateFormatterCache';
 import type {MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
@@ -43,7 +28,7 @@ import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useCallback, useMemo, useState} from 'react';
 
-type DataRequestVariant = 'export' | 'delete';
+export type DataRequestVariant = 'export' | 'delete';
 type ScopeValue = 'everything' | 'custom' | 'selected' | 'inaccessible_only';
 type DateMode = 'all_time' | 'custom';
 type GuildFilterMode = 'exclude' | 'include_only';
@@ -62,10 +47,6 @@ const DELETE_TITLE_DESCRIPTOR = msg({
 const EXPORT_SUCCESS_DESCRIPTOR = msg({
 	message: "We'll process this as soon as possible. You'll get an email when your archive is ready.",
 	comment: 'Success toast shown after a filtered data export job is queued.',
-});
-const EXPORT_SUCCESS_IN_APP_DESCRIPTOR = msg({
-	message: "We'll process this as soon as possible. Check back here to download your archive when it's ready.",
-	comment: 'Success toast shown after a data export job is queued on an instance where people sign in with a username.',
 });
 const DELETE_SUCCESS_DESCRIPTOR = msg({
 	message: "We'll process this as soon as possible. You'll get a DM from us when it's done.",
@@ -120,7 +101,10 @@ const COMMUNITIES_STEP_TITLE_DESCRIPTOR = msg({
 	message: 'Which communities',
 	comment: 'Heading of the communities step in the data-request carousel modal.',
 });
-
+const WHEN_STEP_TITLE_DESCRIPTOR = msg({
+	message: 'Time range',
+	comment: 'Heading of the time-range step in the data-request carousel modal.',
+});
 const CONFIRM_STEP_TITLE_DESCRIPTOR = msg({
 	message: 'Review and confirm',
 	comment: 'Heading of the final confirm step in the data-request carousel modal showing a summary.',
@@ -134,18 +118,6 @@ const EXPORT_CONFIRM_CUSTOM_DESCRIPTOR = msg({
 	message:
 		"We'll build a downloadable archive that matches the filters below and email you when it's ready. The download link in that email expires after 7 days.",
 	comment: 'Confirm-step copy in the data-export modal when scope is custom.',
-});
-const EXPORT_CONFIRM_EVERYTHING_IN_APP_DESCRIPTOR = msg({
-	message:
-		"We'll build a downloadable archive of every message you have ever sent. You can download it from this page when it's ready. The download expires after 7 days.",
-	comment:
-		'Confirm-step copy in the data-export modal when scope is everything, on an instance where people sign in with a username.',
-});
-const EXPORT_CONFIRM_CUSTOM_IN_APP_DESCRIPTOR = msg({
-	message:
-		"We'll build a downloadable archive that matches the filters below. You can download it from this page when it's ready. The download expires after 7 days.",
-	comment:
-		'Confirm-step copy in the data-export modal when scope is custom, on an instance where people sign in with a username.',
 });
 const DELETE_CONFIRM_DESCRIPTOR = msg({
 	message: 'Permanently delete the messages that match the filters below. This cannot be undone.',
@@ -165,7 +137,14 @@ const KIND_DMS_CLOSED_LABEL_DESCRIPTOR = msg({
 	comment:
 		'Switch label for including 1:1 direct messages the user has previously closed. Independent companion to the Open DMs switch.',
 });
-
+const KIND_GROUP_DMS_LABEL_DESCRIPTOR = msg({
+	message: 'Group DMs',
+	comment: 'Switch label for including group DMs (3+ participants) in a data export / deletion scope.',
+});
+const KIND_COMMUNITIES_LABEL_DESCRIPTOR = msg({
+	message: 'Communities',
+	comment: 'Switch label for including community (guild) channels in a data export / deletion scope.',
+});
 const GUILD_FILTER_MODE_LABEL_DESCRIPTOR = msg({
 	message: 'Community filter',
 	comment: 'Form label for the dropdown that switches the community filter between exclude and include-only modes.',
@@ -182,7 +161,14 @@ const COMMUNITIES_EMPTY_DESCRIPTOR = msg({
 	message: "You aren't in any communities right now.",
 	comment: 'Placeholder shown when the user has no communities to filter.',
 });
-
+const DATE_MODE_LABEL_DESCRIPTOR = msg({
+	message: 'Time range',
+	comment: 'Form label for the dropdown that picks between all-time and a custom date range.',
+});
+const DATE_MODE_ALL_TIME_DESCRIPTOR = msg({
+	message: 'All time',
+	comment: 'Dropdown option that applies the action to every message.',
+});
 const DATE_MODE_CUSTOM_DESCRIPTOR = msg({
 	message: 'Custom range',
 	comment: 'Dropdown option that lets the user pick a start and end date.',
@@ -211,7 +197,10 @@ const EXPORT_SUBMIT_DESCRIPTOR = msg({
 	message: 'Request export',
 	comment: 'Footer submit button label on the confirm step of the data-export modal.',
 });
-
+const DELETE_SUBMIT_DESCRIPTOR = msg({
+	message: 'Delete messages',
+	comment: 'Footer submit button label on the confirm step of the data-deletion modal.',
+});
 const SUMMARY_SCOPE_LABEL_DESCRIPTOR = msg({
 	message: 'Scope',
 	comment: 'Summary row label on the confirm step showing the user-picked scope.',
@@ -220,7 +209,22 @@ const SUMMARY_CONVERSATIONS_LABEL_DESCRIPTOR = msg({
 	message: 'Conversations',
 	comment: 'Summary row label on the confirm step showing the user-picked conversation kinds.',
 });
-
+const SUMMARY_COMMUNITIES_LABEL_DESCRIPTOR = msg({
+	message: 'Communities',
+	comment: 'Summary row label on the confirm step showing the community filter selection.',
+});
+const SUMMARY_TIME_RANGE_LABEL_DESCRIPTOR = msg({
+	message: 'Time range',
+	comment: 'Summary row label on the confirm step showing the chosen time range.',
+});
+const SUMMARY_NONE_DESCRIPTOR = msg({
+	message: 'None',
+	comment: 'Summary row value on the confirm step when no items in the category were selected.',
+});
+const SUMMARY_ALL_TIME_DESCRIPTOR = msg({
+	message: 'All time',
+	comment: 'Summary row value on the confirm step indicating no date filter is applied.',
+});
 const SUMMARY_FROM_DESCRIPTOR = msg({
 	message: 'From {start}',
 	comment: 'Summary row value on the confirm step when only a start date is set. {start} is a localized date.',
@@ -253,7 +257,14 @@ const SUMMARY_DMS_WITH_CLOSED_DESCRIPTOR = msg({
 	message: 'Direct messages (open and closed)',
 	comment: 'Summary chip on the confirm step indicating both open and closed 1:1 DMs are included.',
 });
-
+const SUMMARY_GROUP_DMS_DESCRIPTOR = msg({
+	message: 'Group DMs',
+	comment: 'Summary chip on the confirm step indicating that group DMs are included.',
+});
+const SUMMARY_COMMUNITIES_INCLUDED_DESCRIPTOR = msg({
+	message: 'Communities',
+	comment: 'Summary chip on the confirm step indicating that community channels are included.',
+});
 const EXPORT_TAB_DESCRIPTION_DESCRIPTOR = msg({
 	message:
 		'Build a downloadable archive of your account data, including messages and attachment URLs. Most people want everything, but you can narrow the scope below.',
@@ -284,7 +295,7 @@ interface VariantConfig {
 	isDelete: boolean;
 }
 
-function getVariantConfig(variant: DataRequestVariant, usesUsernameSignIn: boolean): VariantConfig {
+function getVariantConfig(variant: DataRequestVariant): VariantConfig {
 	if (variant === 'export') {
 		return {
 			titleDescriptor: EXPORT_TITLE_DESCRIPTOR,
@@ -304,13 +315,9 @@ function getVariantConfig(variant: DataRequestVariant, usesUsernameSignIn: boole
 			],
 			submitLabelDescriptor: EXPORT_SUBMIT_DESCRIPTOR,
 			submitVariant: 'primary',
-			successToastDescriptor: usesUsernameSignIn ? EXPORT_SUCCESS_IN_APP_DESCRIPTOR : EXPORT_SUCCESS_DESCRIPTOR,
-			confirmSimpleDescriptor: usesUsernameSignIn
-				? EXPORT_CONFIRM_EVERYTHING_IN_APP_DESCRIPTOR
-				: EXPORT_CONFIRM_EVERYTHING_DESCRIPTOR,
-			confirmCustomDescriptor: usesUsernameSignIn
-				? EXPORT_CONFIRM_CUSTOM_IN_APP_DESCRIPTOR
-				: EXPORT_CONFIRM_CUSTOM_DESCRIPTOR,
+			successToastDescriptor: EXPORT_SUCCESS_DESCRIPTOR,
+			confirmSimpleDescriptor: EXPORT_CONFIRM_EVERYTHING_DESCRIPTOR,
+			confirmCustomDescriptor: EXPORT_CONFIRM_CUSTOM_DESCRIPTOR,
 			isDelete: false,
 		};
 	}
@@ -340,18 +347,16 @@ function getVariantConfig(variant: DataRequestVariant, usesUsernameSignIn: boole
 }
 
 function formatDateForSummary(date: Date, locale: string): string {
-	return getDateFormatter(locale, {year: 'numeric', month: 'short', day: 'numeric'}).format(date);
+	return getCachedDateTimeFormat(locale, {year: 'numeric', month: 'short', day: 'numeric'}).format(date);
 }
 
 interface DataRequestModalProps {
 	variant: DataRequestVariant;
-	onExportRequested?: () => void;
 }
 
-export const DataRequestModal: React.FC<DataRequestModalProps> = observer(({variant, onExportRequested}) => {
+export const DataRequestModal: React.FC<DataRequestModalProps> = observer(({variant}) => {
 	const {i18n} = useLingui();
-	const usesUsernameSignIn = RuntimeConfig.usesUsernameSignIn;
-	const config = useMemo(() => getVariantConfig(variant, usesUsernameSignIn), [variant, usesUsernameSignIn]);
+	const config = useMemo(() => getVariantConfig(variant), [variant]);
 	const scopeOptions = useMemo<ReadonlyArray<RadioOption<ScopeValue>>>(
 		() =>
 			config.scopeOptionDescriptors.map((opt) => ({
@@ -485,7 +490,6 @@ export const DataRequestModal: React.FC<DataRequestModalProps> = observer(({vari
 				} else {
 					await UserCommands.requestFilteredDataHarvest(buildFilter('selected'));
 				}
-				onExportRequested?.();
 			} else {
 				const filterScope: BulkDeleteMyMessagesFilter['scope'] =
 					scope === 'inaccessible_only' ? 'inaccessible_only' : 'selected';
@@ -498,7 +502,7 @@ export const DataRequestModal: React.FC<DataRequestModalProps> = observer(({vari
 		} finally {
 			setIsSubmitting(false);
 		}
-	}, [variant, scope, buildFilter, isSubmitting, i18n, config.successToastDescriptor, closeModal, onExportRequested]);
+	}, [variant, scope, buildFilter, isSubmitting, i18n, config.successToastDescriptor, closeModal]);
 	const dateModeOptions = useMemo(
 		() => [
 			{value: 'all_time' as const, label: i18n._(DATE_MODE_ALL_TIME_DESCRIPTOR)},

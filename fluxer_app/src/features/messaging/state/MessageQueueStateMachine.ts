@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {assign, initialTransition, type SnapshotFrom, setup} from 'xstate';
+import {assign, initialTransition, type SnapshotFrom, setup, transition} from 'xstate';
+
+export interface MessageQueuePayloadRouteInput {
+	payloadType?: string;
+}
+
+export type MessageQueuePayloadRouteDecision = {type: 'send'} | {type: 'edit'} | {type: 'unknown'};
+
+export type MessageQueuePayloadRouteEvent = {
+	type: 'messageQueue.payloadChanged';
+	input: MessageQueuePayloadRouteInput;
+};
 
 export interface MessageQueueSendExecutionInput {
 	forceFailure: boolean;
@@ -8,12 +19,12 @@ export interface MessageQueueSendExecutionInput {
 
 export type MessageQueueSendExecutionDecision = {type: 'simulateFailure'} | {type: 'requestNetwork'};
 
-type MessageQueueSendExecutionEvent = {
+export type MessageQueueSendExecutionEvent = {
 	type: 'messageQueue.sendExecutionChanged';
 	input: MessageQueueSendExecutionInput;
 };
 
-type MessageQueueRequestOutcomeStatus = 'success' | 'rateLimit' | 'failure';
+export type MessageQueueRequestOutcomeStatus = 'success' | 'rateLimit' | 'failure';
 
 export interface MessageQueueRequestOutcomeInput {
 	status: MessageQueueRequestOutcomeStatus;
@@ -24,7 +35,7 @@ export type MessageQueueRequestOutcomeDecision =
 	| {type: 'retryRateLimit'}
 	| {type: 'completeFailure'};
 
-type MessageQueueRequestOutcomeEvent = {
+export type MessageQueueRequestOutcomeEvent = {
 	type: 'messageQueue.requestOutcomeChanged';
 	input: MessageQueueRequestOutcomeInput;
 };
@@ -53,7 +64,7 @@ export type MessageLocalSendRateLimitDecision =
 			next: MessageLocalSendRateLimitState;
 	  };
 
-type MessageLocalSendRateLimitEvent = {
+export type MessageLocalSendRateLimitEvent = {
 	type: 'messageQueue.localSendAttempted';
 	input: MessageLocalSendRateLimitInput;
 };
@@ -111,7 +122,43 @@ function getBlockRetryAfterMs(context: MessageLocalSendRateLimitInput): number {
 	return Math.max(0, context.blockMs);
 }
 
-const messageQueueSendExecutionMachine = setup({
+export const messageQueuePayloadRouteMachine = setup({
+	types: {} as {
+		context: MessageQueuePayloadRouteInput;
+		events: MessageQueuePayloadRouteEvent;
+		input: MessageQueuePayloadRouteInput;
+	},
+	actions: {
+		applyInput: assign(({event}) => {
+			if (event.type !== 'messageQueue.payloadChanged') return {};
+			return event.input;
+		}),
+	},
+	guards: {
+		isSendPayload: ({context}) => context.payloadType === 'send',
+		isEditPayload: ({context}) => context.payloadType === 'edit',
+	},
+}).createMachine({
+	id: 'messageQueuePayloadRoute',
+	context: ({input}) => input,
+	initial: 'routing',
+	states: {
+		routing: {
+			always: [{guard: 'isSendPayload', target: 'send'}, {guard: 'isEditPayload', target: 'edit'}, {target: 'unknown'}],
+		},
+		send: {
+			on: {'messageQueue.payloadChanged': {target: 'routing', actions: 'applyInput'}},
+		},
+		edit: {
+			on: {'messageQueue.payloadChanged': {target: 'routing', actions: 'applyInput'}},
+		},
+		unknown: {
+			on: {'messageQueue.payloadChanged': {target: 'routing', actions: 'applyInput'}},
+		},
+	},
+});
+
+export const messageQueueSendExecutionMachine = setup({
 	types: {} as {
 		context: MessageQueueSendExecutionInput;
 		events: MessageQueueSendExecutionEvent;
@@ -143,7 +190,7 @@ const messageQueueSendExecutionMachine = setup({
 	},
 });
 
-const messageQueueRequestOutcomeMachine = setup({
+export const messageQueueRequestOutcomeMachine = setup({
 	types: {} as {
 		context: MessageQueueRequestOutcomeInput;
 		events: MessageQueueRequestOutcomeEvent;
@@ -183,7 +230,7 @@ const messageQueueRequestOutcomeMachine = setup({
 	},
 });
 
-const messageLocalSendRateLimitMachine = setup({
+export const messageLocalSendRateLimitMachine = setup({
 	types: {} as {
 		context: MessageLocalSendRateLimitInput;
 		events: MessageLocalSendRateLimitEvent;
@@ -219,17 +266,58 @@ const messageLocalSendRateLimitMachine = setup({
 		},
 	},
 });
-type MessageQueueSendExecutionSnapshot = SnapshotFrom<typeof messageQueueSendExecutionMachine>;
-type MessageQueueRequestOutcomeSnapshot = SnapshotFrom<typeof messageQueueRequestOutcomeMachine>;
-type MessageLocalSendRateLimitSnapshot = SnapshotFrom<typeof messageLocalSendRateLimitMachine>;
 
-function createMessageQueueSendExecutionSnapshot(
+export type MessageQueuePayloadRouteSnapshot = SnapshotFrom<typeof messageQueuePayloadRouteMachine>;
+export type MessageQueueSendExecutionSnapshot = SnapshotFrom<typeof messageQueueSendExecutionMachine>;
+export type MessageQueueRequestOutcomeSnapshot = SnapshotFrom<typeof messageQueueRequestOutcomeMachine>;
+export type MessageLocalSendRateLimitSnapshot = SnapshotFrom<typeof messageLocalSendRateLimitMachine>;
+
+export function createMessageQueuePayloadRouteSnapshot(
+	input: MessageQueuePayloadRouteInput,
+): MessageQueuePayloadRouteSnapshot {
+	return initialTransition(messageQueuePayloadRouteMachine, input)[0];
+}
+
+export function transitionMessageQueuePayloadRouteSnapshot(
+	snapshot: MessageQueuePayloadRouteSnapshot,
+	event: MessageQueuePayloadRouteEvent,
+): MessageQueuePayloadRouteSnapshot {
+	return transition(messageQueuePayloadRouteMachine, snapshot, event)[0] as MessageQueuePayloadRouteSnapshot;
+}
+
+export function selectMessageQueuePayloadRouteDecision(
+	snapshot: MessageQueuePayloadRouteSnapshot,
+): MessageQueuePayloadRouteDecision {
+	switch (snapshot.value) {
+		case 'send':
+			return {type: 'send'};
+		case 'edit':
+			return {type: 'edit'};
+		default:
+			return {type: 'unknown'};
+	}
+}
+
+export function resolveMessageQueuePayloadRouteDecision(
+	input: MessageQueuePayloadRouteInput,
+): MessageQueuePayloadRouteDecision {
+	return selectMessageQueuePayloadRouteDecision(createMessageQueuePayloadRouteSnapshot(input));
+}
+
+export function createMessageQueueSendExecutionSnapshot(
 	input: MessageQueueSendExecutionInput,
 ): MessageQueueSendExecutionSnapshot {
 	return initialTransition(messageQueueSendExecutionMachine, input)[0];
 }
 
-function selectMessageQueueSendExecutionDecision(
+export function transitionMessageQueueSendExecutionSnapshot(
+	snapshot: MessageQueueSendExecutionSnapshot,
+	event: MessageQueueSendExecutionEvent,
+): MessageQueueSendExecutionSnapshot {
+	return transition(messageQueueSendExecutionMachine, snapshot, event)[0] as MessageQueueSendExecutionSnapshot;
+}
+
+export function selectMessageQueueSendExecutionDecision(
 	snapshot: MessageQueueSendExecutionSnapshot,
 ): MessageQueueSendExecutionDecision {
 	switch (snapshot.value) {
@@ -246,13 +334,20 @@ export function resolveMessageQueueSendExecutionDecision(
 	return selectMessageQueueSendExecutionDecision(createMessageQueueSendExecutionSnapshot(input));
 }
 
-function createMessageQueueRequestOutcomeSnapshot(
+export function createMessageQueueRequestOutcomeSnapshot(
 	input: MessageQueueRequestOutcomeInput,
 ): MessageQueueRequestOutcomeSnapshot {
 	return initialTransition(messageQueueRequestOutcomeMachine, input)[0];
 }
 
-function selectMessageQueueRequestOutcomeDecision(
+export function transitionMessageQueueRequestOutcomeSnapshot(
+	snapshot: MessageQueueRequestOutcomeSnapshot,
+	event: MessageQueueRequestOutcomeEvent,
+): MessageQueueRequestOutcomeSnapshot {
+	return transition(messageQueueRequestOutcomeMachine, snapshot, event)[0] as MessageQueueRequestOutcomeSnapshot;
+}
+
+export function selectMessageQueueRequestOutcomeDecision(
 	snapshot: MessageQueueRequestOutcomeSnapshot,
 ): MessageQueueRequestOutcomeDecision {
 	switch (snapshot.value) {
@@ -271,13 +366,20 @@ export function resolveMessageQueueRequestOutcomeDecision(
 	return selectMessageQueueRequestOutcomeDecision(createMessageQueueRequestOutcomeSnapshot(input));
 }
 
-function createMessageLocalSendRateLimitSnapshot(
+export function createMessageLocalSendRateLimitSnapshot(
 	input: MessageLocalSendRateLimitInput,
 ): MessageLocalSendRateLimitSnapshot {
 	return initialTransition(messageLocalSendRateLimitMachine, input)[0];
 }
 
-function selectMessageLocalSendRateLimitDecision(
+export function transitionMessageLocalSendRateLimitSnapshot(
+	snapshot: MessageLocalSendRateLimitSnapshot,
+	event: MessageLocalSendRateLimitEvent,
+): MessageLocalSendRateLimitSnapshot {
+	return transition(messageLocalSendRateLimitMachine, snapshot, event)[0] as MessageLocalSendRateLimitSnapshot;
+}
+
+export function selectMessageLocalSendRateLimitDecision(
 	snapshot: MessageLocalSendRateLimitSnapshot,
 ): MessageLocalSendRateLimitDecision {
 	switch (snapshot.value) {

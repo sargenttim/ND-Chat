@@ -9,7 +9,8 @@ import {isPermissionDeniedError} from '@app/features/voice/engine/v2/VoiceEngine
 import VoiceEngineV2AppMediaStateAdapter from '@app/features/voice/engine/v2/VoiceEngineV2AppMediaStateAdapter';
 import {ensureNativeMediaPermission} from '@app/features/voice/engine/voice_screen_share_manager/NativePermissionGate';
 
-const CAMERA_PERMISSION_DENIED_MODAL_DATA_FLX = 'voice.engine.voice-media-manager.camera-permission-denied-modal';
+export const CAMERA_PERMISSION_DENIED_MODAL_DATA_FLX =
+	'voice.engine.voice-media-manager.camera-permission-denied-modal';
 
 export type VoiceEngineV2AppCameraTransitionOutcome = 'applied' | 'denied' | 'failed';
 

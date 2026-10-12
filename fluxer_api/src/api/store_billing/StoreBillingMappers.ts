@@ -12,7 +12,7 @@ import type {
 const APP_STORE_MANAGE_URL = 'https://apps.apple.com/account/subscriptions';
 const GOOGLE_PLAY_MANAGE_URL = 'https://play.google.com/store/account/subscriptions';
 
-export function toIso(value: Date | null | undefined): string | null {
+function toIso(value: Date | null | undefined): string | null {
 	return value ? value.toISOString() : null;
 }
 

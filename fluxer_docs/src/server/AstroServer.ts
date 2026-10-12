@@ -4,15 +4,16 @@ import {lstat} from 'node:fs/promises';
 import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'node:http';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {HttpStatus, MimeType} from '@fluxer/constants/src/HttpConstants';
 import send from 'send';
-import {AstroServerTermination} from '@/server/AstroServerTermination';
+import {type AstroServerShutdown, AstroServerTermination} from '@/server/AstroServerTermination';
 import {
 	CanonicalNetworkProtocol,
 	getNodeErrorCode,
 	HTTPHeader,
 	HTTPMethod,
+	HTTPStatusCode,
 	isCanonicalHTTPNetworkProtocol,
+	MIMEType,
 	NodeErrorCode,
 	OUTBOUND_USER_AGENT,
 } from '@/server/HTTPConstants';
@@ -20,6 +21,7 @@ import {siteSecurityHeaders} from '@/server/SecurityHeaders';
 
 const HEALTH_PATH = '/_health';
 const HEALTH_RESPONSE_BODY = JSON.stringify({status: 'ok'});
+const NOT_READY_RESPONSE_BODY = JSON.stringify({status: 'not_ready'});
 const WELL_KNOWN_PATH_PREFIX = '.well-known/';
 const IMMUTABLE_ASSET_PATH_PREFIX = '_astro/';
 const PARENT_SEGMENT_PATTERN = /(?:^|[\\/])\.\.(?:[\\/]|$)/u;
@@ -39,10 +41,11 @@ const ASTRO_SERVER_KEEP_ALIVE_TIMEOUT_MS = 5_000;
 const ASTRO_SERVER_SOCKET_TIMEOUT_MS = 30_000;
 const ALLOWED_SITE_METHODS = `${HTTPMethod.GET}, ${HTTPMethod.HEAD}`;
 const NO_STORE_CACHE_CONTROL = 'no-store';
-const TEXT_CONTENT_TYPE = `${MimeType.PLAIN}; charset=utf-8`;
+const TEXT_CONTENT_TYPE = `${MIMEType.PLAIN}; charset=utf-8`;
 
 const AstroServerStartupPhase = Object.freeze({
 	ENTRYPOINT: 'entrypoint load',
+	INITIALIZE: 'initialization',
 	LISTEN: 'listener bind',
 } as const);
 
@@ -84,11 +87,21 @@ interface ResolvedPublicEndpoint {
 	readonly secureOrigin: boolean;
 }
 
+type AstroServerInitialize = () => Promise<void>;
+
+type AstroServerReadiness = () => boolean;
+
+type AstroServerRequestLocals = () => object;
+
 interface AstroServerOptions {
 	readonly entrypoint: URL;
+	readonly initialize: AstroServerInitialize | null;
 	readonly listenHost: string;
 	readonly listenPort: number;
 	readonly publicEndpoint: string;
+	readonly readiness: AstroServerReadiness | null;
+	readonly requestLocals: AstroServerRequestLocals | null;
+	readonly shutdown: AstroServerShutdown | null;
 }
 
 interface AstroServerHealthcheckOptions {
@@ -289,21 +302,36 @@ async function resolveStaticFile(clientDirectory: string, staticPath: string): P
 	return {isDirectory, normalizedPath};
 }
 
-function respondToHealthcheck(request: IncomingMessage, requestURL: URL, response: ServerResponse): boolean {
+function respondToHealthcheck(
+	request: IncomingMessage,
+	requestURL: URL,
+	response: ServerResponse,
+	readiness: AstroServerReadiness | null,
+): boolean {
 	if (requestURL.pathname !== HEALTH_PATH) {
 		return false;
 	}
-	return writeHealthcheckResponse(request, response, HttpStatus.OK, HEALTH_RESPONSE_BODY);
+	if (isAstroServerReady(readiness)) {
+		return writeHealthcheckResponse(request, response, HTTPStatusCode.OK, HEALTH_RESPONSE_BODY);
+	}
+	return writeHealthcheckResponse(request, response, HTTPStatusCode.SERVICE_UNAVAILABLE, NOT_READY_RESPONSE_BODY);
+}
+
+function isAstroServerReady(readiness: AstroServerReadiness | null): boolean {
+	if (readiness == null) {
+		return true;
+	}
+	return readiness();
 }
 
 function writeHealthcheckResponse(
 	request: IncomingMessage,
 	response: ServerResponse,
-	status: number,
+	status: HTTPStatusCode,
 	body: string,
 ): boolean {
 	response.writeHead(status, {
-		[HTTPHeader.CONTENT_TYPE]: MimeType.JSON,
+		[HTTPHeader.CONTENT_TYPE]: MIMEType.JSON,
 		[HTTPHeader.CONTENT_LENGTH]: Buffer.byteLength(body).toString(),
 		[HTTPHeader.CACHE_CONTROL]: NO_STORE_CACHE_CONTROL,
 	});
@@ -315,7 +343,12 @@ function writeHealthcheckResponse(
 	return true;
 }
 
-function writeTextResponse(request: IncomingMessage, response: ServerResponse, status: number, body: string): void {
+function writeTextResponse(
+	request: IncomingMessage,
+	response: ServerResponse,
+	status: HTTPStatusCode,
+	body: string,
+): void {
 	response.writeHead(status, {
 		[HTTPHeader.CONTENT_TYPE]: TEXT_CONTENT_TYPE,
 		[HTTPHeader.CONTENT_LENGTH]: Buffer.byteLength(body).toString(),
@@ -328,7 +361,7 @@ function writeTextResponse(request: IncomingMessage, response: ServerResponse, s
 	response.end(body);
 }
 
-function writeEmptyResponse(response: ServerResponse, status: number): void {
+function writeEmptyResponse(response: ServerResponse, status: HTTPStatusCode): void {
 	response.writeHead(status, {
 		[HTTPHeader.CONTENT_LENGTH]: '0',
 		[HTTPHeader.CACHE_CONTROL]: NO_STORE_CACHE_CONTROL,
@@ -336,7 +369,7 @@ function writeEmptyResponse(response: ServerResponse, status: number): void {
 	response.end();
 }
 
-function rejectRequest(response: ServerResponse, status: number, allow: string | null): void {
+function rejectRequest(response: ServerResponse, status: HTTPStatusCode, allow: string | null): void {
 	response.shouldKeepAlive = false;
 	response.setHeader(HTTPHeader.CONTENT_LENGTH, '0');
 	response.setHeader(HTTPHeader.CACHE_CONTROL, NO_STORE_CACHE_CONTROL);
@@ -376,12 +409,13 @@ function sendFailure(request: IncomingMessage, response: ServerResponse, error: 
 		response.destroy(resolvedError);
 		return;
 	}
-	writeTextResponse(request, response, HttpStatus.INTERNAL_SERVER_ERROR, 'Internal server error');
+	writeTextResponse(request, response, HTTPStatusCode.INTERNAL_SERVER_ERROR, 'Internal server error');
 }
 
 interface AstroHandlerRequest {
 	readonly handler: AstroRequestHandler;
 	readonly request: IncomingMessage;
+	readonly requestLocals: AstroServerRequestLocals | null;
 	readonly response: ServerResponse;
 }
 
@@ -391,18 +425,22 @@ interface StaticOrRenderRequest extends AstroHandlerRequest {
 	readonly requestURL: URL;
 }
 
-async function runAstroHandler({handler, request, response}: AstroHandlerRequest): Promise<void> {
+async function runAstroHandler({handler, request, requestLocals, response}: AstroHandlerRequest): Promise<void> {
 	const next = (error: unknown): void => {
 		if (error != null) {
 			sendFailure(request, response, error);
 			return;
 		}
 		if (!response.writableEnded) {
-			writeEmptyResponse(response, HttpStatus.NOT_FOUND);
+			writeEmptyResponse(response, HTTPStatusCode.NOT_FOUND);
 		}
 	};
 	try {
-		await handler(request, response, next, {});
+		if (requestLocals == null) {
+			await handler(request, response, next, {});
+			return;
+		}
+		await handler(request, response, next, requestLocals());
 	} catch (error) {
 		sendFailure(request, response, error);
 	}
@@ -418,20 +456,21 @@ async function serveStaticOrRender({
 	basePath,
 	request,
 	requestURL,
+	requestLocals,
 	response,
 }: StaticOrRenderRequest): Promise<void> {
 	const requestPath = resolveStaticRequestPath(request, requestURL, basePath);
 	if (requestPath == null) {
-		await runAstroHandler({handler, request, response});
+		await runAstroHandler({handler, request, requestLocals, response});
 		return;
 	}
 	const staticFile = await resolveStaticFile(clientDirectory, requestPath.staticPath);
 	if (staticFile == null) {
-		writeTextResponse(request, response, HttpStatus.BAD_REQUEST, 'Bad request');
+		writeTextResponse(request, response, HTTPStatusCode.BAD_REQUEST, 'Bad request');
 		return;
 	}
 	if (shouldRedirectStaticDirectory(staticFile, requestPath)) {
-		response.writeHead(HttpStatus.MOVED_PERMANENTLY, {
+		response.writeHead(HTTPStatusCode.MOVED_PERMANENTLY, {
 			[HTTPHeader.LOCATION]: `${requestPath.pathname}/${requestPath.search}`,
 			[HTTPHeader.CONTENT_LENGTH]: '0',
 			[HTTPHeader.CACHE_CONTROL]: 'no-cache',
@@ -466,7 +505,7 @@ async function serveStaticOrRender({
 	});
 	stream.on('error', (error) => {
 		if (!fileOpened) {
-			runAstroHandler({handler, request, response}).catch((handlerError: unknown) => {
+			runAstroHandler({handler, request, requestLocals, response}).catch((handlerError: unknown) => {
 				sendFailure(request, response, handlerError);
 			});
 			return;
@@ -512,6 +551,10 @@ export async function runAstroServer(options: AstroServerOptions): Promise<void>
 	process.on('beforeExit', requireStartupProgress);
 	try {
 		const entrypoint = await loadServerEntrypoint(options.entrypoint);
+		if (options.initialize != null) {
+			startupPhase = AstroServerStartupPhase.INITIALIZE;
+			await options.initialize();
+		}
 		const clientDirectory = fileURLToPath(new URL('../client/', options.entrypoint));
 		let activeRequests = 0;
 		const handleRequest = (request: IncomingMessage, response: ServerResponse): void => {
@@ -520,22 +563,22 @@ export async function runAstroServer(options: AstroServerOptions): Promise<void>
 			}
 			const parsedRequestURL = requestURL(request);
 			if (parsedRequestURL == null) {
-				rejectRequest(response, HttpStatus.BAD_REQUEST, null);
+				rejectRequest(response, HTTPStatusCode.BAD_REQUEST, null);
 				return;
 			}
 			if (request.method !== HTTPMethod.GET && request.method !== HTTPMethod.HEAD) {
-				rejectRequest(response, HttpStatus.METHOD_NOT_ALLOWED, ALLOWED_SITE_METHODS);
+				rejectRequest(response, HTTPStatusCode.METHOD_NOT_ALLOWED, ALLOWED_SITE_METHODS);
 				return;
 			}
 			if (requestDeclaresBody(request)) {
-				rejectRequest(response, HttpStatus.PAYLOAD_TOO_LARGE, null);
+				rejectRequest(response, HTTPStatusCode.PAYLOAD_TOO_LARGE, null);
 				return;
 			}
-			if (respondToHealthcheck(request, parsedRequestURL, response)) {
+			if (respondToHealthcheck(request, parsedRequestURL, response, options.readiness)) {
 				return;
 			}
 			if (activeRequests >= ASTRO_SERVER_MAX_ACTIVE_REQUESTS) {
-				rejectRequest(response, HttpStatus.SERVICE_UNAVAILABLE, null);
+				rejectRequest(response, HTTPStatusCode.SERVICE_UNAVAILABLE, null);
 				return;
 			}
 			activeRequests += 1;
@@ -555,6 +598,7 @@ export async function runAstroServer(options: AstroServerOptions): Promise<void>
 				basePath,
 				request,
 				requestURL: parsedRequestURL,
+				requestLocals: options.requestLocals,
 				response,
 			}).catch((error: unknown) => {
 				sendFailure(request, response, error);
@@ -576,6 +620,7 @@ export async function runAstroServer(options: AstroServerOptions): Promise<void>
 		new AstroServerTermination({
 			closeListener: () => closeServerListener(server),
 			serverName: ASTRO_SERVER_NAME,
+			shutdown: options.shutdown,
 			timeoutMs: ASTRO_SERVER_SHUTDOWN_TIMEOUT_MS,
 		}).install();
 		startupPhase = AstroServerStartupPhase.LISTEN;

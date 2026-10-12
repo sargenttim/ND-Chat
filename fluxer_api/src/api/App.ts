@@ -4,6 +4,7 @@ import {createInitializer, createShutdown} from '@app/api/app/APILifecycle';
 import {registerControllers} from '@app/api/app/ControllerRegistry';
 import {configureMiddleware} from '@app/api/app/MiddlewarePipeline';
 import type {APIConfig} from '@app/api/config/APIConfig';
+import type {ILogger} from '@app/api/ILogger';
 import {recordRequestStatus} from '@app/api/middleware/RequestErrorTelemetry';
 import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
 import {AppErrorHandler, AppNotFoundHandler} from '@fluxer/errors/src/domains/core/ErrorHandlers';
@@ -11,15 +12,13 @@ import {IpBannedError} from '@fluxer/errors/src/domains/moderation/IpBannedError
 import {resolveErrorStatus} from '@fluxer/errors/src/error_handling/ErrorIntrospection';
 import {createMetricsMiddleware} from '@fluxer/hono/src/middleware/Metrics';
 import {LOCKED_DOWN_PERMISSIONS_POLICY, securityHeaders} from '@fluxer/hono/src/middleware/SecurityHeaders';
-import type {LoggerInterface} from '@fluxer/logger/src/LoggerInterface';
 import {setIsDevelopment} from '@fluxer/schema/src/primitives/UrlValidators';
 import type {Context} from 'hono';
 import {Hono} from 'hono';
 
 interface CreateAPIAppOptions {
 	config: APIConfig;
-	logger: LoggerInterface;
-	registerRoutes?: (routes: HonoApp) => void;
+	logger: ILogger;
 }
 
 interface APIAppResult {
@@ -54,7 +53,6 @@ export async function createAPIApp(options: CreateAPIAppOptions): Promise<APIApp
 	routes.onError(TelemetryAwareAppErrorHandler);
 	routes.notFound(AppNotFoundHandler);
 	registerControllers(routes, config);
-	options.registerRoutes?.(routes);
 	const app = new Hono<HonoEnv>({strict: true});
 	const {middleware: metricsMiddleware, metricsHandler} = createMetricsMiddleware('api');
 	app.use('*', metricsMiddleware);

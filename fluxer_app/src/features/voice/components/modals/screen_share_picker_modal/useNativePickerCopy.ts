@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import type {ScreenSharePickerTab} from '@app/features/voice/components/modals/screen_share_picker_modal/shared';
 import type {DisplayShareEnvironment} from '@app/features/voice/utils/ScreenShareEnvironment';
 import {msg} from '@lingui/core/macro';
@@ -67,17 +67,13 @@ export function useNativePickerCopy(
 				return {
 					Icon: AppWindowIcon,
 					title: i18n._(CHOOSE_THE_TAB_OR_WINDOW_IN_YOUR_BROWSER_DESCRIPTOR),
-					description: i18n._(BROWSERS_DO_NOT_LET_LIST_APP_WINDOWS_AHEAD_DESCRIPTOR, {
-						productName: RuntimeConfig.productName,
-					}),
+					description: i18n._(BROWSERS_DO_NOT_LET_LIST_APP_WINDOWS_AHEAD_DESCRIPTOR, {productName: PRODUCT_NAME}),
 				};
 			}
 			return {
 				Icon: MonitorIcon,
 				title: i18n._(CHOOSE_THE_SCREEN_IN_YOUR_BROWSER_DESCRIPTOR),
-				description: i18n._(BROWSERS_DO_NOT_LET_LIST_DISPLAYS_AHEAD_OF_DESCRIPTOR, {
-					productName: RuntimeConfig.productName,
-				}),
+				description: i18n._(BROWSERS_DO_NOT_LET_LIST_DISPLAYS_AHEAD_OF_DESCRIPTOR, {productName: PRODUCT_NAME}),
 			};
 		}
 		if (activeTab === 'apps') {

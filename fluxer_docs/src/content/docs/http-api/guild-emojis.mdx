@@ -6,7 +6,7 @@ description: Guild emoji objects, uploads, cloning, bulk creation, renaming, and
 
 import RouteHeader from '@/components/RouteHeader.astro';
 
-An emoji is a custom image that one guild owns. Members use it in messages and reactions, and a forum channel can use it on a tag or as its default reaction. Its ID is a [snowflake](/snowflakes/) that is unique across every guild. [List guild emojis](#list-guild-emojis) is the only guild-scoped read, and [Get emoji metadata](/http-api/expressions/#get-emoji-metadata) resolves a single emoji without membership of its guild.
+An emoji is a custom image that one guild owns. Members use it in messages and reactions. Its ID is a [snowflake](/snowflakes/) that is unique across every guild. [List guild emojis](#list-guild-emojis) is the only guild-scoped read, and [Get emoji metadata](/http-api/expressions/#get-emoji-metadata) resolves a single emoji without membership of its guild.
 
 Every route names a guild in its path. When that guild has [UNAVAILABLE_FOR_EVERYONE](/http-api/guilds/#guild-features), Fluxer rejects the request with 403 `MISSING_ACCESS` before the operation runs. Fluxer does the same for a guild with [UNAVAILABLE_FOR_EVERYONE_BUT_STAFF](/http-api/guilds/#guild-features) when the account has no instance staff flag.
 
@@ -58,9 +58,9 @@ The image and name submitted for one new emoji.
 
 <sup>3</sup> The decoded ceiling is the resolved `emoji_max_size` [limit key](/http-api/instance/#limit-keys) in guild scope, 524288 bytes by default
 
-The remaining encoded part is bounded to 139810136 characters, the base64 expansion of a 104857600 byte image. A longer value returns the validation code `BASE64_LENGTH_INVALID` at the `image` path. A value that is not canonical base64 with correct padding returns `INVALID_BASE64_FORMAT`. An image over the resolved ceiling returns `IMAGE_SIZE_EXCEEDS_LIMIT` at the same path, and `maxSize` is the ceiling that applied.
+The remaining encoded part is bounded to 699052 characters, the base64 expansion of the 524288 byte default. A longer value returns the validation code `BASE64_LENGTH_INVALID` at the `image` path. A value that is not canonical base64 with correct padding returns `INVALID_BASE64_FORMAT`. An image over the resolved ceiling returns `IMAGE_SIZE_EXCEEDS_LIMIT` at the same path, and `maxSize` is the ceiling that applied.
 
-The character bound does not move with the limit key, so a resolved ceiling above 104857600 bytes admits no more than 104857602 decoded bytes.
+The 699052 character bound does not move with the limit key, so a resolved ceiling above 524288 bytes admits no more than 524289 decoded bytes.
 
 Accepted upload formats are PNG, JPEG, WebP, GIF, APNG, AVIF, HEIC, HEIF, JXL, and SVG. Fluxer takes the format and the animation state from the decoded image. An animated AVIF is rejected.
 
@@ -376,7 +376,7 @@ A later purge of the source emoji does not affect an existing clone in another g
 
 ### Side effects
 
-Deletion frees one guild emoji slot, emits [Guild Emojis Update](/gateway/events/#guild-emojis-update) with the remaining collection and records an [`EMOJI_DELETE`](/http-api/guild-audit-logs/#audit-actions) audit entry. Existing messages that reference the emoji are unchanged. A [forum tag](/http-api/forums/#forum-tag-object) or [default reaction](/http-api/forums/#default-reaction-object) that names the emoji keeps its `emoji_id`.
+Deletion frees one guild emoji slot, emits [Guild Emojis Update](/gateway/events/#guild-emojis-update) with the remaining collection and records an [`EMOJI_DELETE`](/http-api/guild-audit-logs/#audit-actions) audit entry. Existing messages that reference the emoji are unchanged.
 
 ### Rate limit
 

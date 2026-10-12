@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {canFocusTextarea, type FocusableElementType, safeFocus} from '@app/features/platform/utils/InputFocusManager';
+import {
+	canFocusTextarea,
+	type FocusableElementType,
+	isInputFocused,
+	safeFocus,
+} from '@app/features/platform/utils/InputFocusManager';
 import {type RefObject, useCallback} from 'react';
 
 export function useInputFocusManagement<T extends FocusableElementType>(textareaRef: RefObject<T | null>) {
@@ -15,8 +20,13 @@ export function useInputFocusManagement<T extends FocusableElementType>(textarea
 		if (!textareaRef.current) return false;
 		return canFocusTextarea(textareaRef.current);
 	}, [textareaRef]);
+	const hasOtherInputFocused = useCallback(() => {
+		return isInputFocused(textareaRef.current || undefined);
+	}, [textareaRef]);
 	return {
 		safeFocusTextarea,
 		canFocus,
+		hasOtherInputFocused,
+		isInputFocused: () => isInputFocused(textareaRef.current || undefined),
 	};
 }

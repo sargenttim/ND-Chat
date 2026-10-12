@@ -1,10 +1,6 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_subscription_handler).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -typing([eqwalizer]).
 
 -export([
@@ -12,6 +8,10 @@
     handle_cast/2,
     handle_info/2
 ]).
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -type guild_state() :: map().
 -type user_id() :: integer().
@@ -177,27 +177,13 @@ flush_lazy_subscribe_buffer(State) ->
     State1 = maps:remove(lazy_subscribe_buffer, State),
     State2 = maps:remove(lazy_subscribe_order, State1),
     State3 = maps:remove(lazy_subscribe_timer, State2),
-    flush_lazy_subscribe_keys(Order, Buffer, State3).
-
--spec flush_lazy_subscribe_keys([lazy_subscribe_key()], map(), guild_state()) -> guild_state().
-flush_lazy_subscribe_keys([], _Buffer, State) ->
-    State;
-flush_lazy_subscribe_keys([BufferKey | Rest], Buffer, State) ->
-    Engines = map_size(maps:get(?ENGINES_KEY, State, #{})),
-    State1 = process_buffered_lazy_subscribe(BufferKey, Buffer, State),
-    case Rest =/= [] andalso map_size(maps:get(?ENGINES_KEY, State1, #{})) > Engines of
-        true -> defer_lazy_subscribe_keys(Rest, Buffer, State1);
-        false -> flush_lazy_subscribe_keys(Rest, Buffer, State1)
-    end.
-
--spec defer_lazy_subscribe_keys([lazy_subscribe_key()], map(), guild_state()) -> guild_state().
-defer_lazy_subscribe_keys(Keys, Buffer, State) ->
-    Ref = erlang:send_after(0, self(), flush_lazy_subscribe_buffer),
-    State#{
-        lazy_subscribe_buffer => maps:with(Keys, Buffer),
-        lazy_subscribe_order => Keys,
-        lazy_subscribe_timer => Ref
-    }.
+    lists:foldl(
+        fun(BufferKey, AccState) ->
+            process_buffered_lazy_subscribe(BufferKey, Buffer, AccState)
+        end,
+        State3,
+        Order
+    ).
 
 -spec move_buffer_key_to_tail(lazy_subscribe_key(), [lazy_subscribe_key()]) ->
     [lazy_subscribe_key()].
@@ -267,13 +253,12 @@ process_lazy_subscribe_for_guild(
 ) ->
     CanView =
         is_integer(SessionUserId) andalso
-            guild_permissions_check:can_view_channel(
+            guild_permissions:can_view_channel(
                 SessionUserId, ChannelId, undefined, State
             ) andalso
-            guild_permissions_check:can_view_channel_members(
+            guild_permissions:can_view_channel_members(
                 SessionUserId, ChannelId, undefined, State
-            ) andalso
-            member_list_channel_allowed(SessionId, ChannelId, State),
+            ),
     case CanView of
         true ->
             ListId = guild_member_list:calculate_list_id(ChannelId, State),
@@ -282,17 +267,6 @@ process_lazy_subscribe_for_guild(
             );
         false ->
             State
-    end.
-
--spec member_list_channel_allowed(session_id(), channel_id(), guild_state()) -> boolean().
-member_list_channel_allowed(SessionId, ChannelId, State) ->
-    case guild_thread_gate:needs_variant(State) of
-        false ->
-            true;
-        true ->
-            Session = maps:get(SessionId, maps:get(sessions, State, #{}), #{}),
-            not guild_thread_gate:is_thread_id(ChannelId, State) andalso
-                guild_thread_gate:channel_visible(Session, ChannelId, State)
     end.
 
 -spec subscribe_member_list_ranges(
@@ -307,7 +281,7 @@ subscribe_member_list_ranges(undefined, _GuildId, _ChannelId, _SessionId, _Range
     State;
 subscribe_member_list_ranges(ListId, GuildId, ChannelId, SessionId, Ranges, State) ->
     {NewState, ShouldSendSync, NormalizedRanges} =
-        guild_member_list_subscribe:subscribe_ranges(SessionId, ListId, Ranges, State),
+        guild_member_list:subscribe_ranges(SessionId, ListId, Ranges, State),
     process_lazy_subscribe_sync(
         ShouldSendSync, NormalizedRanges, GuildId, ListId, ChannelId, SessionId, NewState
     ).
@@ -331,9 +305,7 @@ should_ignore_member_list_subscribe(_Ranges, State) ->
 process_lazy_subscribe_sync(true, [], _GuildId, _ListId, _ChannelId, _SessionId, State) ->
     State;
 process_lazy_subscribe_sync(true, RangesToSend, GuildId, ListId, ChannelId, SessionId, State) ->
-    SyncResponse = guild_member_list_read:build_sync_response(
-        GuildId, ListId, RangesToSend, State
-    ),
+    SyncResponse = guild_member_list:build_sync_response(GuildId, ListId, RangesToSend, State),
     dispatch_lazy_subscribe_sync(SyncResponse, ChannelId, GuildId, SessionId, State);
 process_lazy_subscribe_sync(_, _, _GuildId, _ListId, _ChannelId, _SessionId, State) ->
     State.
@@ -381,12 +353,12 @@ filter_user_ids(UserIds) ->
 -spec handle_update_member_subscriptions_local(
     integer(), session_id(), [user_id()], guild_state()
 ) -> guild_state().
-handle_update_member_subscriptions_local(_GuildId, SessionId, MemberIds, State) ->
+handle_update_member_subscriptions_local(GuildId, SessionId, MemberIds, State) ->
     MemberSubs = maps:get(member_subscriptions, State, guild_subscriptions:init_state()),
     Sessions = maps:get(sessions, State, #{}),
     SessionUserId = get_session_user_id(SessionId, Sessions),
     FilteredMemberIds = filter_member_ids_for_subscription(
-        maps:get(SessionId, Sessions, #{}), SessionUserId, MemberIds, State
+        GuildId, SessionUserId, MemberIds, State
     ),
     {NewMemberSubs, Added, Removed} = guild_subscriptions:update_subscriptions_with_delta(
         SessionId, FilteredMemberIds, MemberSubs
@@ -396,15 +368,13 @@ handle_update_member_subscriptions_local(_GuildId, SessionId, MemberIds, State) 
     handle_removed_subscriptions(Removed, State2).
 
 -spec filter_member_ids_for_subscription(
-    map(), user_id() | undefined, [user_id()], guild_state()
+    integer(), user_id() | undefined, [user_id()], guild_state()
 ) ->
     [user_id()].
-filter_member_ids_for_subscription(_Session, undefined, _MemberIds, _State) ->
+filter_member_ids_for_subscription(_GuildId, undefined, _MemberIds, _State) ->
     [];
-filter_member_ids_for_subscription(Session, SessionUserId, MemberIds, State) ->
-    guild_subscription_mutual_channels:filter_member_ids(
-        Session, SessionUserId, MemberIds, State
-    ).
+filter_member_ids_for_subscription(_GuildId, SessionUserId, MemberIds, State) ->
+    guild_subscription_mutual_channels:filter_member_ids(SessionUserId, MemberIds, State).
 
 -spec handle_added_subscriptions([user_id()], session_id(), guild_state()) -> guild_state().
 handle_added_subscriptions(Added, SessionId, State) ->
@@ -420,7 +390,7 @@ handle_added_subscriptions(Added, SessionId, State) ->
 -spec subscribe_added_member(user_id(), session_id(), map(), guild_state()) -> guild_state().
 subscribe_added_member(UserId, SessionId, Prefetched, State) ->
     Watched = presence_watched(UserId, State),
-    StateWithPresence = guild_sessions_presence:subscribe_to_user_presence(UserId, State),
+    StateWithPresence = guild_sessions:subscribe_to_user_presence(UserId, State),
     case {Watched, maps:find(UserId, Prefetched)} of
         {true, {ok, Lookup}} ->
             guild_presence:send_presence_lookup_to_session(
@@ -437,7 +407,7 @@ presence_watched(UserId, State) ->
 -spec handle_removed_subscriptions([user_id()], guild_state()) -> guild_state().
 handle_removed_subscriptions(Removed, State) ->
     lists:foldl(
-        fun guild_sessions_presence:unsubscribe_from_user_presence/2,
+        fun guild_sessions:unsubscribe_from_user_presence/2,
         State,
         Removed
     ).
@@ -565,6 +535,23 @@ warm_list_state(ChannelId) ->
         ?ENGINES_KEY => #{ListId => warm_list_state_engine_ref}
     }.
 
+engine_already_built_detects_built_engine_test() ->
+    Request = #{session_id => <<"s1">>, channel_id => 500, ranges => [{0, 99}]},
+    ?assertEqual(true, engine_already_built(Request, warm_list_state(500))).
+
+engine_already_built_false_without_engine_test() ->
+    Request = #{session_id => <<"s1">>, channel_id => 500, ranges => [{0, 99}]},
+    State = maps:put(?ENGINES_KEY, #{}, warm_list_state(500)),
+    ?assertEqual(false, engine_already_built(Request, State)).
+
+engine_already_built_false_for_unknown_channel_test() ->
+    Request = #{session_id => <<"s1">>, channel_id => 999, ranges => [{0, 99}]},
+    ?assertEqual(false, engine_already_built(Request, warm_list_state(500))).
+
+engine_already_built_false_on_bare_state_test() ->
+    Request = #{session_id => <<"s1">>, channel_id => 500, ranges => [{0, 99}]},
+    ?assertEqual(false, engine_already_built(Request, #{})).
+
 dispatch_immediately_requires_idle_window_test() ->
     Request = #{session_id => <<"s1">>, channel_id => 500, ranges => [{0, 99}]},
     Warm = warm_list_state(500),
@@ -666,6 +653,11 @@ cold_list_still_uses_the_coalesce_buffer_test() ->
     Buffer = maps:get(lazy_subscribe_buffer, NewState),
     ?assertEqual(Request, maps:get({<<"s1">>, 500}, Buffer)).
 
+arm_lazy_subscribe_timer_is_idempotent_test() ->
+    Ref = make_ref(),
+    State = #{lazy_subscribe_timer => Ref},
+    ?assertEqual(Ref, maps:get(lazy_subscribe_timer, arm_lazy_subscribe_timer(State))).
+
 member_subscription_test_member(UserId, RoleIds) ->
     #{
         <<"user">> => #{<<"id">> => integer_to_binary(UserId)},
@@ -739,7 +731,7 @@ reference_update_member_subscriptions(SessionId, MemberIds, State) ->
         MemberId =/= Viewer,
         lists:any(
             fun(ChannelId) -> maps:is_key(ChannelId, SessionMap) end,
-            guild_visibility_channels:get_user_viewable_channels(MemberId, State)
+            guild_visibility:get_user_viewable_channels(MemberId, State)
         )
     ],
     {NewSubs, Added, Removed} = guild_subscriptions:update_subscriptions_with_delta(
@@ -747,7 +739,7 @@ reference_update_member_subscriptions(SessionId, MemberIds, State) ->
     ),
     State1 = lists:foldl(
         fun(UserId, Acc) ->
-            StateWithPresence = guild_sessions_presence:subscribe_to_user_presence(UserId, Acc),
+            StateWithPresence = guild_sessions:subscribe_to_user_presence(UserId, Acc),
             guild_presence:send_cached_presence_to_session(UserId, SessionId, StateWithPresence)
         end,
         State#{member_subscriptions => NewSubs},
@@ -757,7 +749,7 @@ reference_update_member_subscriptions(SessionId, MemberIds, State) ->
 
 drain_mailbox(Acc) ->
     receive
-        {'$gen_cast', _} = Msg -> drain_mailbox([Msg | Acc])
+        Msg -> drain_mailbox([Msg | Acc])
     after 50 -> lists:reverse(Acc)
     end.
 

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {findRowForOffset} from '@app/features/channel/components/pickers/shared/PickerRowLayout';
 import {
 	MEMBER_LIST_RANGE_MAX_END,
 	MEMBER_LIST_RANGE_MAX_SPAN,
@@ -33,11 +32,35 @@ interface VisibleRowBounds {
 	unclampedEnd: number;
 }
 
+function findRowIndexForOffset(rowOffsets: ReadonlyArray<number>, pixel: number): number {
+	const lastRow = rowOffsets.length - 2;
+	if (lastRow < 0) {
+		return 0;
+	}
+	if (pixel <= 0) {
+		return 0;
+	}
+	if (pixel >= rowOffsets[lastRow + 1]!) {
+		return lastRow;
+	}
+	let low = 0;
+	let high = lastRow;
+	while (low < high) {
+		const mid = (low + high + 1) >> 1;
+		if (rowOffsets[mid]! <= pixel) {
+			low = mid;
+		} else {
+			high = mid - 1;
+		}
+	}
+	return low;
+}
+
 function resolveVisibleRowBounds(options: MemberListRangeWindowOptions): VisibleRowBounds {
 	const {scrollTop, clientHeight, rowHeight, bufferRows, rowOffsets} = options;
 	if (rowOffsets != null && rowOffsets.length >= 2) {
-		const visibleStart = findRowForOffset(rowOffsets, scrollTop);
-		const visibleEnd = findRowForOffset(rowOffsets, scrollTop + clientHeight);
+		const visibleStart = findRowIndexForOffset(rowOffsets, scrollTop);
+		const visibleEnd = findRowIndexForOffset(rowOffsets, scrollTop + clientHeight);
 		const startIndex = Math.max(0, visibleStart - bufferRows);
 		const unclampedEnd = Math.max(startIndex, visibleEnd + bufferRows);
 		return {startIndex, unclampedEnd};
@@ -45,6 +68,13 @@ function resolveVisibleRowBounds(options: MemberListRangeWindowOptions): Visible
 	const startIndex = Math.max(0, Math.floor(scrollTop / rowHeight) - bufferRows);
 	const unclampedEnd = Math.max(startIndex, Math.ceil((scrollTop + clientHeight) / rowHeight) + bufferRows);
 	return {startIndex, unclampedEnd};
+}
+
+export function areMemberListRangesEqual(left: MemberListRanges, right: MemberListRanges): boolean {
+	if (left === right) {
+		return true;
+	}
+	return areNormalizedMemberListRangesEqual(normalizeMemberListRanges(left), normalizeMemberListRanges(right));
 }
 
 export function areNormalizedMemberListRangesEqual(
@@ -65,6 +95,13 @@ export function areNormalizedMemberListRangesEqual(
 		}
 	}
 	return true;
+}
+
+export function areMemberListRangesCovered(innerRanges: MemberListRanges, outerRanges: MemberListRanges): boolean {
+	return areNormalizedMemberListRangesCovered(
+		normalizeMemberListRanges(innerRanges),
+		normalizeMemberListRanges(outerRanges),
+	);
 }
 
 export function areNormalizedMemberListRangesCovered(

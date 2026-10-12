@@ -33,6 +33,12 @@
 	gap: 0.5rem;
 }
 
+.userInfoHeaderMobile {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+}
+
 .userInfoHeaderDesktop {
 	display: grid;
 	grid-template-columns: minmax(0, 1fr) auto;
@@ -229,6 +235,11 @@
 	background-repeat: no-repeat;
 }
 
+.bannerColor {
+	height: 100%;
+	width: 100%;
+}
+
 .headerContainer {
 	position: relative;
 	min-height: calc(2.375rem * var(--profile-modal-scale));
@@ -308,6 +319,10 @@
 .actionButtons {
 	display: flex;
 	gap: 0.5rem;
+}
+
+.moreMenuButtonActive {
+	background-color: var(--background-modifier-hover);
 }
 
 .buttonIcon {
@@ -427,4 +442,12 @@
 	height: 3rem;
 	color: var(--text-tertiary);
 	opacity: 0.5;
+}
+
+.loadingScreen {
+	flex: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: 0;
 }

@@ -2,10 +2,6 @@
 
 import {isPendingMigratedDeviceId} from '@app/features/app/domain_migration/DomainMigrationDeviceRemap';
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {
-	canRouteVoiceAudioContextOutput,
-	setVoiceAudioContextOutput,
-} from '@app/features/voice/engine/VoiceSharedAudioContext';
 import {VoiceTrackKind} from '@app/features/voice/engine/VoiceTrackSource';
 import VoiceSettings from '@app/features/voice/state/VoiceSettings';
 import {voiceDeviceManager} from '@app/features/voice/utils/VoiceDeviceManager';
@@ -63,7 +59,7 @@ function canRoomSwitchAudioOutput(room: Room): boolean {
 	if (!isRoomWebAudioMixEnabled(room)) return supportsMediaElementSetSinkId();
 	const audioContext = getRoomAudioContext(room);
 	if (!audioContext) return true;
-	return typeof audioContext.setSinkId === 'function' || canRouteVoiceAudioContextOutput(audioContext);
+	return typeof audioContext.setSinkId === 'function';
 }
 
 function resolveLiveKitSwitchDeviceId(room: Room, deviceId: string): string {
@@ -108,14 +104,12 @@ async function resolveAvailableOutputDeviceId(deviceId: string): Promise<string>
 
 async function applyOutputDeviceToWebAudioMixer(room: Room, deviceId: string): Promise<void> {
 	const audioContext = getRoomAudioContext(room);
-	if (!audioContext) {
+	if (!audioContext?.setSinkId) {
 		return;
 	}
-	const applySink = (sinkId: string) =>
-		audioContext.setSinkId ? audioContext.setSinkId(sinkId) : setVoiceAudioContextOutput(audioContext, sinkId);
 	const sinkId = normalizeSinkIdForBrowserApi(deviceId);
 	try {
-		await applySink(sinkId);
+		await audioContext.setSinkId(sinkId);
 	} catch (error) {
 		if (isDeviceMissingError(error)) {
 			logger.warn('Web Audio mixer sink no longer available', {deviceId});
@@ -124,7 +118,7 @@ async function applyOutputDeviceToWebAudioMixer(room: Room, deviceId: string): P
 					VoiceSettings.updateSettings({outputDeviceId: 'default'});
 				}
 				try {
-					await applySink('');
+					await audioContext.setSinkId('');
 				} catch (fallbackError) {
 					logger.warn('Failed to fall back Web Audio mixer sink to default', {deviceId, error: fallbackError});
 				}
@@ -164,13 +158,11 @@ async function applyOutputDeviceToAttachedElements(room: Room, deviceId: string)
 	}
 }
 
-async function applyOutputDeviceToRoom(room: Room, deviceId: string): Promise<void> {
+export async function applyOutputDeviceToRoom(room: Room, deviceId: string): Promise<void> {
 	const resolvedDeviceId = await resolveAvailableOutputDeviceId(deviceId);
 	if (canRoomSwitchAudioOutput(room)) {
 		try {
-			if (!isRoomWebAudioMixEnabled(room) || getRoomAudioContext(room)?.setSinkId) {
-				await room.switchActiveDevice('audiooutput', resolveLiveKitSwitchDeviceId(room, resolvedDeviceId));
-			}
+			await room.switchActiveDevice('audiooutput', resolveLiveKitSwitchDeviceId(room, resolvedDeviceId));
 		} catch (error) {
 			logger.warn('LiveKit failed to apply audio output device', {deviceId: resolvedDeviceId, error});
 		}

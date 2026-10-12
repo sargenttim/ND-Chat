@@ -12,7 +12,7 @@ export const VOICE_NOISE_SUPPRESSION_BACKENDS = [
 
 export type VoiceNoiseSuppressionBackend = (typeof VOICE_NOISE_SUPPRESSION_BACKENDS)[number];
 
-type NoiseSuppressionEngine = 'passthrough' | 'constraint' | 'worklet' | 'deep_filter';
+export type NoiseSuppressionEngine = 'passthrough' | 'constraint' | 'worklet' | 'deep_filter';
 
 export interface NoiseSuppressionBackendDescriptor {
 	id: VoiceNoiseSuppressionBackend;
@@ -84,8 +84,8 @@ const DESCRIPTORS: Readonly<Record<VoiceNoiseSuppressionBackend, NoiseSuppressio
 		engine: 'deep_filter',
 		browserNoiseSuppression: false,
 		preservesInputChannels: false,
-		supportedSampleRates: [44100, 48000],
-		requiresWasmSimd: true,
+		supportedSampleRates: [48000],
+		requiresWasmSimd: false,
 		usesSuppressionStrength: true,
 	},
 };
@@ -106,9 +106,9 @@ export interface NoiseSuppressionRuntimeCapabilities {
 	audioWorklet: boolean;
 }
 
-type NoiseSuppressionUnsupportedReason = 'sample_rate' | 'wasm_simd' | 'audio_worklet';
+export type NoiseSuppressionUnsupportedReason = 'sample_rate' | 'wasm_simd' | 'audio_worklet';
 
-function getNoiseSuppressionUnsupportedReason(
+export function getNoiseSuppressionUnsupportedReason(
 	backend: VoiceNoiseSuppressionBackend,
 	capabilities: NoiseSuppressionRuntimeCapabilities,
 ): NoiseSuppressionUnsupportedReason | null {
@@ -141,6 +141,16 @@ export function selectUsableNoiseSuppressionBackend(
 	return 'none';
 }
 
+export function resolveNoiseSuppressionContextSampleRate(
+	backend: VoiceNoiseSuppressionBackend,
+	captureSampleRate: number,
+): number {
+	const descriptor = DESCRIPTORS[backend];
+	const supported = descriptor.supportedSampleRates;
+	if (supported == null || supported.includes(captureSampleRate)) return captureSampleRate;
+	return supported.includes(48000) ? 48000 : (supported[0] ?? captureSampleRate);
+}
+
 const WASM_SIMD_PROBE = new Uint8Array([
 	0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00, 0x01, 0x04, 0x01, 0x60, 0x00, 0x00, 0x03, 0x02, 0x01, 0x00, 0x0a,
 	0x09, 0x01, 0x07, 0x00, 0x41, 0x00, 0xfd, 0x0f, 0x1a, 0x0b,
@@ -156,4 +166,8 @@ export function detectWasmSimdSupport(): boolean {
 		cachedWasmSimd = false;
 	}
 	return cachedWasmSimd;
+}
+
+export function resetWasmSimdSupportCacheForTests(): void {
+	cachedWasmSimd = null;
 }

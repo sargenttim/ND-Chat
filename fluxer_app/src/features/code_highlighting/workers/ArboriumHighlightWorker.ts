@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {ARBORIUM_GRAMMAR_LOADERS} from '@app/features/code_highlighting/utils/ArboriumGrammars';
-import {desktopModuleNameForAsset} from '@app/features/platform/utils/DesktopModuleAssetName';
 import {resolveWorkerAssetUrl} from '@app/features/platform/utils/WorkerAssetUrl';
 import hostWasmUrl from '@arborium/arborium/arborium_host_bg.wasm';
 import {MAX_CODE_HIGHLIGHT_OUTPUT_LENGTH, MAX_CODE_HIGHLIGHT_SOURCE_LENGTH} from '@fluxer/constants/src/LimitConstants';
@@ -14,22 +13,11 @@ export interface ArboriumHighlightWorkerRequest {
 	source: string;
 }
 
-export interface ArboriumHighlightWorkerModuleReply {
-	moduleRequestId: number;
-	available: boolean;
-}
-
 export type ArboriumHighlightWorkerResponse =
 	| {
 			id: number;
 			status: 'progress';
 			phase: 'initializing' | 'loading' | 'highlighting';
-	  }
-	| {
-			id: number;
-			status: 'module';
-			moduleRequestId: number;
-			assetUrl: string;
 	  }
 	| {
 			id: number;
@@ -55,10 +43,6 @@ const ARBORIUM_WASM_REQUEST_TIMEOUT_MS = 30_000;
 const workerScope = self as unknown as DedicatedWorkerGlobalScope;
 let arboriumPromise: Promise<ArboriumModule> | null = null;
 let requestInFlight = false;
-let activeRequestId: number | null = null;
-let grammarModuleUnavailable = false;
-let nextModuleRequestId = 1;
-const pendingModuleRequests = new Map<number, (available: boolean) => void>();
 
 class ArboriumWASMResponseError extends Error {
 	constructor(description: string, status: number) {
@@ -157,38 +141,6 @@ async function fetchArboriumWASM(url: string, description: string): Promise<Resp
 	}
 }
 
-function requireGrammarModule(assetUrl: string): Promise<void> {
-	const requestId = activeRequestId;
-	if (requestId === null || desktopModuleNameForAsset(assetUrl) === null) {
-		return Promise.resolve();
-	}
-	return new Promise((resolve, reject) => {
-		const moduleRequestId = nextModuleRequestId++;
-		pendingModuleRequests.set(moduleRequestId, (available) => {
-			if (available) {
-				resolve();
-				return;
-			}
-			grammarModuleUnavailable = true;
-			reject(new Error(`The grammar module for ${assetUrl} is not available`));
-		});
-		workerScope.postMessage({
-			id: requestId,
-			status: 'module',
-			moduleRequestId,
-			assetUrl,
-		} satisfies ArboriumHighlightWorkerResponse);
-	});
-}
-
-function isModuleReply(value: unknown): value is ArboriumHighlightWorkerModuleReply {
-	if (typeof value !== 'object' || value === null) {
-		return false;
-	}
-	const reply = value as Partial<ArboriumHighlightWorkerModuleReply>;
-	return typeof reply.moduleRequestId === 'number' && typeof reply.available === 'boolean';
-}
-
 function postProgress(id: number, phase: 'initializing' | 'loading' | 'highlighting'): void {
 	workerScope.postMessage({id, status: 'progress', phase} satisfies ArboriumHighlightWorkerResponse);
 }
@@ -207,12 +159,11 @@ function loadArborium(): Promise<ArboriumModule> {
 						}
 						return loader.loadJs();
 					},
-					resolveWasm: async ({language}) => {
+					resolveWasm: ({language}) => {
 						const loader = ARBORIUM_GRAMMAR_LOADERS[language];
 						if (!loader) {
 							throw new Error(`No bundled arborium grammar for language '${language}'`);
 						}
-						await requireGrammarModule(loader.wasmUrl);
 						return fetchArboriumWASM(
 							resolveWorkerAssetUrl(loader.wasmUrl),
 							`Arborium ${language} grammar WASM request`,
@@ -277,12 +228,6 @@ async function highlightSource(request: ArboriumHighlightWorkerRequest): Promise
 }
 
 workerScope.addEventListener('message', (event: MessageEvent<unknown>) => {
-	if (isModuleReply(event.data)) {
-		const settle = pendingModuleRequests.get(event.data.moduleRequestId);
-		pendingModuleRequests.delete(event.data.moduleRequestId);
-		settle?.(event.data.available);
-		return;
-	}
 	if (!isHighlightRequest(event.data)) {
 		return;
 	}
@@ -296,19 +241,9 @@ workerScope.addEventListener('message', (event: MessageEvent<unknown>) => {
 	}
 	requestInFlight = true;
 	const request = event.data;
-	activeRequestId = request.id;
-	grammarModuleUnavailable = false;
 	void highlightSource(request)
 		.then((response) => workerScope.postMessage(response))
 		.catch((error) => {
-			if (grammarModuleUnavailable) {
-				workerScope.postMessage({
-					id: request.id,
-					status: 'skipped',
-					reason: 'language',
-				} satisfies ArboriumHighlightWorkerResponse);
-				return;
-			}
 			workerScope.postMessage({
 				id: request.id,
 				status: 'error',
@@ -317,6 +252,5 @@ workerScope.addEventListener('message', (event: MessageEvent<unknown>) => {
 		})
 		.finally(() => {
 			requestInFlight = false;
-			activeRequestId = null;
 		});
 });

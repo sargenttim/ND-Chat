@@ -1,17 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::api::generated::guild_features;
-
-use reqwest::Method;
-
 use crate::api::generated::{snowflake, types as generated_types};
 use serde::Deserialize;
 
 use super::client::{AdminApiClient, ApiError, ApiResult};
 use super::reports::SearchReportsParams;
 use super::types::{
-    GuildAuditLogResponse, GuildDetailInfo, GuildInfo, ListGuildMembersResponse,
-    LookupGuildResponse, SearchGuildsResponse, SearchReportsResponse, SuccessResponse,
+    GuildAuditLogResponse, GuildDetailInfo, GuildInfo, GuildUpdateResponse,
+    ListGuildMembersResponse, LookupGuildResponse, SearchGuildsResponse, SearchReportsResponse,
+    SuccessResponse,
 };
 
 impl AdminApiClient {
@@ -56,17 +53,18 @@ impl AdminApiClient {
         guild_id: &str,
         add_features: &[String],
         remove_features: &[String],
-    ) -> ApiResult<()> {
+    ) -> ApiResult<GuildUpdateResponse> {
         let body = generated_types::UpdateGuildRequest {
             add_features: guild_features(add_features),
             remove_features: guild_features(remove_features),
             ..Default::default()
         };
-        self.generated()
+        let response = self
+            .generated()
             .update_admin_guild(&snowflake(guild_id), &body)
             .await
             .map_err(|e| self.generated_error(e))?;
-        Ok(())
+        self.generated_value(response.into_inner())
     }
 
     pub async fn delete_guild(&self, guild_id: &str) -> ApiResult<SuccessResponse> {
@@ -82,16 +80,17 @@ impl AdminApiClient {
         &self,
         guild_id: &str,
         new_owner_id: &str,
-    ) -> ApiResult<()> {
+    ) -> ApiResult<GuildUpdateResponse> {
         let body = generated_types::UpdateGuildRequest {
             new_owner_id: Some(snowflake(new_owner_id)),
             ..Default::default()
         };
-        self.generated()
+        let response = self
+            .generated()
             .update_admin_guild(&snowflake(guild_id), &body)
             .await
             .map_err(|e| self.generated_error(e))?;
-        Ok(())
+        self.generated_value(response.into_inner())
     }
 
     pub async fn list_guild_members(
@@ -178,37 +177,44 @@ impl AdminApiClient {
         &self,
         guild_id: &str,
         settings: &serde_json::Value,
-    ) -> ApiResult<()> {
+    ) -> ApiResult<GuildUpdateResponse> {
         let body = guild_settings_request(settings)?;
-        self.generated()
+        let response = self
+            .generated()
             .update_admin_guild(&snowflake(guild_id), &body)
             .await
             .map_err(|e| self.generated_error(e))?;
-        Ok(())
+        guild_update_response(response.into_inner())
     }
 
-    pub async fn update_guild_name(&self, guild_id: &str, name: &str) -> ApiResult<()> {
+    pub async fn update_guild_name(
+        &self,
+        guild_id: &str,
+        name: &str,
+    ) -> ApiResult<GuildUpdateResponse> {
         let body = generated_types::UpdateGuildRequest {
             name: Some(name.to_owned()),
             ..Default::default()
         };
-        self.generated()
+        let response = self
+            .generated()
             .update_admin_guild(&snowflake(guild_id), &body)
             .await
             .map_err(|e| self.generated_error(e))?;
-        Ok(())
+        self.generated_value(response.into_inner())
     }
 
-    pub async fn update_guild_vanity(&self, guild_id: &str, vanity: Option<&str>) -> ApiResult<()> {
+    pub async fn update_guild_vanity(
+        &self,
+        guild_id: &str,
+        vanity: Option<&str>,
+    ) -> ApiResult<GuildUpdateResponse> {
         let body = serde_json::json!({"vanity_url_code": vanity});
-        self.send::<serde::de::IgnoredAny, _>(
-            Method::PATCH,
+        self.patch(
             &format!("/admin/guilds/{}", urlencoding::encode(guild_id)),
             Some(&body),
-            None,
         )
         .await
-        .map(drop)
     }
 
     pub async fn reload_guild(&self, guild_id: &str) -> ApiResult<SuccessResponse> {
@@ -301,12 +307,44 @@ fn guild_admin_response(response: generated_types::GuildAdminResponse) -> ApiRes
         )
         .map_err(ApiError::Parse)?,
         features: response.features.into_iter().map(String::from).collect(),
+        badge_ids: Vec::new(),
         nsfw_level: response.nsfw_level.map(i32::from),
         nsfw: response.nsfw,
         content_warning_level: response.content_warning_level.map(i32::from),
         content_warning_text: response.content_warning_text.map(String::from),
         description: None,
         vanity_url_code: None,
+    })
+}
+
+fn guild_update_response(
+    response: generated_types::GuildUpdateResponse,
+) -> ApiResult<GuildUpdateResponse> {
+    let guild = response.guild;
+    Ok(GuildUpdateResponse {
+        guild: GuildInfo {
+            id: String::from(guild.id),
+            name: String::from(guild.name),
+            icon: guild.icon.map(String::from),
+            banner: guild.banner.map(String::from),
+            owner_id: String::from(guild.owner_id),
+            owner_username: None,
+            owner_global_name: None,
+            owner_discriminator: None,
+            member_count: crate::api::generated::i64_to_u64(
+                i64::from(i32::from(guild.member_count)),
+                "member_count",
+            )
+            .map_err(ApiError::Parse)?,
+            features: guild.features.into_iter().map(String::from).collect(),
+            badge_ids: Vec::new(),
+            nsfw_level: guild.nsfw_level.map(i32::from),
+            nsfw: guild.nsfw,
+            content_warning_level: guild.content_warning_level.map(i32::from),
+            content_warning_text: guild.content_warning_text.map(String::from),
+            description: None,
+            vanity_url_code: None,
+        },
     })
 }
 
@@ -327,6 +365,14 @@ fn guild_settings_request(
         verification_level: patch.verification_level,
         ..Default::default()
     })
+}
+
+fn guild_features(values: &[String]) -> Vec<generated_types::GuildFeatureSchema> {
+    values
+        .iter()
+        .cloned()
+        .map(generated_types::GuildFeatureSchema::from)
+        .collect()
 }
 
 #[cfg(test)]

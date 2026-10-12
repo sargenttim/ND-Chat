@@ -3,7 +3,10 @@
 -module(guild_passive_sync_voice).
 -typing([eqwalizer]).
 
--export([build_current_voice_state_map/2, compute_voice_state_updates/3]).
+-export([
+    build_current_voice_state_map/2,
+    compute_voice_state_updates/3
+]).
 
 -export_type([voice_state/0]).
 
@@ -32,7 +35,7 @@ maybe_include_voice_state(ConnectionId, VoiceState, ViewableChannels, Acc) ->
 
 -spec maybe_include_if_viewable(binary(), voice_state(), binary(), sets:set(), map()) -> map().
 maybe_include_if_viewable(ConnectionId, VoiceState, ChannelIdBin, ViewableChannels, Acc) ->
-    case snowflake_id:parse_maybe(ChannelIdBin) of
+    case parse_snowflake(ChannelIdBin) of
         undefined ->
             Acc;
         ChannelId ->
@@ -125,3 +128,10 @@ build_removed(PrevState, GuildIdBin) ->
     voice_state_utils:sanitize_voice_state_for_broadcast(
         (ensure_guild(PrevState, GuildIdBin))#{<<"channel_id">> => null}
     ).
+
+-spec parse_snowflake(term()) -> integer() | undefined.
+parse_snowflake(Value) ->
+    case validation:validate_snowflake(<<"channel_id">>, Value) of
+        {ok, Id} -> Id;
+        {error, _, _} -> undefined
+    end.

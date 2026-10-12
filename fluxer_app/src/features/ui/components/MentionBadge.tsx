@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Accessibility from '@app/features/accessibility/state/Accessibility';
-import {formatNumber, getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
 import styles from '@app/features/ui/components/MentionBadge.module.css';
 import {
 	AnimePresence,
@@ -11,6 +10,7 @@ import {
 	createAnimeFlxElement,
 } from '@app/features/ui/motion/AnimeElement';
 import {getCurrentLocale} from '@app/features/user/utils/LocaleUtils';
+import {formatCompactNumber, formatNumber} from '@pkgs/number_utils/src/NumberFormatting';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 
@@ -51,9 +51,7 @@ const formatMentionCount = (mentionCount: number) => {
 		return `${formatNumber(99, locale)}+`;
 	}
 	if (mentionCount >= 1000) {
-		return getCachedNumberFormat(locale, {notation: 'compact', maximumFractionDigits: 0})
-			.format(Number.isFinite(mentionCount) ? mentionCount : 0)
-			.replace(/\s/g, '');
+		return formatCompactNumber(mentionCount, locale, 0).replace(/\s/g, '');
 	}
 	return formatNumber(mentionCount, locale);
 };

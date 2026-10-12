@@ -12,82 +12,84 @@ import type {
 	WebhookID,
 } from '@app/api/BrandedTypes';
 
+type Nullish<T> = T | null;
+
 export interface MessageAttachment {
 	attachment_id: AttachmentID;
 	filename: string;
 	size: bigint;
-	title: string | null;
-	description: string | null;
-	width: number | null;
-	height: number | null;
+	title: Nullish<string>;
+	description: Nullish<string>;
+	width: Nullish<number>;
+	height: Nullish<number>;
 	content_type: string;
-	content_hash: string | null;
-	placeholder: string | null;
+	content_hash: Nullish<string>;
+	placeholder: Nullish<string>;
 	flags: number;
-	duration: number | null;
-	nsfw: boolean | null;
-	waveform: string | null;
+	duration: Nullish<number>;
+	nsfw: Nullish<boolean>;
+	waveform: Nullish<string>;
 }
 
 export interface MessageEmbedAuthor {
-	name: string | null;
-	url: string | null;
-	icon_url: string | null;
+	name: Nullish<string>;
+	url: Nullish<string>;
+	icon_url: Nullish<string>;
 }
 
 export interface MessageEmbedProvider {
-	name: string | null;
-	url: string | null;
+	name: Nullish<string>;
+	url: Nullish<string>;
 }
 
 export interface MessageEmbedFooter {
-	text: string | null;
-	icon_url: string | null;
+	text: Nullish<string>;
+	icon_url: Nullish<string>;
 }
 
 export interface MessageEmbedMedia {
-	url: string | null;
-	width: number | null;
-	height: number | null;
-	description: string | null;
-	content_type: string | null;
-	content_hash: string | null;
-	placeholder: string | null;
+	url: Nullish<string>;
+	width: Nullish<number>;
+	height: Nullish<number>;
+	description: Nullish<string>;
+	content_type: Nullish<string>;
+	content_hash: Nullish<string>;
+	placeholder: Nullish<string>;
 	flags: number;
-	duration: number | null;
+	duration: Nullish<number>;
 }
 
 export interface MessageEmbedField {
-	name: string | null;
-	value: string | null;
+	name: Nullish<string>;
+	value: Nullish<string>;
 	inline: boolean;
 }
 
 interface MessageEmbedBase {
-	type: string | null;
-	title: string | null;
-	description: string | null;
-	url: string | null;
-	timestamp: Date | null;
-	color: number | null;
-	author: MessageEmbedAuthor | null;
-	provider: MessageEmbedProvider | null;
-	thumbnail: MessageEmbedMedia | null;
-	image: MessageEmbedMedia | null;
-	video: MessageEmbedMedia | null;
-	audio?: MessageEmbedMedia | null;
-	footer: MessageEmbedFooter | null;
-	fields: Array<MessageEmbedField> | null;
-	html?: string | null;
-	html_width?: number | null;
-	html_height?: number | null;
-	nsfw: boolean | null;
+	type: Nullish<string>;
+	title: Nullish<string>;
+	description: Nullish<string>;
+	url: Nullish<string>;
+	timestamp: Nullish<Date>;
+	color: Nullish<number>;
+	author: Nullish<MessageEmbedAuthor>;
+	provider: Nullish<MessageEmbedProvider>;
+	thumbnail: Nullish<MessageEmbedMedia>;
+	image: Nullish<MessageEmbedMedia>;
+	video: Nullish<MessageEmbedMedia>;
+	audio?: Nullish<MessageEmbedMedia>;
+	footer: Nullish<MessageEmbedFooter>;
+	fields: Nullish<Array<MessageEmbedField>>;
+	html?: Nullish<string>;
+	html_width?: Nullish<number>;
+	html_height?: Nullish<number>;
+	nsfw: Nullish<boolean>;
 }
 
 export interface MessageEmbedChild extends MessageEmbedBase {}
 
 export interface MessageEmbed extends MessageEmbedBase {
-	children?: Array<MessageEmbedChild> | null;
+	children?: Nullish<Array<MessageEmbedChild>>;
 }
 
 export interface MessageStickerItem {
@@ -98,54 +100,54 @@ export interface MessageStickerItem {
 
 export interface MessageReference {
 	channel_id: ChannelID;
-	message_id: MessageID | null;
-	guild_id: GuildID | null;
+	message_id: MessageID;
+	guild_id: Nullish<GuildID>;
 	type: number;
 }
 
 export interface MessageSnapshot {
-	content: string | null;
+	content: Nullish<string>;
 	timestamp: Date;
-	edited_timestamp: Date | null;
-	mention_users: Set<UserID> | null;
-	mention_roles: Set<RoleID> | null;
-	mention_channels: Set<ChannelID> | null;
-	attachments: Array<MessageAttachment> | null;
-	embeds: Array<MessageEmbed> | null;
-	sticker_items: Array<MessageStickerItem> | null;
+	edited_timestamp: Nullish<Date>;
+	mention_users: Nullish<Set<UserID>>;
+	mention_roles: Nullish<Set<RoleID>>;
+	mention_channels: Nullish<Set<ChannelID>>;
+	attachments: Nullish<Array<MessageAttachment>>;
+	embeds: Nullish<Array<MessageEmbed>>;
+	sticker_items: Nullish<Array<MessageStickerItem>>;
 	type: number;
 	flags: number;
 }
 
 export interface MessageCall {
-	participant_ids: Set<UserID> | null;
-	ended_timestamp: Date | null;
+	participant_ids: Nullish<Set<UserID>>;
+	ended_timestamp: Nullish<Date>;
 }
 
 export interface MessageRow {
 	channel_id: ChannelID;
 	bucket: number;
 	message_id: MessageID;
-	author_id: UserID | null;
+	author_id: Nullish<UserID>;
 	type: number;
-	webhook_id: WebhookID | null;
-	webhook_name: string | null;
-	webhook_avatar_hash: string | null;
-	content: string | null;
-	edited_timestamp: Date | null;
-	pinned_timestamp: Date | null;
+	webhook_id: Nullish<WebhookID>;
+	webhook_name: Nullish<string>;
+	webhook_avatar_hash: Nullish<string>;
+	content: Nullish<string>;
+	edited_timestamp: Nullish<Date>;
+	pinned_timestamp: Nullish<Date>;
 	flags: number;
 	mention_everyone: boolean;
-	mention_users: Set<UserID> | null;
-	mention_roles: Set<RoleID> | null;
-	mention_channels: Set<ChannelID> | null;
-	attachments: Array<MessageAttachment> | null;
-	embeds: Array<MessageEmbed> | null;
-	sticker_items: Array<MessageStickerItem> | null;
-	message_reference: MessageReference | null;
-	message_snapshots: Array<MessageSnapshot> | null;
-	call: MessageCall | null;
-	has_reaction: boolean | null;
+	mention_users: Nullish<Set<UserID>>;
+	mention_roles: Nullish<Set<RoleID>>;
+	mention_channels: Nullish<Set<ChannelID>>;
+	attachments: Nullish<Array<MessageAttachment>>;
+	embeds: Nullish<Array<MessageEmbed>>;
+	sticker_items: Nullish<Array<MessageStickerItem>>;
+	message_reference: Nullish<MessageReference>;
+	message_snapshots: Nullish<Array<MessageSnapshot>>;
+	call: Nullish<MessageCall>;
+	has_reaction: Nullish<boolean>;
 	version: number;
 }
 
@@ -190,7 +192,7 @@ export interface MessageReactionRow {
 	emoji_id: EmojiID;
 	emoji_name: string;
 	emoji_animated: boolean;
-	created_at: Date | null;
+	created_at: Nullish<Date>;
 }
 
 export interface AttachmentLookupRow {
@@ -234,8 +236,8 @@ export interface ChannelStateRow {
 	channel_id: ChannelID;
 	created_bucket: number;
 	has_messages: boolean;
-	last_message_id: MessageID | null;
-	last_message_bucket: number | null;
+	last_message_id: Nullish<MessageID>;
+	last_message_bucket: Nullish<number>;
 	updated_at: Date;
 }
 

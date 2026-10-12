@@ -1,16 +1,94 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import MediaEngine from '@app/features/voice/engine/MediaEngineFacade';
-import type {VoiceSettingsUpdate} from '@app/features/voice/state/VoiceSettings';
-import VoiceSettings from '@app/features/voice/state/VoiceSettings';
+import VoiceSettings, {
+	type CameraResolution,
+	type ScreenshareResolution,
+	type StreamingMode,
+} from '@app/features/voice/state/VoiceSettings';
+import type {
+	CodecPreference,
+	ScreenShareContentHint,
+	ScreenShareEncoderMode,
+	ScreenShareScalabilityModePreference,
+} from '@app/features/voice/utils/CodecCapabilityDetector';
+import type {VoiceNoiseSuppressionBackend} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionBackends';
 import {getActiveInputDeviceLabel, type VoiceProcessingMode} from '@app/features/voice/utils/VoiceProcessingProfile';
 
-type VoiceSettingsPatch = VoiceSettingsUpdate;
+type VoiceSettingsPatch = Partial<{
+	inputDeviceId: string;
+	outputDeviceId: string;
+	videoDeviceId: string;
+	inputVolume: number;
+	outputVolume: number;
+	echoCancellation: boolean;
+	autoGainControl: boolean;
+	noiseSuppressionBackend: VoiceNoiseSuppressionBackend | null;
+	stereoMicrophone: boolean | null;
+	voiceProcessingMode: VoiceProcessingMode;
+	cameraResolution: CameraResolution;
+	mirrorCamera: boolean;
+	screenshareResolution: ScreenshareResolution;
+	videoFrameRate: number;
+	streamingMode: StreamingMode;
+	hideStreamPreview: boolean;
+	muteStreamAudio: boolean;
+	shareAppAudio: boolean;
+	shareDesktopAudio: boolean;
+	shareDeviceAudio: boolean;
+	screenShareAudioDeviceId: string;
+	backgroundImageId: string;
+	backgroundImages: Array<{
+		id: string;
+		createdAt: number;
+	}>;
+	backgroundBlurStrength: number;
+	showGridView: boolean;
+	showMyOwnCamera: boolean;
+	showMyOwnScreenShare: boolean;
+	showNonVideoParticipants: boolean;
+	showParticipantsCarousel: boolean;
+	showVoiceConnectionAvatarStack: boolean;
+	showVoiceConnectionId: boolean;
+	showConnectionVolumeControls: boolean;
+	pauseOwnScreenSharePreviewOnUnfocus: boolean;
+	disablePictureInPicturePopoutScreenShare: boolean;
+	preferredVideoCodec: CodecPreference;
+	preferredScreenShareCodec: CodecPreference;
+	screenShareAv1OptIn: boolean;
+	screenShareHevcOptIn: boolean;
+	screenShareContentHint: ScreenShareContentHint;
+	screenShareEncoderMode: ScreenShareEncoderMode;
+	screenShareScalabilityMode: ScreenShareScalabilityModePreference;
+	vadThreshold: number;
+	vadAutoSensitivity: boolean;
+	vadEnhanced: boolean;
+	linuxAudioCaptureWorkaround: boolean;
+	linuxAudioCaptureOnlySpeakers: boolean;
+	linuxAudioCaptureOnlyDefaultSpeakers: boolean;
+	linuxAudioCaptureIgnoreInputMedia: boolean;
+	linuxAudioCaptureIgnoreVirtual: boolean;
+	linuxAudioCaptureIgnoreDevices: boolean;
+	linuxAudioCaptureGranularSelect: boolean;
+	linuxAudioCaptureDeviceSelect: boolean;
+	screenShareAudioSourceMode: 'none' | 'system' | 'specific';
+	screenShareAudioIncludeSources: Array<Record<string, string>>;
+	screenShareAudioExcludeSources: Array<Record<string, string>>;
+	screenShareDeviceAudioUsesMicrophone: boolean;
+}>;
 
 interface VoiceSettingsUpdateOptions {
 	refreshCameraBackground?: boolean;
 }
 
+const MICROPHONE_REFRESH_KEYS: Array<keyof VoiceSettingsPatch> = [
+	'inputDeviceId',
+	'echoCancellation',
+	'autoGainControl',
+	'noiseSuppressionBackend',
+	'stereoMicrophone',
+	'voiceProcessingMode',
+];
 const CAMERA_BACKGROUND_REFRESH_KEYS: Array<keyof VoiceSettingsPatch> = [
 	'backgroundImageId',
 	'backgroundImages',
@@ -24,6 +102,10 @@ const SCREEN_SHARE_CODEC_NEGOTIATION_REFRESH_KEYS: Array<keyof VoiceSettingsPatc
 	'screenShareHevcOptIn',
 	'screenShareEncoderMode',
 ];
+function refreshMicrophone(): void {
+	MediaEngine.refreshMicrophoneFromSettings();
+}
+
 function refreshCameraBackground(): void {
 	MediaEngine.refreshCameraBackgroundFromSettings();
 }
@@ -34,6 +116,10 @@ function refreshCameraCapture(): void {
 
 function refreshScreenShareCodecNegotiation(): void {
 	MediaEngine.refreshScreenShareCodecNegotiationFromSettings();
+}
+
+function shouldRefreshMicrophone(settings: VoiceSettingsPatch): boolean {
+	return MICROPHONE_REFRESH_KEYS.some((key) => settings[key] !== undefined);
 }
 
 function shouldRefreshCameraBackground(settings: VoiceSettingsPatch): boolean {
@@ -59,7 +145,11 @@ function shouldRefreshCameraCapture(
 	return CAMERA_CAPTURE_REFRESH_KEYS.some((key) => settings[key] !== undefined && before[key] !== after[key]);
 }
 
-function applyUpdatedVoiceSettings(settings: VoiceSettingsPatch, options: VoiceSettingsUpdateOptions = {}): void {
+function applyUpdatedVoiceSettings(
+	settings: VoiceSettingsPatch,
+	refreshInput: boolean,
+	options: VoiceSettingsUpdateOptions = {},
+): void {
 	const cameraCaptureBefore = readCameraCaptureRefreshValues();
 	VoiceSettings.updateSettings(settings);
 	if (settings.muteStreamAudio !== undefined) {
@@ -69,6 +159,12 @@ function applyUpdatedVoiceSettings(settings: VoiceSettingsPatch, options: VoiceS
 		if (MediaEngine.room) {
 			MediaEngine.applyAllLocalAudioPreferences();
 		}
+	}
+	if (settings.inputVolume !== undefined && !refreshInput) {
+		MediaEngine.applyLocalInputVolume();
+	}
+	if (refreshInput) {
+		refreshMicrophone();
 	}
 	if (options.refreshCameraBackground !== false && shouldRefreshCameraBackground(settings)) {
 		refreshCameraBackground();
@@ -81,15 +177,26 @@ function applyUpdatedVoiceSettings(settings: VoiceSettingsPatch, options: VoiceS
 	}
 }
 
+export function setVoiceProcessingModeForDeviceLabel(label: string, mode: VoiceProcessingMode): void {
+	VoiceSettings.setVoiceProcessingModeForDeviceLabel(label, mode);
+	refreshMicrophone();
+}
+
+export function clearVoiceProcessingModeForDeviceLabel(label: string): void {
+	VoiceSettings.clearVoiceProcessingModeForDeviceLabel(label);
+	refreshMicrophone();
+}
+
 export function setActiveInputVoiceProcessingMode(mode: VoiceProcessingMode): void {
 	const label = getActiveInputDeviceLabel(VoiceSettings);
 	if (label) {
 		VoiceSettings.setVoiceProcessingModeForDeviceLabel(label, mode);
+		refreshMicrophone();
 	} else {
-		applyUpdatedVoiceSettings({voiceProcessingMode: mode});
+		applyUpdatedVoiceSettings({voiceProcessingMode: mode}, true);
 	}
 }
 
 export function update(settings: VoiceSettingsPatch, options?: VoiceSettingsUpdateOptions): void {
-	applyUpdatedVoiceSettings(settings, options);
+	applyUpdatedVoiceSettings(settings, shouldRefreshMicrophone(settings), options);
 }

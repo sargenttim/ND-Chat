@@ -31,6 +31,10 @@ class Sticker {
 		return this.guildStickers.get(guildId)?.stickers ?? [];
 	}
 
+	getSticker(guildId: string, stickerId: string): GuildSticker | null {
+		return this.guildStickers.get(guildId)?.stickers.find((s) => s.id === stickerId) ?? null;
+	}
+
 	getStickerById(stickerId: string): GuildSticker | null {
 		return this.stickerById.get(stickerId) ?? null;
 	}
@@ -41,6 +45,26 @@ class Sticker {
 			allStickers.push(...context.stickers);
 		}
 		return allStickers;
+	}
+
+	search(guildId: string | null, searchTerm: string): ReadonlyArray<GuildSticker> {
+		let stickers: ReadonlyArray<GuildSticker>;
+		if (guildId) {
+			stickers = this.getGuildStickers(guildId);
+		} else {
+			stickers = this.getAllStickers();
+		}
+		if (!searchTerm || searchTerm.trim() === '') {
+			return stickers;
+		}
+		const term = searchTerm.toLowerCase();
+		const filtered = stickers.filter((sticker) => {
+			const nameMatch = sticker.name.toLowerCase().includes(term);
+			const descMatch = sticker.description?.toLowerCase().includes(term);
+			const tagMatch = sticker.tags.some((tag) => tag.toLowerCase().includes(term));
+			return nameMatch || descMatch || tagMatch;
+		});
+		return this.sortByFrecency(filtered);
 	}
 
 	searchWithChannel(channel: Channel | null, searchTerm: string): ReadonlyArray<GuildSticker> {
@@ -78,25 +102,6 @@ class Sticker {
 				for (const sticker of sortedStickers) {
 					this.stickerById.set(sticker.id, sticker);
 				}
-			}
-		}
-		ComponentBus.dispatch('STICKER_PICKER_RERENDER');
-	}
-
-	hydrateFromSnapshot(
-		guildStickers: ReadonlyArray<{guildId: string; stickers: ReadonlyArray<WireGuildSticker>}>,
-	): void {
-		this.guildStickers.clear();
-		this.stickerById.clear();
-		for (const {guildId, stickers} of guildStickers) {
-			if (stickers.length === 0) {
-				continue;
-			}
-			const stickerRecords = stickers.map((sticker) => new GuildSticker(guildId, sticker));
-			const sortedStickers = sortBySnowflakeDesc(stickerRecords);
-			this.guildStickers.set(guildId, {stickers: sortedStickers});
-			for (const sticker of sortedStickers) {
-				this.stickerById.set(sticker.id, sticker);
 			}
 		}
 		ComponentBus.dispatch('STICKER_PICKER_RERENDER');

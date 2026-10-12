@@ -37,6 +37,7 @@ export function applyStreamWatchFocus(params: {
 }): void {
 	VoiceCallLayoutCommands.setLayoutMode('focus');
 	VoiceCallLayoutCommands.setPinnedParticipant(params.participantIdentity, VoiceTrackSource.ScreenShare);
+	VoiceCallLayoutCommands.markUserOverride();
 	selectStreamChannel(params.guildId, params.channelId);
 }
 

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {GatewayRpcMethodError, GatewayRpcMethodErrorCodes} from '@app/api/infrastructure/GatewayRpcError';
+import type {IGatewayRpcTransport} from '@app/api/infrastructure/IGatewayRpcTransport';
 import {Logger} from '@app/api/Logger';
 import {type Msg, RequestError, TimeoutError} from '@nats-io/transport-node';
 import type {INatsConnectionManager} from '@pkgs/nats/src/INatsConnectionManager';
@@ -49,7 +50,7 @@ function decodeNatsRpcResponse(responseText: string): NatsRpcResponse {
 	};
 }
 
-export class NatsGatewayRpcTransport {
+export class NatsGatewayRpcTransport implements IGatewayRpcTransport {
 	private readonly connectionManager: INatsConnectionManager;
 
 	constructor(connectionManager: INatsConnectionManager) {
@@ -82,6 +83,26 @@ export class NatsGatewayRpcTransport {
 			throw new GatewayRpcMethodError(response.error ?? GatewayRpcMethodErrorCodes.INTERNAL_ERROR);
 		}
 		return response.result;
+	}
+
+	async publish(subject: string, payload: Record<string, unknown>): Promise<void> {
+		if (this.connectionManager.isClosed()) {
+			await this.connectionManager.connect();
+		}
+		try {
+			const connection = this.connectionManager.getConnection();
+			connection.publish(subject, textEncoder.encode(JSON.stringify(payload)));
+			await connection.flush();
+		} catch (error) {
+			const mappedError = mapNatsRpcTransportError(error);
+			if (mappedError !== null) {
+				if (mappedError.code === GatewayRpcMethodErrorCodes.NO_RESPONDERS) {
+					Logger.warn({subject}, '[nats-rpc] no responders for subject');
+				}
+				throw mappedError;
+			}
+			throw error;
+		}
 	}
 
 	async destroy(): Promise<void> {

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createGuildID, createUserID} from '@app/api/BrandedTypes';
-import type {GatewayRpcTransport} from '@app/api/infrastructure/GatewayRpcClient';
 import {GatewayRpcClient} from '@app/api/infrastructure/GatewayRpcClient';
 import {GatewayRpcMethodError, GatewayRpcMethodErrorCodes} from '@app/api/infrastructure/GatewayRpcError';
 import {GatewayService} from '@app/api/infrastructure/GatewayService';
+import type {IGatewayRpcTransport} from '@app/api/infrastructure/IGatewayRpcTransport';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {BadGatewayError} from '@fluxer/errors/src/domains/core/BadGatewayError';
 import {BadRequestError} from '@fluxer/errors/src/domains/core/BadRequestError';
@@ -12,11 +12,12 @@ import {ServiceUnavailableError} from '@fluxer/errors/src/domains/core/ServiceUn
 import {UnknownGuildError} from '@fluxer/errors/src/domains/guild/UnknownGuildError';
 import {afterEach, describe, expect, it} from 'vitest';
 
-function failingTransport(code: string): GatewayRpcTransport {
+function failingTransport(code: string): IGatewayRpcTransport {
 	return {
 		async call(): Promise<unknown> {
 			throw new GatewayRpcMethodError(code);
 		},
+		async publish(): Promise<void> {},
 		async destroy(): Promise<void> {},
 	};
 }
@@ -90,6 +91,7 @@ describe('GatewayService gateway error mapping', () => {
 				calls += 1;
 				throw new GatewayRpcMethodError(GatewayRpcMethodErrorCodes.GUILD_OVERLOADED);
 			},
+			async publish(): Promise<void> {},
 			async destroy(): Promise<void> {},
 		});
 		await expect(client.call('guild.dispatch', {guild_id: '1'})).rejects.toMatchObject({

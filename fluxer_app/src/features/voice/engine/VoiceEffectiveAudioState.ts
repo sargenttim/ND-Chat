@@ -31,7 +31,7 @@ interface EffectiveAudioStateOptions {
 	serverDeaf?: boolean;
 }
 
-function computeEffectiveAudioState(params: ComputeEffectiveAudioStateParams): EffectiveAudioState {
+export function computeEffectiveAudioState(params: ComputeEffectiveAudioStateParams): EffectiveAudioState {
 	const serverMute = params.serverMute ?? false;
 	const serverDeaf = params.serverDeaf ?? false;
 	return {

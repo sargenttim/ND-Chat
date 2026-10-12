@@ -71,7 +71,7 @@ function isEscapedAt(text: string, index: number): boolean {
 	return backslashes % 2 === 1;
 }
 
-function $convertEmojiShortcode(node: TextNode, resolve: ComposerEmojiResolver): void {
+export function $convertEmojiShortcode(node: TextNode, resolve: ComposerEmojiResolver): void {
 	if ($isSyntaxMarkerNode(node) || node.hasFormat('code') || isReactionShorthandText($getRoot().getTextContent())) {
 		return;
 	}

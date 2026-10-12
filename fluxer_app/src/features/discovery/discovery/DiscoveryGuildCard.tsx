@@ -3,10 +3,8 @@
 import type {DiscoveryGuild} from '@app/features/discovery/commands/DiscoveryCommands';
 import {DiscoveryGuildPreviewModal} from '@app/features/discovery/components/modals/DiscoveryGuildPreviewModal';
 import styles from '@app/features/discovery/discovery/DiscoveryGuildCard.module.css';
-import {resolveBannerTintClassName} from '@app/features/discovery/utils/DiscoveryBannerTint';
 import {GuildBadge} from '@app/features/guild/components/GuildBadge';
 import {GuildIcon} from '@app/features/guild/components/popouts/GuildIcon';
-import {formatNumber} from '@app/features/i18n/utils/IntlCache';
 import {DiscoveryGuildContextMenu} from '@app/features/ui/action_menu/DiscoveryGuildContextMenu';
 import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
@@ -17,6 +15,7 @@ import {getCurrentLocale} from '@app/features/user/utils/LocaleUtils';
 import {GuildFeatures} from '@fluxer/constants/src/GuildConstants';
 import {msg} from '@lingui/core/macro';
 import {Plural, Trans, useLingui} from '@lingui/react/macro';
+import {formatNumber} from '@pkgs/number_utils/src/NumberFormatting';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useCallback, useId, useMemo} from 'react';
@@ -37,6 +36,24 @@ const PREVIEW_NAMED_COMMUNITY_DESCRIPTOR = msg({
 
 const DISCOVERY_NAME_BADGE_IGNORED_FEATURES = new Set<string>([GuildFeatures.DISCOVERABLE]);
 const CARD_ICON_SIZE_PX = 56;
+
+const BANNER_TINT_CLASS_NAMES = [
+	styles.bannerTintViolet,
+	styles.bannerTintBlue,
+	styles.bannerTintTeal,
+	styles.bannerTintGreen,
+	styles.bannerTintLime,
+	styles.bannerTintAmber,
+	styles.bannerTintCoral,
+	styles.bannerTintRose,
+	styles.bannerTintMagenta,
+	styles.bannerTintIndigo,
+] as const;
+
+function resolveBannerTintClassName(guildId: string): string {
+	const tintCount = BigInt(BANNER_TINT_CLASS_NAMES.length);
+	return BANNER_TINT_CLASS_NAMES[Number(BigInt(guildId) % tintCount)];
+}
 
 interface DiscoveryGuildCardProps {
 	guild: DiscoveryGuild;
@@ -134,6 +151,7 @@ export const DiscoveryGuildCard = observer(function DiscoveryGuildCard({
 							</span>
 							<GuildBadge
 								features={nameBadgeFeatures}
+								badges={guild.badges}
 								tooltipPosition="bottom"
 								data-flx="discovery.discovery.discovery-guild-card.guild-badge"
 							/>

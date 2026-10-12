@@ -2,7 +2,7 @@
 
 import {assign, initialTransition, type SnapshotFrom, setup, transition} from 'xstate';
 
-type VoiceCallLayoutPresentationMode = 'grid' | 'focus';
+export type VoiceCallLayoutPresentationMode = 'grid' | 'focus';
 
 export interface VoiceCallLayoutPresentationInput {
 	readonly layoutMode: VoiceCallLayoutPresentationMode;
@@ -30,7 +30,7 @@ export type VoiceCallLayoutPresentationMachineEvent =
 	| {type: 'participants.toggle'}
 	| {type: 'participants.collapse'};
 
-type VoiceCallLayoutPresentationStateValue =
+export type VoiceCallLayoutPresentationStateValue =
 	| 'gridLayout'
 	| 'focusFallbackGrid'
 	| 'focusLayout'
@@ -115,7 +115,7 @@ function showsExpandedFocusParticipants(context: VoiceCallLayoutPresentationCont
 	return context.layoutMode === 'focus' && canShowParticipantsGridPanel(context) && context.participantsGridExpanded;
 }
 
-const voiceCallLayoutPresentationStateMachine = setup({
+export const voiceCallLayoutPresentationStateMachine = setup({
 	types: {} as {
 		context: VoiceCallLayoutPresentationContext;
 		events: VoiceCallLayoutPresentationMachineEvent;
@@ -199,7 +199,7 @@ export function transitionVoiceCallLayoutPresentationSnapshot(
 	)[0] as VoiceCallLayoutPresentationMachineSnapshot;
 }
 
-function getVoiceCallLayoutPresentationStateValue(
+export function getVoiceCallLayoutPresentationStateValue(
 	snapshot: VoiceCallLayoutPresentationMachineSnapshot,
 ): VoiceCallLayoutPresentationStateValue {
 	if (snapshot.value === 'gridLayout') return 'gridLayout';
@@ -234,4 +234,10 @@ export function selectVoiceCallLayoutPresentationModel(
 		shouldWrapScreenShareGrid: context.hasScreenShare,
 		focusScrollerOverflow: isParticipantsExpanded ? 'auto' : 'hidden',
 	};
+}
+
+export function resolveVoiceCallLayoutPresentationModel(
+	input: VoiceCallLayoutPresentationInput,
+): VoiceCallLayoutPresentationModel {
+	return selectVoiceCallLayoutPresentationModel(createVoiceCallLayoutPresentationSnapshot(input));
 }

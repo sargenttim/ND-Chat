@@ -1,19 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {AuthLoadingState} from '@app/features/auth/flow/AuthLoadingState';
 import {AuthRouteLoadError} from '@app/features/auth/flow/AuthRouteLoadError';
-import {AuthShellLoadingState} from '@app/features/auth/flow/AuthShellLoadingState';
 import {
 	createDefaultLoadableComponent,
+	createNamedLoadableComponent,
 	type LoadableComponent,
 } from '@app/features/platform/components/loadable/LoadableComponent';
 
-type AuthRoutePageProps = Record<string, unknown>;
+export type AuthRoutePageProps = Record<string, unknown>;
 export type AuthRoutePage = LoadableComponent<AuthRoutePageProps>;
 
 export function createAuthRoutePage(displayName: string, load: () => Promise<{default: unknown}>): AuthRoutePage {
 	return createDefaultLoadableComponent<AuthRoutePageProps>({
 		displayName,
-		LoadingComponent: AuthShellLoadingState,
+		LoadingComponent: AuthLoadingState,
+		ErrorComponent: AuthRouteLoadError,
+		load,
+	});
+}
+
+export function createNamedAuthRoutePage(displayName: string, load: () => Promise<unknown>): AuthRoutePage {
+	return createNamedLoadableComponent<AuthRoutePageProps>({
+		displayName,
+		LoadingComponent: AuthLoadingState,
 		ErrorComponent: AuthRouteLoadError,
 		load,
 	});

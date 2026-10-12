@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ApiContext} from '@app/api/ApiContext';
-import type {AdminRepository} from '@app/api/admin/AdminRepository';
+import type {IAdminRepository} from '@app/api/admin/IAdminRepository';
 import type {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
 import {createUserID, type UserID} from '@app/api/BrandedTypes';
 import {isIpBanExempt} from '@app/api/ban/IpBanExemptions';
@@ -17,7 +17,6 @@ import {
 } from '@app/api/constants/ContentModeration';
 import {IP_BAN_REFRESH_CHANNEL} from '@app/api/constants/IpBan';
 import type {BannedProfileSubstringScope} from '@app/api/database/types/AdminArchiveTypes';
-import {stripAnimationPrefix} from '@app/api/infrastructure/AssetEntitlementUtils';
 import {bannedAvatarHashCache} from '@app/api/middleware/BannedAvatarHashCache';
 import {fileShaCache} from '@app/api/middleware/FileShaCache';
 import {ipBanCache} from '@app/api/middleware/IpBanMiddleware';
@@ -25,7 +24,6 @@ import {phraseBlocklistCache} from '@app/api/middleware/PhraseBlocklistCache';
 import {profileSubstringBlocklistCache} from '@app/api/middleware/ProfileSubstringBlocklistCache';
 import {urlBlocklistCache} from '@app/api/middleware/UrlBlocklistCache';
 import {canonicalizeStoredPhrase} from '@app/api/utils/PhraseBlocklistNormalization';
-import {parseUrlDomainEntry} from '@app/api/utils/UrlHostRules';
 import {canonicalizeUrl} from '@app/api/utils/UrlNormalizer';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
@@ -37,7 +35,7 @@ import type {AdminBlocklistListType} from '@fluxer/schema/src/domains/admin/Admi
 
 interface AdminBanManagementServiceDeps {
 	apiContext: ApiContext;
-	adminRepository: AdminRepository;
+	adminRepository: IAdminRepository;
 	auditService: AdminAuditService;
 }
 
@@ -94,18 +92,20 @@ function toSnowflakeString(value: bigint | null | undefined): string | null {
 	return value == null ? null : value.toString();
 }
 
-function normalizeAvatarHashes(hashes: Array<string>): Array<string> {
-	return Array.from(new Set(hashes.map((hash) => stripAnimationPrefix(hash.toLowerCase()))));
+interface AdminBlocklistAuditParams {
+	adminUserId: UserID;
+	auditLogReason: string | null;
+	targetType: string;
+	action: string;
+	metadata: Map<string, string>;
 }
 
-function hostFromUrlOrHostname(value: string): string | null {
-	const trimmed = value.trim();
-	if (!/^https?:\/\//i.test(trimmed)) return trimmed;
-	try {
-		return new URL(trimmed).hostname;
-	} catch {
-		return null;
-	}
+function stripAvatarAnimationPrefix(hash: string): string {
+	return hash.startsWith('a_') ? hash.substring(2) : hash;
+}
+
+function normalizeAvatarHashes(hashes: Array<string>): Array<string> {
+	return Array.from(new Set(hashes.map((hash) => stripAvatarAnimationPrefix(hash.toLowerCase()))));
 }
 
 function withReasonMetadata(entries: Array<[string, string]>, reason: string | undefined): Map<string, string> {
@@ -122,7 +122,6 @@ export class AdminBanManagementService {
 	async banIp(
 		data: {
 			ip: string;
-			duration_hours?: number;
 		},
 		adminUserId: UserID,
 		auditLogReason: string | null,
@@ -143,25 +142,15 @@ export class AdminBanManagementService {
 				message: 'This IP address is on the instance exemption list',
 			});
 		}
-		const durationHours = data.duration_hours ?? 0;
-		const metadata = new Map([['ip', data.ip]]);
-		if (durationHours > 0) {
-			const ttlSeconds = durationHours * 3600;
-			await adminRepository.banIp(data.ip, ttlSeconds);
-			metadata.set('duration_hours', durationHours.toString());
-			metadata.set('expires_at', new Date(Date.now() + ttlSeconds * 1000).toISOString());
-		} else {
-			await adminRepository.banIp(data.ip);
-		}
-		await ipBanCache.refresh();
+		await adminRepository.banIp(data.ip);
+		ipBanCache.ban(data.ip);
 		await cacheService.publish(IP_BAN_REFRESH_CHANNEL, 'refresh');
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'ip',
 			action: 'ban_ip',
 			auditLogReason,
-			metadata,
+			metadata: new Map([['ip', data.ip]]),
 		});
 	}
 
@@ -177,8 +166,7 @@ export class AdminBanManagementService {
 		await adminRepository.unbanIp(data.ip);
 		ipBanCache.unban(data.ip);
 		await cacheService.publish(IP_BAN_REFRESH_CHANNEL, 'refresh');
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'ip',
 			action: 'unban_ip',
@@ -189,10 +177,9 @@ export class AdminBanManagementService {
 
 	async checkIpBan(data: {ip: string}): Promise<{
 		banned: boolean;
-		expires_at: string | null;
 	}> {
-		const match = ipBanCache.getMatch(data.ip);
-		return {banned: match !== null, expires_at: toIsoString(match?.expiresAt)};
+		const banned = ipBanCache.isBanned(data.ip);
+		return {banned};
 	}
 
 	async banEmail(
@@ -204,8 +191,7 @@ export class AdminBanManagementService {
 	) {
 		const {adminRepository} = this.deps;
 		await adminRepository.banEmail(data.email);
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'email',
 			action: 'ban_email',
@@ -223,8 +209,7 @@ export class AdminBanManagementService {
 	) {
 		const {adminRepository} = this.deps;
 		await adminRepository.unbanEmail(data.email);
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'email',
 			action: 'unban_email',
@@ -253,8 +238,7 @@ export class AdminBanManagementService {
 		await adminRepository.banPhrase(data.phrase);
 		phraseBlocklistCache.add(data.phrase);
 		await cacheService.publish(BANNED_PHRASES_REFRESH_CHANNEL, 'refresh');
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'phrase',
 			action: 'ban_phrase',
@@ -275,8 +259,7 @@ export class AdminBanManagementService {
 		await adminRepository.unbanPhrase(data.phrase);
 		phraseBlocklistCache.remove(data.phrase);
 		await cacheService.publish(BANNED_PHRASES_REFRESH_CHANNEL, 'refresh');
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'phrase',
 			action: 'unban_phrase',
@@ -317,8 +300,7 @@ export class AdminBanManagementService {
 		});
 		urlBlocklistCache.addExactUrl(canonical);
 		await cacheService.publish(BANNED_URLS_REFRESH_CHANNEL, 'refresh');
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'url',
 			action: 'ban_url',
@@ -344,8 +326,7 @@ export class AdminBanManagementService {
 		await adminRepository.unbanUrl(canonical);
 		urlBlocklistCache.removeExactUrl(canonical);
 		await cacheService.publish(BANNED_URLS_REFRESH_CHANNEL, 'refresh');
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'url',
 			action: 'unban_url',
@@ -374,9 +355,7 @@ export class AdminBanManagementService {
 	) {
 		const {adminRepository} = this.deps;
 		const {cache: cacheService} = this.deps.apiContext.services;
-		const entry = parseUrlDomainEntry(data.domain);
-		if (!entry.ok) throw InputValidationError.create('domain', entry.message);
-		const d = entry.value;
+		const d = data.domain.toLowerCase();
 		const matchSubs = data.match_subdomains ?? true;
 		await adminRepository.banUrlDomain({
 			domain: d,
@@ -388,10 +367,9 @@ export class AdminBanManagementService {
 			added_by: adminUserId,
 			notes: data.notes ?? null,
 		});
-		urlBlocklistCache.addDomain(d, matchSubs);
+		urlBlocklistCache.addDomain(d);
 		await cacheService.publish(BANNED_URL_DOMAINS_REFRESH_CHANNEL, 'refresh');
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'url_domain',
 			action: 'ban_url_domain',
@@ -399,7 +377,6 @@ export class AdminBanManagementService {
 			metadata: new Map([
 				['domain', d],
 				['match_subdomains', String(matchSubs)],
-				['pattern', String(entry.pattern)],
 			]),
 		});
 	}
@@ -413,13 +390,11 @@ export class AdminBanManagementService {
 	) {
 		const {adminRepository} = this.deps;
 		const {cache: cacheService} = this.deps.apiContext.services;
-		const entry = parseUrlDomainEntry(data.domain);
-		const d = entry.ok ? entry.value : data.domain.trim().toLowerCase();
+		const d = data.domain.toLowerCase();
 		await adminRepository.unbanUrlDomain(d);
 		urlBlocklistCache.removeDomain(d);
 		await cacheService.publish(BANNED_URL_DOMAINS_REFRESH_CHANNEL, 'refresh');
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'url_domain',
 			action: 'unban_url_domain',
@@ -431,8 +406,7 @@ export class AdminBanManagementService {
 	async checkUrlDomainBan(data: {domain: string}): Promise<{
 		banned: boolean;
 	}> {
-		const host = hostFromUrlOrHostname(data.domain);
-		return {banned: host != null && urlBlocklistCache.isHostnameBanned(host)};
+		return {banned: urlBlocklistCache.isHostnameBanned(data.domain)};
 	}
 
 	async banFileSha(
@@ -464,8 +438,7 @@ export class AdminBanManagementService {
 		if (!options?.deferRefresh) {
 			await this.publishFileShaRefresh();
 		}
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'file_sha',
 			action: 'ban_file_sha',
@@ -492,8 +465,7 @@ export class AdminBanManagementService {
 		await adminRepository.unbanFileSha(hex);
 		fileShaCache.remove(hex);
 		await cacheService.publish(BANNED_FILE_SHAS_REFRESH_CHANNEL, 'refresh');
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createBlocklistAuditLog({
 			adminUserId,
 			targetType: 'file_sha',
 			action: 'unban_file_sha',
@@ -534,8 +506,7 @@ export class AdminBanManagementService {
 				notes: data.notes ?? null,
 			});
 			bannedAvatarHashCache.add(hash);
-			await this.deps.auditService.createAuditLog({
-				targetId: 0n,
+			await this.createBlocklistAuditLog({
 				adminUserId,
 				targetType: 'avatar_hash',
 				action: 'ban_avatar_hash',
@@ -559,8 +530,7 @@ export class AdminBanManagementService {
 		for (const hash of normalized) {
 			await adminRepository.unbanAvatarHash(hash);
 			bannedAvatarHashCache.remove(hash);
-			await this.deps.auditService.createAuditLog({
-				targetId: 0n,
+			await this.createBlocklistAuditLog({
 				adminUserId,
 				targetType: 'avatar_hash',
 				action: 'unban_avatar_hash',
@@ -575,7 +545,7 @@ export class AdminBanManagementService {
 		banned: boolean;
 	}> {
 		for (const hash of data.hashes) {
-			if (bannedAvatarHashCache.isBanned(stripAnimationPrefix(hash.toLowerCase()))) {
+			if (bannedAvatarHashCache.contains(stripAvatarAnimationPrefix(hash.toLowerCase()))) {
 				return {banned: true};
 			}
 		}
@@ -601,7 +571,7 @@ export class AdminBanManagementService {
 		if (!avatar) {
 			throw new NotFoundError({code: APIErrorCodes.NOT_FOUND});
 		}
-		const hashShort = stripAnimationPrefix(avatar.toLowerCase());
+		const hashShort = stripAvatarAnimationPrefix(avatar.toLowerCase());
 		await this.banAvatarHash(
 			{
 				hashes: [hashShort],
@@ -637,8 +607,7 @@ export class AdminBanManagementService {
 				notes: data.notes ?? null,
 			});
 			profileSubstringBlocklistCache.add(data.scope, canonical);
-			await this.deps.auditService.createAuditLog({
-				targetId: 0n,
+			await this.createBlocklistAuditLog({
 				adminUserId,
 				targetType: 'profile_substring',
 				action: 'ban_profile_substring',
@@ -670,8 +639,7 @@ export class AdminBanManagementService {
 			if (!canonical) continue;
 			await adminRepository.unbanProfileSubstring(data.scope, canonical);
 			profileSubstringBlocklistCache.remove(data.scope, canonical);
-			await this.deps.auditService.createAuditLog({
-				targetId: 0n,
+			await this.createBlocklistAuditLog({
 				adminUserId,
 				targetType: 'profile_substring',
 				action: 'unban_profile_substring',
@@ -808,5 +776,22 @@ export class AdminBanManagementService {
 					);
 			}
 		}
+	}
+
+	private async createBlocklistAuditLog({
+		adminUserId,
+		auditLogReason,
+		targetType,
+		action,
+		metadata,
+	}: AdminBlocklistAuditParams): Promise<void> {
+		await this.deps.auditService.createAuditLog({
+			adminUserId,
+			targetType,
+			targetId: BigInt(0),
+			action,
+			auditLogReason,
+			metadata,
+		});
 	}
 }

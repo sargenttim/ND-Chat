@@ -2,17 +2,16 @@
 
 import type {MessageID, UserID} from '@app/api/BrandedTypes';
 import {createMessageID} from '@app/api/BrandedTypes';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {IChannelRepositoryAggregate} from '@app/api/channel/repositories/IChannelRepositoryAggregate';
 import type {AuthenticatedChannel} from '@app/api/channel/services/AuthenticatedChannel';
 import {dispatchChannelEvent} from '@app/api/channel/services/ChannelGatewayDispatch';
+import {MessageInteractionBase} from '@app/api/channel/services/interaction/MessageInteractionBase';
 import {
 	dispatchMessageCreateBroadcast,
 	dispatchMessageUpdateBroadcast,
 } from '@app/api/channel/services/message/MessageGatewayDispatch';
-import {ensureTextChannel, isOperationDisabled} from '@app/api/channel/services/message/MessageHelpers';
 import type {MessagePersistenceService} from '@app/api/channel/services/message/MessagePersistenceService';
 import {createMessageResponseDataService} from '@app/api/channel/services/message/MessageResponseDataService';
-import {assertThreadInteractionAllowed} from '@app/api/channel/services/thread/ThreadInteractionGuards';
 import type {GuildAuditLogService} from '@app/api/guild/GuildAuditLogService';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
@@ -22,9 +21,7 @@ import type {Message} from '@app/api/models/Message';
 import {AuditLogActionType} from '@fluxer/constants/src/AuditLogActionType';
 import {MessageTypes, Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {GuildOperations} from '@fluxer/constants/src/GuildConstants';
-import {THREAD_ONLY_CHANNEL_TYPES} from '@fluxer/constants/src/ThreadConstants';
 import {CannotEditSystemMessageError} from '@fluxer/errors/src/domains/channel/CannotEditSystemMessageError';
-import {InvalidChannelTypeError} from '@fluxer/errors/src/domains/channel/InvalidChannelTypeError';
 import {UnknownMessageError} from '@fluxer/errors/src/domains/channel/UnknownMessageError';
 import {FeatureTemporarilyDisabledError} from '@fluxer/errors/src/domains/core/FeatureTemporarilyDisabledError';
 import type {ChannelPinResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
@@ -32,14 +29,16 @@ import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
 
 const PIN_LIST_UNBOUNDED_TIMESTAMP = new Date('9999-12-31T23:59:59.999Z');
 
-export class MessagePinService {
+export class MessagePinService extends MessageInteractionBase {
 	constructor(
-		private gatewayService: IGatewayService,
-		private channelRepository: ChannelRepository,
+		gatewayService: IGatewayService,
+		private channelRepository: IChannelRepositoryAggregate,
 		private snowflakeService: ISnowflakeService,
 		private messagePersistenceService: MessagePersistenceService,
 		private readonly guildAuditLogService: GuildAuditLogService,
-	) {}
+	) {
+		super(gatewayService);
+	}
 
 	private async assertMessageHistoryAccess({
 		authChannel,
@@ -76,8 +75,7 @@ export class MessagePinService {
 		has_more: boolean;
 	}> {
 		const {channel} = authChannel;
-		if (THREAD_ONLY_CHANNEL_TYPES.has(channel.type)) throw new InvalidChannelTypeError();
-		ensureTextChannel(channel);
+		this.ensureTextChannel(channel);
 		const hasReadHistory = !authChannel.guild || (await authChannel.hasPermission(Permissions.READ_MESSAGE_HISTORY));
 		if (!hasReadHistory) {
 			const cutoff = authChannel.guild?.message_history_cutoff;
@@ -155,12 +153,11 @@ export class MessagePinService {
 		const {channel, guild, checkPermission} = authChannel;
 		if (guild) {
 			await checkPermission(Permissions.PIN_MESSAGES);
-			if (isOperationDisabled(guild, GuildOperations.SEND_MESSAGE)) {
+			if (this.isOperationDisabled(guild, GuildOperations.SEND_MESSAGE)) {
 				throw new FeatureTemporarilyDisabledError();
 			}
 		}
-		ensureTextChannel(channel);
-		assertThreadInteractionAllowed(authChannel, 'pin');
+		this.ensureTextChannel(channel);
 		await this.assertMessageHistoryAccess({authChannel, messageId});
 		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
 		if (!message) throw new UnknownMessageError();
@@ -171,7 +168,7 @@ export class MessagePinService {
 		const updatedMessage = await this.channelRepository.messages.upsertMessage(updatedMessageData, message.toRow());
 		await this.channelRepository.messageInteractions.addChannelPin(channel.id, messageId, now);
 		const updatedChannelData = {...channel.toRow(), last_pin_timestamp: now};
-		const updatedChannel = await this.channelRepository.channelData.upsert(updatedChannelData, channel.toRow());
+		const updatedChannel = await this.channelRepository.channelData.upsert(updatedChannelData);
 		await this.dispatchChannelPinsUpdate(updatedChannel);
 		await this.sendPinSystemMessage({channel, message, userId});
 		await dispatchMessageUpdateBroadcast({
@@ -187,7 +184,6 @@ export class MessagePinService {
 					channel_id: channel.id.toString(),
 					message_id: messageId.toString(),
 				})
-				.withThreadScope(channel.isThread())
 				.withReason(auditLogReason ?? null)
 				.commit();
 		}
@@ -208,12 +204,11 @@ export class MessagePinService {
 		const {channel, guild, checkPermission} = authChannel;
 		if (guild) {
 			await checkPermission(Permissions.PIN_MESSAGES);
-			if (isOperationDisabled(guild, GuildOperations.SEND_MESSAGE)) {
+			if (this.isOperationDisabled(guild, GuildOperations.SEND_MESSAGE)) {
 				throw new FeatureTemporarilyDisabledError();
 			}
 		}
-		ensureTextChannel(channel);
-		assertThreadInteractionAllowed(authChannel, 'pin');
+		this.ensureTextChannel(channel);
 		await this.assertMessageHistoryAccess({authChannel, messageId});
 		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
 		if (!message) throw new UnknownMessageError();
@@ -236,7 +231,6 @@ export class MessagePinService {
 					channel_id: channel.id.toString(),
 					message_id: messageId.toString(),
 				})
-				.withThreadScope(channel.isThread())
 				.withReason(auditLogReason ?? null)
 				.commit();
 		}

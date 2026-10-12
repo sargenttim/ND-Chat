@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ExpressionPickerTabType} from '@app/features/expressions/components/popouts/ExpressionPickerPopout';
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import {makeAutoObservable, runInAction} from 'mobx';
 
 class ExpressionPicker {
@@ -52,8 +51,4 @@ class ExpressionPicker {
 	}
 }
 
-const expressionPicker = new ExpressionPicker();
-
-AccountScopedWork.registerCancellation(() => expressionPicker.close());
-
-export default expressionPicker;
+export default new ExpressionPicker();

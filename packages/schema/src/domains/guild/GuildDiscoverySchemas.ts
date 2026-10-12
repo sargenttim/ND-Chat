@@ -12,6 +12,7 @@ import {
 	isValidDiscoveryTag,
 	normalizeDiscoveryTag,
 } from '@fluxer/constants/src/DiscoveryConstants';
+import {BadgeIdsResponse} from '@fluxer/schema/src/domains/badge/BadgeSchemas';
 import {NSFWLevelSchema} from '@fluxer/schema/src/primitives/GuildValidators';
 import {SnowflakeStringType, SnowflakeType, withOpenApiType} from '@fluxer/schema/src/primitives/SchemaPrimitives';
 import {z} from 'zod';
@@ -82,6 +83,7 @@ const DiscoveryGuildResponse = z.object({
 	member_count: z.number().describe('Approximate member count'),
 	online_count: z.number().describe('Approximate online member count'),
 	features: z.array(z.string()).describe('Guild feature flags'),
+	badges: BadgeIdsResponse.optional().describe('Guild custom badges'),
 	verification_level: z.number().describe('Verification level'),
 });
 
@@ -99,25 +101,6 @@ export const DiscoveryGuildListResponse = z.object({
 });
 
 export type DiscoveryGuildListResponse = z.infer<typeof DiscoveryGuildListResponse>;
-
-export const DiscoveryChannelPreviewResponse = z.object({
-	guild: z
-		.object({
-			id: SnowflakeStringType.describe('Guild ID'),
-			name: z.string().describe('Guild name'),
-			icon: z.string().nullable().describe('Guild icon hash'),
-		})
-		.describe('The discoverable guild the channel belongs to'),
-	channel: z
-		.object({
-			id: SnowflakeStringType.describe('Channel ID'),
-			name: z.string().nullable().describe('Channel name'),
-			type: z.number().describe('Channel type'),
-		})
-		.describe('A channel that new members can view'),
-});
-
-export type DiscoveryChannelPreviewResponse = z.infer<typeof DiscoveryChannelPreviewResponse>;
 
 export const DiscoveryApplicationResponse = z.object({
 	guild_id: SnowflakeStringType.describe('Guild ID'),

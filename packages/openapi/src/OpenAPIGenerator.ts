@@ -90,7 +90,7 @@ export class OpenAPIGenerator {
 				description: this.settings.description,
 				contact: {
 					name: 'Fluxer Platform AB',
-					email: 'support@fluxer.com',
+					email: 'support@fluxer.app',
 				},
 				license: {
 					name: 'AGPL-3.0',
@@ -141,7 +141,7 @@ export class OpenAPIGenerator {
 				continue;
 			}
 			if (!route.responseSchemaName && !route.hasNoContent) {
-				skippedRoutes.push(describeRoute(route, 'no responseSchema'));
+				skippedRoutes.push(describeRoute(route, 'no responseSchema and no NoContent()'));
 				continue;
 			}
 			if (!hasOpenAPIPathTemplate(route.path)) {
@@ -172,7 +172,7 @@ export class OpenAPIGenerator {
 		referencedSchemas: Set<string>,
 	): Record<string, OpenAPISchema> {
 		const publishedSchemas = new Map<string, OpenAPISchema>();
-		for (const name of [...referencedSchemas, ...OpenAPIGeneratorCatalog.alwaysPublishedSchemas]) {
+		for (const name of referencedSchemas) {
 			assert(Object.hasOwn(allSchemas, name), `Referenced OpenAPI schema is missing: ${name}`);
 			publishedSchemas.set(name, allSchemas[name]);
 		}

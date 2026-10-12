@@ -138,7 +138,7 @@ const EmbedAudio: FC<EmbedAudioProps> = observer(
 			canFavorite,
 			isPreview ? undefined : message,
 			attachmentId,
-			{disableDelete: !!isPreview || snapshotIndex !== undefined, mediaType: 'audio'},
+			{disableDelete: !!isPreview || snapshotIndex !== undefined},
 		);
 		return (
 			<div style={containerStyles} className={styles.container} data-flx="channel.embeds.media.embed-audio.container">

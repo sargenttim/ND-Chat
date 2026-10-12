@@ -39,6 +39,15 @@ pub async fn render(
         .await
         .log_error("load guild tab guild")?;
     match tab {
+        "badges" => {
+            let badges = client
+                .get_public_badges()
+                .await
+                .log_error("load badges for guild")?;
+            Some(tabs::badges::badges_tab(
+                config, &guild, &badges, csrf_token, admin_acls,
+            ))
+        }
         "members" => {
             let page = query.members_page.unwrap_or(0);
             let limit: u32 = 50;
@@ -78,12 +87,8 @@ pub async fn render(
                 .map(|response| response.emojis)
                 .map_err(|error| tracing::warn!(%error, guild_id, "admin API request failed: list guild emojis"))
                 .unwrap_or_default();
-            Some(tabs::emojis::guild_assets_tab(
-                config,
-                &guild,
-                &emojis,
-                csrf_token,
-                tabs::emojis::GuildAssetKind::Emoji,
+            Some(tabs::emojis::emojis_tab(
+                config, &guild, &emojis, csrf_token,
             ))
         }
         "stickers" => {
@@ -96,30 +101,8 @@ pub async fn render(
                 .map(|response| response.stickers)
                 .map_err(|error| tracing::warn!(%error, guild_id, "admin API request failed: list guild stickers"))
                 .unwrap_or_default();
-            Some(tabs::emojis::guild_assets_tab(
-                config,
-                &guild,
-                &stickers,
-                csrf_token,
-                tabs::emojis::GuildAssetKind::Sticker,
-            ))
-        }
-        "threads" => {
-            if !acl::has_permission(admin_acls, acl::GUILD_LOOKUP) {
-                return None;
-            }
-            let threads = client
-                .list_guild_threads(guild_id)
-                .await
-                .map(|response| response.threads)
-                .map_err(|error| tracing::warn!(%error, guild_id, "admin API request failed: list guild threads"))
-                .unwrap_or_default();
-            Some(tabs::threads::threads_tab(
-                config,
-                &guild,
-                &threads,
-                acl::has_permission(admin_acls, acl::MESSAGE_DELETE_ALL),
-                csrf_token,
+            Some(tabs::stickers::stickers_tab(
+                config, &guild, &stickers, csrf_token,
             ))
         }
         "audit_log" | "audit-log" => {
@@ -189,14 +172,7 @@ pub async fn render(
                 .await
                 .map_err(|error| tracing::warn!(%error, guild_id, "admin API request failed: list guild applications"))
                 .unwrap_or_default();
-            Some(
-                crate::templates::pages::user_detail_tabs::applications::applications_tab(
-                    config,
-                    &apps,
-                    "No applications installed",
-                    "This guild does not have any installed applications.",
-                ),
-            )
+            Some(tabs::applications::applications_tab(config, &guild, &apps))
         }
         "archives" => {
             if !acl::has_any_permission(

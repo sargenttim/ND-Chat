@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {registerAdminControllers} from '@app/api/admin/controllers/index';
+import {getActivityJetStream} from '@app/api/app/APILifecycle';
 import {AttachmentController} from '@app/api/attachment/AttachmentController';
 import {AuthController} from '@app/api/auth/AuthController';
 import {OriginHandoffController} from '@app/api/auth/OriginHandoffController';
 import {PasskeyBridgeController} from '@app/api/auth/PasskeyBridgeController';
 import {BlueskyOAuthController} from '@app/api/bluesky/BlueskyOAuthController';
-import {registerChannelControllers} from '@app/api/channel/controllers/index';
+import {ChannelController} from '@app/api/channel/ChannelController';
 import type {APIConfig} from '@app/api/config/APIConfig';
 import {ConnectionController} from '@app/api/connection/ConnectionController';
 import {DonationController} from '@app/api/donation/DonationController';
@@ -17,7 +18,7 @@ import {FavoriteMemeController} from '@app/api/favorite_meme/FavoriteMemeControl
 import {GatewayController} from '@app/api/gateway/GatewayController';
 import {GeolocationController} from '@app/api/geolocation/GeolocationController';
 import {GifController} from '@app/api/gif/GifController';
-import {GuildController} from '@app/api/guild/controllers/index';
+import {GuildController} from '@app/api/guild/GuildController';
 import {InstanceController} from '@app/api/instance/InstanceController';
 import {InviteController} from '@app/api/invite/InviteController';
 import {OAuth2ApplicationsController} from '@app/api/oauth/OAuth2ApplicationsController';
@@ -35,7 +36,7 @@ import {ThemeController} from '@app/api/theme/ThemeController';
 import type {HonoApp} from '@app/api/types/HonoEnv';
 import {UnfurlController} from '@app/api/unfurl/UnfurlController';
 import {UserController} from '@app/api/user/controllers/UserController';
-import {VoiceP2pConnectionReportController} from '@app/api/voice/VoiceP2pConnectionReportController';
+import {installSmsWebhookForwarder} from '@app/api/webhook/SmsWebhookForwarder';
 import {WebhookController} from '@app/api/webhook/WebhookController';
 
 export function registerControllers(routes: HonoApp, config: APIConfig): void {
@@ -47,7 +48,7 @@ export function registerControllers(routes: HonoApp, config: APIConfig): void {
 	OriginHandoffController(routes);
 	PasskeyBridgeController(routes);
 	AttachmentController(routes);
-	registerChannelControllers(routes);
+	ChannelController(routes);
 	ConnectionController(routes);
 	BlueskyOAuthController(routes);
 	InstanceController(routes);
@@ -68,7 +69,7 @@ export function registerControllers(routes: HonoApp, config: APIConfig): void {
 		TestHarnessController(routes);
 	}
 	UserController(routes);
-	VoiceP2pConnectionReportController(routes);
+	installSmsWebhookForwarder(routes, getActivityJetStream);
 	StoreBillingController(routes);
 	WebhookController(routes);
 	OAuth2Controller(routes);

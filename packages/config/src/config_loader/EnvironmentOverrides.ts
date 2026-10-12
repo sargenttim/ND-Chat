@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {readFileSync} from 'node:fs';
 import {type ConfigObject, isConfigObject} from '@fluxer/config/src/config_loader/ConfigObject';
 
 type ConfigPathKey = string | number;
@@ -72,13 +71,8 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_API_HEADERS_TIMEOUT_MS: {path: ['services', 'api', 'headers_timeout_ms'], parse: parseInteger},
 	FLUXER_API_REQUEST_TIMEOUT_MS: {path: ['services', 'api', 'request_timeout_ms'], parse: parseInteger},
 	FLUXER_API_MAX_INFLIGHT_REQUESTS: {path: ['services', 'api', 'max_inflight_requests'], parse: parseInteger},
-	FLUXER_API_AUTOMATED_MESSAGE_DELETION_DELAY_DAYS: {
-		path: ['services', 'api', 'automated_message_deletion_delay_days'],
-		parse: parseInteger,
-	},
 	FLUXER_API_IP_BAN_EXEMPT_IPS: {path: ['services', 'api', 'ip_ban_exempt_ips'], parse: parseCsv},
 	FLUXER_API_DONATION_PROXY_KEY: {path: ['services', 'api', 'donation_proxy_key']},
-	FLUXER_API_TRUSTED_CALLERS: {path: ['services', 'api', 'trusted_callers'], parse: parseJsonArray},
 	FLUXER_API_PRESIGNED_ATTACHMENT_UPLOADS_ENABLED: {
 		path: ['services', 'api', 'presigned_attachment_uploads_enabled'],
 		parse: parseBoolean,
@@ -94,7 +88,6 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 		path: ['services', 'api', 'worker', 'enable_cron_scheduler'],
 		parse: parseBoolean,
 	},
-	FLUXER_API_WORKER_METRICS_PORT: {path: ['services', 'api', 'worker', 'metrics_port'], parse: parseInteger},
 	FLUXER_API_WORKER_LANE_CONCURRENCY_OVERRIDES: {
 		path: ['services', 'api', 'worker', 'lane_concurrency_overrides'],
 		parse: parseJsonObject,
@@ -134,7 +127,6 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_GATEWAY_RPC_AUTH_TOKEN: {path: ['services', 'gateway', 'rpc_auth_token']},
 	FLUXER_SUDO_MODE_SECRET: {path: ['auth', 'sudo_mode_secret']},
 	FLUXER_CONNECTION_INITIATION_SECRET: {path: ['auth', 'connection_initiation_secret']},
-	FLUXER_PROFILE_PSEUDONYM_SECRET: {path: ['auth', 'profile_pseudonym_secret']},
 	FLUXER_SSO_ALLOW_PRIVATE_ADDRESSES: {path: ['auth', 'sso_allow_private_addresses'], parse: parseBoolean},
 	FLUXER_VAPID_PUBLIC_KEY: {path: ['auth', 'vapid', 'public_key']},
 	FLUXER_VAPID_PRIVATE_KEY: {path: ['auth', 'vapid', 'private_key']},
@@ -156,14 +148,12 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_EMAIL_PROVIDER: {path: ['integrations', 'email', 'provider']},
 	FLUXER_EMAIL_FROM_EMAIL: {path: ['integrations', 'email', 'from_email']},
 	FLUXER_EMAIL_FROM_NAME: {path: ['integrations', 'email', 'from_name']},
-	FLUXER_EMAIL_REPLY_TO_EMAIL: {path: ['integrations', 'email', 'reply_to_email']},
 	FLUXER_EMAIL_APP_BASE_URL: {path: ['integrations', 'email', 'app_base_url']},
 	FLUXER_EMAIL_WEBHOOK_SECRET: {path: ['integrations', 'email', 'webhook_secret']},
 	FLUXER_EMAIL_SMTP_HOST: {path: ['integrations', 'email', 'smtp', 'host']},
 	FLUXER_EMAIL_SMTP_PORT: {path: ['integrations', 'email', 'smtp', 'port'], parse: parseInteger},
 	FLUXER_EMAIL_SMTP_USERNAME: {path: ['integrations', 'email', 'smtp', 'username']},
 	FLUXER_EMAIL_SMTP_PASSWORD: {path: ['integrations', 'email', 'smtp', 'password']},
-	FLUXER_EMAIL_SMTP_TLS_MODE: {path: ['integrations', 'email', 'smtp', 'tls_mode'], parse: parseSmtpTlsMode},
 	FLUXER_EMAIL_SMTP_SECURE: {path: ['integrations', 'email', 'smtp', 'secure'], parse: parseBoolean},
 	FLUXER_LIVEKIT_ENABLED: {path: ['integrations', 'voice', 'enabled'], parse: parseBoolean},
 	FLUXER_LIVEKIT_API_KEY: {path: ['integrations', 'voice', 'api_key']},
@@ -171,7 +161,6 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_LIVEKIT_URL: {path: ['integrations', 'voice', 'url']},
 	FLUXER_LIVEKIT_INTERNAL_URL: {path: ['integrations', 'voice', 'internal_url']},
 	FLUXER_LIVEKIT_DEFAULT_REGION: {path: ['integrations', 'voice', 'default_region'], parse: parseJsonObject},
-	FLUXER_VOICE_P2P_STUN_URLS: {path: ['integrations', 'voice', 'p2p_stun_urls'], parse: parseCsv},
 	FLUXER_SEARCH_ENGINE: {path: ['integrations', 'search', 'engine']},
 	FLUXER_SEARCH_URL: {path: ['integrations', 'search', 'url']},
 	FLUXER_SEARCH_API_KEY: {path: ['integrations', 'search', 'api_key']},
@@ -191,7 +180,6 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_STRIPE_PRICE_MONTHLY_BRL: {path: ['integrations', 'stripe', 'prices', 'monthly_brl']},
 	FLUXER_STRIPE_PRICE_MONTHLY_DKK: {path: ['integrations', 'stripe', 'prices', 'monthly_dkk']},
 	FLUXER_STRIPE_PRICE_MONTHLY_INR: {path: ['integrations', 'stripe', 'prices', 'monthly_inr']},
-	FLUXER_STRIPE_PRICE_MONTHLY_ISK: {path: ['integrations', 'stripe', 'prices', 'monthly_isk']},
 	FLUXER_STRIPE_PRICE_MONTHLY_NOK: {path: ['integrations', 'stripe', 'prices', 'monthly_nok']},
 	FLUXER_STRIPE_PRICE_MONTHLY_PLN: {path: ['integrations', 'stripe', 'prices', 'monthly_pln']},
 	FLUXER_STRIPE_PRICE_MONTHLY_SEK: {path: ['integrations', 'stripe', 'prices', 'monthly_sek']},
@@ -201,7 +189,6 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_STRIPE_PRICE_YEARLY_BRL: {path: ['integrations', 'stripe', 'prices', 'yearly_brl']},
 	FLUXER_STRIPE_PRICE_YEARLY_DKK: {path: ['integrations', 'stripe', 'prices', 'yearly_dkk']},
 	FLUXER_STRIPE_PRICE_YEARLY_INR: {path: ['integrations', 'stripe', 'prices', 'yearly_inr']},
-	FLUXER_STRIPE_PRICE_YEARLY_ISK: {path: ['integrations', 'stripe', 'prices', 'yearly_isk']},
 	FLUXER_STRIPE_PRICE_YEARLY_NOK: {path: ['integrations', 'stripe', 'prices', 'yearly_nok']},
 	FLUXER_STRIPE_PRICE_YEARLY_PLN: {path: ['integrations', 'stripe', 'prices', 'yearly_pln']},
 	FLUXER_STRIPE_PRICE_YEARLY_SEK: {path: ['integrations', 'stripe', 'prices', 'yearly_sek']},
@@ -214,8 +201,6 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_STRIPE_PRICE_GIFT_1_YEAR_DKK: {path: ['integrations', 'stripe', 'prices', 'gift_1_year_dkk']},
 	FLUXER_STRIPE_PRICE_GIFT_1_MONTH_NOK: {path: ['integrations', 'stripe', 'prices', 'gift_1_month_nok']},
 	FLUXER_STRIPE_PRICE_GIFT_1_YEAR_NOK: {path: ['integrations', 'stripe', 'prices', 'gift_1_year_nok']},
-	FLUXER_STRIPE_PRICE_GIFT_1_MONTH_ISK: {path: ['integrations', 'stripe', 'prices', 'gift_1_month_isk']},
-	FLUXER_STRIPE_PRICE_GIFT_1_YEAR_ISK: {path: ['integrations', 'stripe', 'prices', 'gift_1_year_isk']},
 	FLUXER_STRIPE_PRICE_GIFT_1_MONTH_BRL: {path: ['integrations', 'stripe', 'prices', 'gift_1_month_brl']},
 	FLUXER_STRIPE_PRICE_GIFT_1_MONTH_INR: {path: ['integrations', 'stripe', 'prices', 'gift_1_month_inr']},
 	FLUXER_STRIPE_PRICE_GIFT_1_MONTH_PLN: {path: ['integrations', 'stripe', 'prices', 'gift_1_month_pln']},
@@ -226,6 +211,11 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_STRIPE_PRICE_GIFT_1_YEAR_INR: {path: ['integrations', 'stripe', 'prices', 'gift_1_year_inr']},
 	FLUXER_STRIPE_PRICE_GIFT_1_YEAR_PLN: {path: ['integrations', 'stripe', 'prices', 'gift_1_year_pln']},
 	FLUXER_STRIPE_PRICE_GIFT_1_YEAR_TRY: {path: ['integrations', 'stripe', 'prices', 'gift_1_year_try']},
+	FLUXER_NCMEC_ENABLED: {path: ['integrations', 'ncmec', 'enabled'], parse: parseBoolean},
+	FLUXER_NCMEC_BASE_URL: {path: ['integrations', 'ncmec', 'base_url']},
+	FLUXER_NCMEC_USERNAME: {path: ['integrations', 'ncmec', 'username']},
+	FLUXER_NCMEC_PASSWORD: {path: ['integrations', 'ncmec', 'password']},
+	FLUXER_NCMEC_REPORTER_EMAIL: {path: ['integrations', 'ncmec', 'reporter_email']},
 	FLUXER_CLAMAV_ENABLED: {path: ['integrations', 'clamav', 'enabled'], parse: parseBoolean},
 	FLUXER_CLAMAV_HOST: {path: ['integrations', 'clamav', 'host']},
 	FLUXER_CLAMAV_PORT: {path: ['integrations', 'clamav', 'port'], parse: parseInteger},
@@ -288,14 +278,9 @@ const NAMED_FLUXER_ENV_OVERRIDES: Record<string, NamedEnvOverride> = {
 	FLUXER_APP_STATUS_PAGE_URL: {path: ['instance', 'branding', 'status_page_url']},
 	FLUXER_APP_STATUS_PAGE_INCIDENT_HISTORY_URL: {path: ['instance', 'branding', 'status_page_incident_history_url']},
 	FLUXER_INSTANCE_SETUP_CONFIGURED: {path: ['instance', 'setup', 'configured'], parse: parseBoolean},
-	FLUXER_ACCOUNT_IDENTITY: {path: ['instance', 'account_identity'], parse: parseAccountIdentity},
-	FLUXER_TAG_STYLE: {path: ['instance', 'tag_style'], parse: parseTagStyle},
 	FLUXER_DISCOVERY_ENABLED: {path: ['discovery', 'enabled'], parse: parseBoolean},
 	FLUXER_DISCOVERY_MIN_MEMBER_COUNT: {path: ['discovery', 'min_member_count'], parse: parseInteger},
 	FLUXER_DELETION_GRACE_PERIOD_HOURS: {path: ['deletion_grace_period_hours'], parse: parseInteger},
-	FLUXER_REPORT_RETENTION_DAYS: {path: ['report_retention', 'days'], parse: parseInteger},
-	FLUXER_RESOLVED_REPORT_RETENTION_DAYS: {path: ['report_retention', 'resolved_days'], parse: parseInteger},
-	FLUXER_REPORT_RETENTION_DRY_RUN: {path: ['report_retention', 'dry_run'], parse: parseBoolean},
 	FLUXER_RELAX_REGISTRATION_RATE_LIMITS: {path: ['dev', 'relax_registration_rate_limits'], parse: parseBoolean},
 	FLUXER_DISABLE_RATE_LIMITS: {path: ['dev', 'disable_rate_limits'], parse: parseBoolean},
 	FLUXER_TEST_MODE_ENABLED: {path: ['dev', 'test_mode_enabled'], parse: parseBoolean},
@@ -337,24 +322,6 @@ function parseBoolean(raw: string): boolean {
 		default:
 			throw new Error('must be true or false');
 	}
-}
-
-function parseAccountIdentity(raw: string): string {
-	const value = raw.trim().toLowerCase();
-	if (value === 'email' || value === 'username') return value;
-	throw new Error('must be email or username');
-}
-
-function parseTagStyle(raw: string): string {
-	const value = raw.trim().toLowerCase();
-	if (value === 'none' || value === 'random') return value;
-	throw new Error('must be none or random');
-}
-
-function parseSmtpTlsMode(raw: string): string {
-	const value = raw.trim().toLowerCase();
-	if (value === 'implicit' || value === 'starttls' || value === 'opportunistic' || value === 'none') return value;
-	throw new Error('must be implicit, starttls, opportunistic or none');
 }
 
 function parseJson(raw: string): unknown {
@@ -432,27 +399,9 @@ const NAMED_FLUXER_ENV_ALIASES: Record<string, string | undefined> = {
 
 export const NAMED_FLUXER_ENV_NAMES = Object.keys(NAMED_FLUXER_ENV_OVERRIDES);
 
-function nonBlank(value: string | undefined): string | undefined {
-	return value === undefined || value.trim().length === 0 ? undefined : value;
-}
-
 export function readEnvValue(env: NodeJS.ProcessEnv, name: string): string | undefined {
-	const value = nonBlank(env[name]);
-	const filePath = nonBlank(env[`${name}_FILE`]);
-	if (filePath === undefined) {
-		return value;
-	}
-	if (value !== undefined) {
-		throw new Error(`${name} and ${name}_FILE are both set, set only one`);
-	}
-	let contents: string;
-	try {
-		contents = new TextDecoder('utf-8', {fatal: true}).decode(readFileSync(filePath));
-	} catch (error) {
-		const reason = error instanceof Error && 'code' in error ? String(error.code) : 'unreadable';
-		throw new Error(`${name}_FILE could not read ${filePath} (${reason})`);
-	}
-	return nonBlank(contents.replace(/\r?\n$/, ''));
+	const value = env[name];
+	return value === undefined || value.trim().length === 0 ? undefined : value;
 }
 
 export function buildNamedFluxerEnvOverrides(env: NodeJS.ProcessEnv): ConfigObject {

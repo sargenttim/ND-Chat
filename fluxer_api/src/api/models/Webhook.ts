@@ -12,8 +12,6 @@ export class Webhook {
 	readonly creatorId: UserID | null;
 	readonly name: string;
 	readonly avatarHash: string | null;
-	readonly sourceGuildId: GuildID | null;
-	readonly sourceChannelId: ChannelID | null;
 	readonly version: number;
 
 	constructor(row: WebhookRow) {
@@ -25,8 +23,6 @@ export class Webhook {
 		this.creatorId = row.creator_id ?? null;
 		this.name = row.name;
 		this.avatarHash = row.avatar_hash ?? null;
-		this.sourceGuildId = row.source_guild_id ?? null;
-		this.sourceChannelId = row.source_channel_id ?? null;
 		this.version = row.version;
 	}
 
@@ -40,8 +36,6 @@ export class Webhook {
 			creator_id: this.creatorId,
 			name: this.name,
 			avatar_hash: this.avatarHash,
-			source_guild_id: this.sourceGuildId,
-			source_channel_id: this.sourceChannelId,
 			version: this.version,
 		};
 	}

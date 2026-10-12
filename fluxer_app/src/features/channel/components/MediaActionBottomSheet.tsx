@@ -55,6 +55,7 @@ interface MediaActionBottomSheetProps {
 	naturalHeight?: number;
 	snapshotIndex?: number;
 	handleDelete?: (bypassConfirm?: boolean) => void;
+	includeMessageActions?: boolean;
 	sourceChannel?: Channel | null;
 }
 
@@ -75,6 +76,7 @@ const MediaActionBottomSheetContent: React.FC<MediaActionBottomSheetProps> = obs
 		naturalHeight,
 		snapshotIndex,
 		handleDelete,
+		includeMessageActions = true,
 		sourceChannel,
 	}) => {
 		const {i18n} = useLingui();
@@ -135,11 +137,11 @@ const MediaActionBottomSheetContent: React.FC<MediaActionBottomSheetProps> = obs
 		);
 		const combinedGroups = useMemo(() => {
 			const groups = [...mediaGroups, ...reverseImageSearchGroups];
-			if (visibleMessageGroups.length > 0) {
+			if (includeMessageActions && visibleMessageGroups.length > 0) {
 				groups.push(...visibleMessageGroups);
 			}
 			return groups;
-		}, [mediaGroups, reverseImageSearchGroups, visibleMessageGroups]);
+		}, [mediaGroups, reverseImageSearchGroups, visibleMessageGroups, includeMessageActions]);
 		const title = useMemo(() => {
 			switch (type) {
 				case 'image':

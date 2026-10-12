@@ -13,7 +13,7 @@ const THIS_CONTAINS_SENSITIVE_CONTENT_DESCRIPTOR = msg({
 	comment: 'Label in the content warning utils helper. Keep the tone plain and specific.',
 });
 
-type EffectiveSource = 'channel' | 'parent' | 'guild' | 'none';
+export type EffectiveSource = 'channel' | 'parent' | 'guild' | 'none';
 
 export interface EffectiveContentWarning {
 	level: number;

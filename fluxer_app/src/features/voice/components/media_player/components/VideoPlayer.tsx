@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Accessibility from '@app/features/accessibility/state/Accessibility';
-import {resolveDesktopCrossOriginMediaURL} from '@app/features/messaging/utils/DesktopResourceUrl';
 import * as ImageCacheUtils from '@app/features/messaging/utils/ImageCacheUtils';
 import {decodeThumbHashDataURL} from '@app/features/messaging/utils/ThumbHashUtils';
 import {observeResize} from '@app/features/platform/utils/SharedResizeObserver';
@@ -156,7 +155,7 @@ function VideoSeekPreviewThumbnail({src, poster, time}: VideoSeekPreviewThumbnai
 		<video
 			ref={videoRef}
 			className={styles.seekPreviewVideo}
-			src={resolveDesktopCrossOriginMediaURL(src)}
+			src={src}
 			poster={poster}
 			preload="metadata"
 			muted
@@ -607,7 +606,7 @@ export const VideoPlayer = observer(function VideoPlayer({
 					<video
 						ref={mediaRef as React.RefObject<HTMLVideoElement>}
 						className={clsx(styles.video, renderModel.shouldHideVideo && styles.videoHidden)}
-						src={renderModel.shouldAttachSource ? resolveDesktopCrossOriginMediaURL(src) : undefined}
+						src={renderModel.shouldAttachSource ? src : undefined}
 						preload={renderModel.preloadAttribute}
 						crossOrigin="anonymous"
 						playsInline

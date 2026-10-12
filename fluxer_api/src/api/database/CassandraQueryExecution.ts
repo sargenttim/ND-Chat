@@ -340,6 +340,16 @@ export class BatchBuilder {
 		return this;
 	}
 
+	addIf(condition: boolean, query: string, params: object, meta?: KvQueryMeta): this {
+		if (condition) this.queries.push({query, params, meta});
+		return this;
+	}
+
+	addPreparedIf(condition: boolean, q: PreparedQuery): this {
+		if (condition) this.queries.push({query: q.cql, params: q.params, meta: q.kvMeta});
+		return this;
+	}
+
 	async execute(atomic = true): Promise<void> {
 		if (this.queries.length === 0) return;
 		await executeBatch(this.queries, atomic);
@@ -350,6 +360,10 @@ export class BatchBuilder {
 		for (let i = 0; i < this.queries.length; i += chunkSize) {
 			await executeBatch(this.queries.slice(i, i + chunkSize), atomic);
 		}
+	}
+
+	getQueries(): Array<BatchQuery> {
+		return this.queries;
 	}
 }
 

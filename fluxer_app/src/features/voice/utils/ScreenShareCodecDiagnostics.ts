@@ -34,7 +34,7 @@ interface InboundVideoStatsEntry {
 	powerEfficientDecoder?: boolean;
 }
 
-interface SoftwareVideoDecoderInfo {
+export interface SoftwareVideoDecoderInfo {
 	codec: string | null;
 	implementation: string;
 	powerEfficientDecoder: boolean | null;
@@ -90,7 +90,7 @@ function getCodecLabel(mimeType: string | undefined): string | null {
 	return mimeType.replace(/^video\//i, '').toUpperCase();
 }
 
-export function getVideoCodecFromMimeType(mimeType: string | undefined): VideoCodec | null {
+function getVideoCodecFromMimeType(mimeType: string | undefined): VideoCodec | null {
 	const lower = mimeType?.toLowerCase();
 	if (!lower?.startsWith('video/')) return null;
 	const codec = lower.slice('video/'.length);
@@ -170,7 +170,7 @@ export function findInboundVideoDecodeSample(stats: RTCStatsReport): InboundVide
 	return null;
 }
 
-function findSoftwareVideoDecoder(sample: InboundVideoDecodeSample): SoftwareVideoDecoderInfo | null {
+export function findSoftwareVideoDecoder(sample: InboundVideoDecodeSample): SoftwareVideoDecoderInfo | null {
 	if (!isSoftwareVideoStats(sample.decoderImplementation, sample.powerEfficientDecoder)) return null;
 	return {
 		codec: getCodecLabel(sample.mimeType),
@@ -195,7 +195,7 @@ export function findStalledVideoDecoder(sample: InboundVideoDecodeSample): Stall
 	};
 }
 
-function confirmDecodeStall(
+export function confirmDecodeStall(
 	first: StalledVideoDecoderInfo | null,
 	second: StalledVideoDecoderInfo | null,
 ): StalledVideoDecoderInfo | null {
@@ -206,7 +206,7 @@ function confirmDecodeStall(
 	return second;
 }
 
-function computeInboundVideoDecodeHealth(
+export function computeInboundVideoDecodeHealth(
 	previous: InboundVideoDecodeSample,
 	current: InboundVideoDecodeSample,
 ): InboundVideoDecodeHealth | null {

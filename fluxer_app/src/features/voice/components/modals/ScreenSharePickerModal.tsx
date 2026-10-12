@@ -2,7 +2,7 @@
 
 import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
 import * as Modal from '@app/features/app/components/dialogs/Modal';
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import Channels from '@app/features/channel/state/Channels';
 import {
 	CANCEL_DESCRIPTOR,
@@ -71,7 +71,11 @@ import VoiceDevicePermissionState from '@app/features/voice/engine/VoiceDevicePe
 import {selectVoiceEngineV2AppConnection} from '@app/features/voice/engine/v2/VoiceEngineV2AppSelectors';
 import {useMediaDevices} from '@app/features/voice/hooks/useMediaDevices';
 import ActiveScreenShareSource from '@app/features/voice/state/ActiveScreenShareSource';
-import VoiceSettings, {type ScreenshareResolution} from '@app/features/voice/state/VoiceSettings';
+import VoiceSettings, {
+	type LastScreenShareSource,
+	type LastScreenShareSourceKind,
+	type ScreenshareResolution,
+} from '@app/features/voice/state/VoiceSettings';
 import {filterRoutableLinuxAudioSources} from '@app/features/voice/utils/LinuxAudioSourceRules';
 import {getNativeAudioAvailabilityCached} from '@app/features/voice/utils/NativeAudioCaptureBridge';
 import {isScreenShareAudioCaptureError} from '@app/features/voice/utils/ScreenShareAudioCaptureError';
@@ -97,14 +101,6 @@ import {
 	formatFallbackCameraLabel,
 	formatVoiceAudioDeviceLabel,
 } from '@app/features/voice/utils/VoiceMessageDescriptors';
-import {
-	CUSTOM_DESCRIPTOR,
-	GAMING_DESCRIPTOR,
-	SCREENSHARE_DESCRIPTOR,
-	SCREEN_SHARE_STATUS_SOURCE_RESOLUTION_DESCRIPTOR as SOURCE_DESCRIPTOR,
-	SYSTEM_DEFAULT_DESCRIPTOR,
-	UNNAMED_INPUT_DESCRIPTOR,
-} from '@app/features/voice/utils/VoiceSharedMessageDescriptors';
 import type {DesktopSource, NativeAudioAvailability} from '@app/types/electron.d';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
@@ -231,7 +227,18 @@ const STREAM_SETTINGS_DESCRIPTOR = msg({
 	message: 'Stream settings',
 	comment: 'Toolbar / menu button label in the screen-share picker. Opens the stream quality settings popover.',
 });
-
+const GAMING_DESCRIPTOR = msg({
+	message: 'Gaming',
+	comment: 'Footer summary label for the gaming screen-share quality preset.',
+});
+const SCREENSHARE_DESCRIPTOR = msg({
+	message: 'Screen share',
+	comment: 'Footer summary label for the text-focused screen-share quality preset.',
+});
+const CUSTOM_DESCRIPTOR = msg({
+	message: 'Custom',
+	comment: 'Footer summary label for custom screen-share quality settings.',
+});
 const SMOOTHER_VIDEO_DESCRIPTOR = msg({
 	message: 'Smoother video',
 	comment: 'Footer summary description for the gaming screen-share quality preset.',
@@ -240,7 +247,10 @@ const CLEARER_TEXT_DESCRIPTOR = msg({
 	message: 'Clearer text',
 	comment: 'Footer summary description for the text-focused screen-share quality preset.',
 });
-
+const SOURCE_DESCRIPTOR = msg({
+	message: 'Source',
+	comment: 'Footer summary resolution label for native source resolution.',
+});
 const FPS_DESCRIPTOR = msg({
 	message: '{fps} FPS',
 	comment:
@@ -250,7 +260,14 @@ const DEVICE_AUDIO_MUTED_DESCRIPTOR = msg({
 	message: 'Audio muted',
 	comment: 'Footer summary status shown when capture-device audio is disabled.',
 });
-
+const SYSTEM_DEFAULT_DESCRIPTOR = msg({
+	message: 'System default',
+	comment: 'Footer summary fallback for the default capture-device audio input.',
+});
+const UNNAMED_INPUT_DESCRIPTOR = msg({
+	message: 'Unnamed input',
+	comment: 'Footer summary fallback for an audio input without a reported name.',
+});
 const SCREEN_SHARE_PREVIEWS_ENABLED_DESCRIPTOR = msg({
 	message: 'Screen share previews are enabled.',
 	comment: 'Compact footer status in the screen-share picker when preview frame uploads are enabled.',
@@ -319,10 +336,103 @@ const SCREEN_SHARE_PREVIEW_TOGGLE_DESCRIPTION_DESCRIPTOR = msg({
 });
 
 const SCREEN_SHARE_PICKER_PRELOAD_CACHE_MS = 1500;
+const LAST_SCREEN_SHARE_SOURCE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
 let screenSharePickerPreloadCache: {
 	expiresAt: number;
 	promise: Promise<ScreenSharePickerPreload>;
 } | null = null;
+
+function recordLastScreenShareSource(kind: LastScreenShareSourceKind, sourceId: string | null, title: string): void {
+	VoiceSettings.setLastScreenShareSource({
+		kind,
+		sourceId,
+		title,
+		updatedAt: Date.now(),
+	});
+}
+
+function normalizeLastSourceTitle(value: string | undefined): string {
+	return (value ?? '')
+		.normalize('NFKD')
+		.toLowerCase()
+		.replace(/[^\p{L}\p{N}]+/gu, ' ')
+		.trim();
+}
+
+function desktopSourceMatchesLastKind(source: DesktopSource, kind: LastScreenShareSourceKind): boolean {
+	if (kind === 'app') return isWindowSource(source);
+	if (kind === 'display') return isDisplaySource(source);
+	return false;
+}
+
+function findLastDesktopSource(
+	lastSource: LastScreenShareSource,
+	desktopSources: ReadonlyArray<DesktopSource>,
+): DesktopSource | null {
+	if (lastSource.kind !== 'app' && lastSource.kind !== 'display') return null;
+	const candidates = desktopSources.filter((source) => desktopSourceMatchesLastKind(source, lastSource.kind));
+	const lastTitle = normalizeLastSourceTitle(lastSource.title);
+	if (lastSource.sourceId) {
+		const exactIdMatch = candidates.find((source) => source.id === lastSource.sourceId);
+		if (exactIdMatch) {
+			if (lastSource.kind === 'display' || normalizeLastSourceTitle(exactIdMatch.name) === lastTitle) {
+				return exactIdMatch;
+			}
+		}
+	}
+	if (!lastTitle) return null;
+	const titleMatches = candidates.filter((source) => normalizeLastSourceTitle(source.name) === lastTitle);
+	return titleMatches.length === 1 ? titleMatches[0] : null;
+}
+
+function getDesktopSourceDimensions(source: DesktopSource): {width: number; height: number} | undefined {
+	return source.nativeWidth && source.nativeHeight
+		? {width: source.nativeWidth, height: source.nativeHeight}
+		: undefined;
+}
+
+async function tryStartLastDesktopScreenShareSource(lastSource: LastScreenShareSource): Promise<boolean> {
+	const preload = await preloadScreenSharePickerSources();
+	if (usesNativeDisplaySharePicker(preload.displayShareEnvironment)) return false;
+	const desktopSources = preload.desktopSources.map(normaliseDesktopSource);
+	const source = findLastDesktopSource(lastSource, desktopSources);
+	if (!source) return false;
+	const preferredDisplaySurface = lastSource.kind === 'app' ? 'window' : 'monitor';
+	const didStart = await startConfiguredDisplayScreenShare(source.id, {
+		sourceDimensions: getDesktopSourceDimensions(source),
+		preferredDisplaySurface,
+		isOwnWindow: source.isOwnWindow === true,
+	});
+	if (didStart) {
+		recordLastScreenShareSource(lastSource.kind, source.id, source.name || lastSource.title);
+	}
+	return didStart;
+}
+
+async function tryStartLastDeviceScreenShareSource(lastSource: LastScreenShareSource): Promise<boolean> {
+	if (!lastSource.sourceId) return false;
+	const didStart = await startConfiguredDeviceScreenShare(lastSource.sourceId);
+	if (didStart) {
+		recordLastScreenShareSource('device', lastSource.sourceId, lastSource.title);
+	}
+	return didStart;
+}
+
+export async function tryStartLastScreenShareSource(): Promise<boolean> {
+	const lastSource = VoiceSettings.getLastScreenShareSource();
+	if (!lastSource) return false;
+	if (Date.now() - lastSource.updatedAt > LAST_SCREEN_SHARE_SOURCE_MAX_AGE_MS) return false;
+	try {
+		if (lastSource.kind === 'device') {
+			return await tryStartLastDeviceScreenShareSource(lastSource);
+		}
+		return await tryStartLastDesktopScreenShareSource(lastSource);
+	} catch (error) {
+		logger.warn('Failed to start last screen-share source', {error, kind: lastSource.kind});
+		return false;
+	}
+}
 
 async function loadScreenSharePickerPreload(): Promise<ScreenSharePickerPreload> {
 	const displayShareEnvironment = await getDisplayShareEnvironment();
@@ -619,10 +729,10 @@ const ScreenSharePreviewInfoModal = observer(() => {
 					data-flx="voice.screen-share-picker-modal.preview-info-modal.content-layout"
 				>
 					<Modal.Description data-flx="voice.screen-share-picker-modal.preview-info-modal.description">
-						{i18n._(getScreenSharePreviewInfoBodyDescriptor(callContext), {productName: RuntimeConfig.productName})}
+						{i18n._(getScreenSharePreviewInfoBodyDescriptor(callContext), {productName: PRODUCT_NAME})}
 					</Modal.Description>
 					<p className={styles.previewInfoParagraph} data-flx="voice.screen-share-picker-modal.preview-info-modal.e2ee">
-						{i18n._(getScreenSharePreviewPrivacyBodyDescriptor(callContext), {productName: RuntimeConfig.productName})}
+						{i18n._(getScreenSharePreviewPrivacyBodyDescriptor(callContext), {productName: PRODUCT_NAME})}
 					</p>
 					<p
 						className={styles.previewInfoParagraph}
@@ -1200,6 +1310,14 @@ const ScreenSharePickerModalLoadedContent = observer(
 					}
 					if (didSelect) {
 						resumeDevicePreviews = false;
+						const selectedCard = tabCards[activeTab].find((card) => card.id === cardId);
+						const kind: LastScreenShareSourceKind =
+							activeTab === 'devices' ? 'device' : activeTab === 'apps' ? 'app' : 'display';
+						recordLastScreenShareSource(
+							kind,
+							activeTab === 'devices' ? cardId : (selectedSource?.id ?? cardId),
+							selectedCard?.title ?? selectedSource?.name ?? cardId,
+						);
 						ModalCommands.pop();
 					} else if (activeTab !== 'devices') {
 						void loadDesktopSources({force: true, silent: true});
@@ -1310,7 +1428,6 @@ const ScreenSharePickerModalLoadedContent = observer(
 			context: shareContext,
 			sourceDimensions: null,
 			hintSetting: VoiceSettings.getScreenShareContentHint(),
-			bitrate: VoiceSettings.getScreenShareBitrateBudget(),
 		});
 		const streamSummaryTitle =
 			streamSummary.mode === 'gaming'
@@ -1502,3 +1619,35 @@ const ScreenSharePickerModalLoadedContent = observer(
 		);
 	},
 );
+export const ScreenSharePickerModal = observer(function ScreenSharePickerModal({
+	initialTab,
+	mode = 'start',
+	...contentProps
+}: ScreenSharePickerModalProps) {
+	const {
+		activeTab,
+		devicePreviewsEnabled,
+		devicePreviewPermissionStatus,
+		handleExplicitActiveTabChange,
+		requestDevicePreviewPermission,
+	} = useScreenSharePickerTabState(initialTab);
+	return (
+		<ScreenSharePickerModalFrame
+			activeTab={activeTab}
+			dataFlxPrefix="voice.screen-share-picker-modal"
+			mode={mode}
+			onActiveTabChange={handleExplicitActiveTabChange}
+			data-flx="voice.screen-share-picker-modal.screen-share-picker-modal-frame"
+		>
+			<ScreenSharePickerModalLoadedContent
+				data-flx="voice.screen-share-picker-modal.screen-share-picker-modal-loaded-content"
+				{...contentProps}
+				activeTab={activeTab}
+				devicePreviewsEnabled={devicePreviewsEnabled}
+				devicePreviewPermissionStatus={devicePreviewPermissionStatus}
+				mode={mode}
+				onRequestDevicePreviewPermission={requestDevicePreviewPermission}
+			/>
+		</ScreenSharePickerModalFrame>
+	);
+});

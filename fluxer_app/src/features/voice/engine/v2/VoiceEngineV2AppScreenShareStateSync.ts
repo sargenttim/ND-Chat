@@ -7,7 +7,7 @@ import {
 } from '@app/features/voice/engine/VoiceMediaEngineBridge';
 import LocalVoiceState from '@app/features/voice/state/LocalVoiceState';
 
-type VoiceScreenShareStateReason = 'user' | 'server';
+export type VoiceScreenShareStateReason = 'user' | 'server';
 
 export interface VoiceScreenShareStateOptions {
 	forceSync?: boolean;

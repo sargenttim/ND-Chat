@@ -19,7 +19,7 @@ export const PAGE_SIZE_OPTIONS: Array<ComboboxOption<number>> = [
 	{value: 100, label: '100'},
 ];
 
-interface SearchableGuildMemberSupplemental {
+export interface SearchableGuildMemberSupplemental {
 	join_source_type: number | null;
 	source_invite_code: string | null;
 	inviter_id: string | null;
@@ -140,7 +140,10 @@ export interface MembersTableBodyProps {
 	onRowClick: (data: MemberDisplayData) => void;
 }
 
-function hasSelectedValues<T>(values?: ReadonlyArray<T>): boolean {
+export type PaginationItem = number | 'ellipsis-left' | 'ellipsis-right';
+export type PaginationEllipsisSide = 'left' | 'right';
+
+export function hasSelectedValues<T>(values?: ReadonlyArray<T>): boolean {
 	return values != null && values.length > 0;
 }
 

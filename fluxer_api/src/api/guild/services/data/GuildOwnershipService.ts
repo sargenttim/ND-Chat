@@ -2,10 +2,13 @@
 
 import type {GuildID, UserID} from '@app/api/BrandedTypes';
 import {mapGuildToGuildResponse} from '@app/api/guild/GuildModel';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {GuildDataHelpers} from '@app/api/guild/services/data/GuildDataHelpers';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {serializeGuildForAudit} from '@app/api/utils/AuditSerializationUtils';
+import type {Guild} from '@app/api/models/Guild';
+import type {GuildMember} from '@app/api/models/GuildMember';
+import type {User} from '@app/api/models/User';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
+import {checkGuildVerificationWithGuildModel} from '@app/api/utils/GuildVerificationUtils';
 import {AuditLogActionType} from '@fluxer/constants/src/AuditLogActionType';
 import {MissingAccessError} from '@fluxer/errors/src/domains/core/MissingAccessError';
 import {MissingPermissionsError} from '@fluxer/errors/src/domains/core/MissingPermissionsError';
@@ -18,8 +21,8 @@ const OWNERSHIP_AUDIT_KEYS: ReadonlySet<string> = new Set(['owner_id']);
 
 export class GuildOwnershipService {
 	constructor(
-		private readonly guildRepository: GuildRepository,
-		private readonly userRepository: UserRepository,
+		private readonly guildRepository: IGuildRepositoryAggregate,
+		private readonly userRepository: IUserRepository,
 		private readonly helpers: GuildDataHelpers,
 	) {}
 
@@ -48,7 +51,7 @@ export class GuildOwnershipService {
 		}
 		const guild = await this.guildRepository.findUnique(guildId);
 		if (!guild) throw new UnknownGuildError();
-		const previousSnapshot = serializeGuildForAudit(guild);
+		const previousSnapshot = this.helpers.serializeGuildForAudit(guild);
 		const previousOwnerId = guild.ownerId;
 		const updatedGuild = await this.guildRepository.upsertPartial(
 			guildId,
@@ -57,7 +60,7 @@ export class GuildOwnershipService {
 			previousOwnerId,
 		);
 		await this.helpers.dispatchGuildUpdate(updatedGuild);
-		await this.helpers.guildAuditLogService.record({
+		await this.helpers.recordAuditLog({
 			guildId,
 			userId,
 			action: AuditLogActionType.GUILD_UPDATE,
@@ -66,5 +69,10 @@ export class GuildOwnershipService {
 			changes: this.helpers.computeGuildChanges(previousSnapshot, updatedGuild, OWNERSHIP_AUDIT_KEYS),
 		});
 		return mapGuildToGuildResponse(updatedGuild);
+	}
+
+	async checkGuildVerification(params: {user: User; guild: Guild; member: GuildMember}): Promise<void> {
+		const {user, guild, member} = params;
+		checkGuildVerificationWithGuildModel({user, guild, member});
 	}
 }

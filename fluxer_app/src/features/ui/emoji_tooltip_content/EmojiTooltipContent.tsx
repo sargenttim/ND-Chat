@@ -16,6 +16,7 @@ interface EmojiTooltipContentProps {
 	isLoading?: boolean;
 	className?: string;
 	emojiClassName?: string;
+	innerClassName?: string;
 	onClick?: () => void;
 	interactive?: boolean;
 }
@@ -32,6 +33,7 @@ export const EmojiTooltipContent = React.forwardRef<HTMLDivElement, EmojiTooltip
 			isLoading = false,
 			className,
 			emojiClassName,
+			innerClassName,
 			onClick,
 			interactive = false,
 		},
@@ -90,7 +92,7 @@ export const EmojiTooltipContent = React.forwardRef<HTMLDivElement, EmojiTooltip
 					<FocusRing offset={-2} data-flx="ui.emoji-tooltip-content.emoji-tooltip-content.focus-ring">
 						<button
 							type="button"
-							className={styles.inner}
+							className={clsx(styles.inner, innerClassName)}
 							onClick={onClick}
 							data-flx="ui.emoji-tooltip-content.emoji-tooltip-content.inner.click.button"
 						>
@@ -106,7 +108,10 @@ export const EmojiTooltipContent = React.forwardRef<HTMLDivElement, EmojiTooltip
 				className={clsx(styles.container, className)}
 				data-flx="ui.emoji-tooltip-content.emoji-tooltip-content.container--2"
 			>
-				<div className={styles.inner} data-flx="ui.emoji-tooltip-content.emoji-tooltip-content.inner">
+				<div
+					className={clsx(styles.inner, innerClassName)}
+					data-flx="ui.emoji-tooltip-content.emoji-tooltip-content.inner"
+				>
 					{content}
 				</div>
 			</div>

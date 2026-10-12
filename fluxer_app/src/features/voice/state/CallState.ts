@@ -4,6 +4,7 @@ import MediaEngine from '@app/features/voice/engine/MediaEngineFacade';
 import CallInitiator from '@app/features/voice/state/CallInitiator';
 import {
 	type Call,
+	CallLayout,
 	type CallStateEvent,
 	type CallStateSnapshot,
 	createCallStateSnapshot,
@@ -18,7 +19,13 @@ import {
 import {ME} from '@fluxer/constants/src/AppConstants';
 import {makeAutoObservable, observable} from 'mobx';
 
-export type {Call, GatewayCallData};
+export enum CallMode {
+	MINIMUM = 'MINIMUM',
+	NORMAL = 'NORMAL',
+	FULL_SCREEN = 'FULL_SCREEN',
+}
+
+export {type Call, CallLayout, type GatewayCallData};
 
 class CallState {
 	calls = observable.map<string, Call>();
@@ -34,6 +41,9 @@ class CallState {
 				getCall: false,
 				getActiveCalls: false,
 				hasActiveCall: false,
+				isCallActive: false,
+				getCallLayout: false,
+				getMessageId: false,
 				getParticipants: false,
 				isUserPendingRinging: false,
 			},
@@ -55,6 +65,27 @@ class CallState {
 
 	hasActiveCall(channelId: string): boolean {
 		return hasActiveCallInSnapshot(this.snapshot, channelId, this.getParticipants(channelId));
+	}
+
+	isCallActive(channelId: string, messageId?: string): boolean {
+		const call = this.calls.get(channelId);
+		if (!call) return false;
+		if (messageId) return call.messageId === messageId;
+		return call.region != null;
+	}
+
+	getCallLayout(channelId: string): CallLayout {
+		const call = this.calls.get(channelId);
+		const connectedChannelId = MediaEngine.channelId;
+		if (call?.layout && channelId === connectedChannelId) {
+			return call.layout;
+		}
+		return CallLayout.MINIMUM;
+	}
+
+	getMessageId(channelId: string): string | null {
+		const call = this.calls.get(channelId);
+		return call?.messageId ?? null;
 	}
 
 	getParticipants(channelId: string): Array<string> {
@@ -96,6 +127,10 @@ class CallState {
 	handleCallDelete(data: {channelId: string}): void {
 		CallInitiator.clearChannel(data.channelId);
 		this.transition({type: 'call.delete', channelId: data.channelId});
+	}
+
+	handleCallLayoutUpdate(channelId: string, layout: CallLayout): void {
+		this.transition({type: 'call.layout.update', channelId, layout});
 	}
 
 	handleCallParticipants(channelId: string, participants: Array<string>): void {

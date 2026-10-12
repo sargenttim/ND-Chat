@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import type {AppMetricsSnapshot} from '@app/features/platform/types/Electron';
 import type {StatsForNerdsData} from '@app/features/voice/utils/VoiceStatsForNerdsPresenter';
-import type {AppMetricsSnapshot} from '@app/types/electron.d';
-import type {VoiceEngineV2PerTrackStats} from '@fluxer/voice_engine_v2/src/protocol/types';
+import type {VoiceEngineV2PerTrackStats} from '@fluxer/voice_engine_v2';
 import {renderToStaticMarkup} from 'react-dom/server';
 
-const VOICE_DEBUG_STATS_JSON_ELEMENT_ID = 'stats-json';
+export const VOICE_DEBUG_STATS_JSON_ELEMENT_ID = 'stats-json';
 const VOICE_DEBUG_STATS_MAX_VALUE_CHARS = 4096;
 const VOICE_DEBUG_STATS_MAX_RAW_JSON_CHARS = 262_144;
 const VOICE_DEBUG_STATS_SPARKLINE_MAX_SAMPLES = 60;

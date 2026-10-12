@@ -2,13 +2,8 @@
 
 import type {ChannelID, GuildID, MessageID, UserID} from '@app/api/BrandedTypes';
 import {createChannelID} from '@app/api/BrandedTypes';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
-import {dispatchChannelEvent} from '@app/api/channel/services/ChannelGatewayDispatch';
-import {
-	type CrosspostWorkerService,
-	enqueueCrosspostSourceRemoval,
-} from '@app/api/channel/services/message/CrosspostPropagation';
-import {decrementThreadMessageCount, purgeMessageAttachments} from '@app/api/channel/services/message/MessageHelpers';
+import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
+import {purgeMessageAttachments} from '@app/api/channel/services/message/MessageHelpers';
 import {
 	isChannelEligible,
 	isTimestampInWindow,
@@ -23,14 +18,14 @@ import {Logger} from '@app/api/Logger';
 import type {Message} from '@app/api/models/Message';
 import {deleteMessageSearchDocuments} from '@app/api/search/MessageSearchIndexCleanup';
 import {chunkArray} from '@app/api/utils/ArrayUtils';
+import {ChannelEventDispatcher} from '@app/api/worker/services/ChannelEventDispatcher';
 import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
 
 interface UserMessageDeletionServiceDeps {
-	channelRepository: ChannelRepository;
+	channelRepository: IChannelRepository;
 	gatewayService: IGatewayService;
 	storageService: IStorageService;
 	purgeQueue: IPurgeQueue;
-	workerService: CrosspostWorkerService;
 }
 
 interface DeleteUserMessagesScope {
@@ -58,10 +53,13 @@ interface MessageWithChannel {
 }
 
 export class UserMessageDeletionService {
+	private readonly eventDispatcher: ChannelEventDispatcher;
 	private readonly FETCH_BATCH_SIZE = 100;
 	private readonly DELETE_BATCH_SIZE = 100;
 
-	constructor(private readonly deps: UserMessageDeletionServiceDeps) {}
+	constructor(private readonly deps: UserMessageDeletionServiceDeps) {
+		this.eventDispatcher = new ChannelEventDispatcher({gatewayService: deps.gatewayService});
+	}
 
 	async deleteUserMessagesInScope(
 		userId: UserID,
@@ -122,7 +120,7 @@ export class UserMessageDeletionService {
 		const channelEligibility = new Map<string, boolean>();
 		let lastMessageId: MessageID | undefined;
 		while (true) {
-			const messageRefs = await this.deps.channelRepository.messages.listMessagesByAuthor(
+			const messageRefs = await this.deps.channelRepository.listMessagesByAuthor(
 				userId,
 				this.FETCH_BATCH_SIZE,
 				lastMessageId,
@@ -138,14 +136,14 @@ export class UserMessageDeletionService {
 				const channelIdStr = channelId.toString();
 				let eligible = channelEligibility.get(channelIdStr);
 				if (eligible === undefined) {
-					const channel = await this.deps.channelRepository.channelData.findUnique(channelId);
+					const channel = await this.deps.channelRepository.findUnique(channelId);
 					eligible = channel ? isChannelEligible(channel, userId, filter, context) : false;
 					channelEligibility.set(channelIdStr, eligible);
 				}
 				if (!eligible) {
 					continue;
 				}
-				const message = await this.deps.channelRepository.messages.getMessage(channelId, messageId);
+				const message = await this.deps.channelRepository.getMessage(channelId, messageId);
 				if (message && message.authorId === userId) {
 					if (!messagesByChannel.has(channelIdStr)) {
 						messagesByChannel.set(channelIdStr, []);
@@ -166,15 +164,9 @@ export class UserMessageDeletionService {
 			}
 		}
 		if (scope.guildId) {
-			const channels = await this.deps.channelRepository.channelData.listGuildChannels(scope.guildId, 'complete');
+			const channels = await this.deps.channelRepository.channelData.listGuildChannels(scope.guildId);
 			for (const channel of channels) {
 				allowlist.add(channel.id.toString());
-			}
-			const threadIds = await this.deps.channelRepository.threads.listGuildThreadIds(scope.guildId, {
-				parents: channels,
-			});
-			for (const threadId of threadIds) {
-				allowlist.add(threadId.toString());
 			}
 		}
 		return allowlist;
@@ -188,7 +180,7 @@ export class UserMessageDeletionService {
 		const messagesByChannel = new Map<string, Array<MessageWithChannel>>();
 		let lastMessageId: MessageID | undefined;
 		while (true) {
-			const messageRefs = await this.deps.channelRepository.messages.listMessagesByAuthor(
+			const messageRefs = await this.deps.channelRepository.listMessagesByAuthor(
 				userId,
 				this.FETCH_BATCH_SIZE,
 				lastMessageId,
@@ -204,7 +196,7 @@ export class UserMessageDeletionService {
 				if (messageTimestamp > beforeTimestamp) {
 					continue;
 				}
-				const message = await this.deps.channelRepository.messages.getMessage(channelId, messageId);
+				const message = await this.deps.channelRepository.getMessage(channelId, messageId);
 				if (message && message.authorId === userId) {
 					const channelIdStr = channelId.toString();
 					if (!messagesByChannel.has(channelIdStr)) {
@@ -223,7 +215,7 @@ export class UserMessageDeletionService {
 			return 0;
 		}
 		const channelId = createChannelID(BigInt(channelIdStr));
-		const channel = await this.deps.channelRepository.channelData.findUnique(channelId);
+		const channel = await this.deps.channelRepository.findUnique(channelId);
 		if (!channel) {
 			Logger.debug({channelId: channelIdStr}, 'Channel not found, skipping messages');
 			return 0;
@@ -238,19 +230,8 @@ export class UserMessageDeletionService {
 					purgeMessageAttachments(message, this.deps.storageService, this.deps.purgeQueue),
 				),
 			);
-			await this.deps.channelRepository.messages.bulkDeleteMessages(channelId, messageIds);
-			await decrementThreadMessageCount(this.deps.channelRepository, channel, messageIds);
-			await dispatchChannelEvent({
-				gatewayService: this.deps.gatewayService,
-				channel,
-				event: 'MESSAGE_DELETE_BULK',
-				data: {channel_id: channel.id.toString(), ids: messageIds.map((id) => id.toString())},
-			});
-			await enqueueCrosspostSourceRemoval(this.deps.workerService, {
-				messages: messageObjects,
-				mode: 'source_deleted',
-				channel,
-			});
+			await this.deps.channelRepository.bulkDeleteMessages(channelId, messageIds);
+			await this.eventDispatcher.dispatchBulkDelete(channel, messageIds);
 			await deleteMessageSearchDocuments(messageIds, {context: {source: 'bulk_user_message_delete'}});
 			deleted += batch.length;
 		}

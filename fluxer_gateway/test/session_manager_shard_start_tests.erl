@@ -8,6 +8,7 @@
 build_test_state() ->
     #{
         sessions => #{},
+        identify_attempts => [],
         pending_identifies => #{},
         identify_workers => #{},
         shard_index => 0
@@ -35,14 +36,7 @@ bot_identify_data(GuildCount) ->
 
 start_session(Data, IdentifyData) ->
     session_manager_shard_start:build_and_start_session(
-        Data,
-        IdentifyData,
-        1,
-        self(),
-        <<"session-id">>,
-        #{},
-        build_test_state(),
-        gateway_timings:new()
+        Data, IdentifyData, 1, self(), <<"session-id">>, #{}, build_test_state()
     ).
 
 build_and_start_session_rejects_oversized_bot_with_sharding_required_test() ->

@@ -3,7 +3,7 @@
 import {areOrderedStringArraysEqual} from '@app/features/voice/utils/StringArrayUtils';
 import {assign, initialTransition, type SnapshotFrom, setup, transition} from 'xstate';
 
-interface IncomingCallManagerSignals {
+export interface IncomingCallManagerSignals {
 	incomingCallIds: Array<string>;
 	hasRingingCalls: boolean;
 	isVoiceConnected: boolean;
@@ -26,7 +26,7 @@ export interface IncomingCallManagerModel {
 	shouldPlayIncomingRing: boolean;
 }
 
-function resolveIncomingCallQueue(previousQueue: Array<string>, incomingCallIds: Array<string>): Array<string> {
+export function resolveIncomingCallQueue(previousQueue: Array<string>, incomingCallIds: Array<string>): Array<string> {
 	const incomingSet = new Set(incomingCallIds);
 	const retained = previousQueue.filter((channelId) => incomingSet.has(channelId));
 	const appended = incomingCallIds.filter((channelId) => !retained.includes(channelId));
@@ -34,7 +34,7 @@ function resolveIncomingCallQueue(previousQueue: Array<string>, incomingCallIds:
 	return areOrderedStringArraysEqual(previousQueue, nextQueue) ? previousQueue : nextQueue;
 }
 
-function shouldPlayIncomingRing(signals: IncomingCallManagerSignals): boolean {
+export function shouldPlayIncomingRing(signals: IncomingCallManagerSignals): boolean {
 	return signals.hasRingingCalls && !signals.isVoiceConnected && !signals.isVoiceConnecting;
 }
 
@@ -56,7 +56,7 @@ export function resolveIncomingRingCommand(signals: IncomingRingSignals): Incomi
 	return 'none';
 }
 
-const incomingCallManagerStateMachine = setup({
+export const incomingCallManagerStateMachine = setup({
 	types: {} as {
 		context: IncomingCallManagerContext;
 		events: IncomingCallManagerEvent;

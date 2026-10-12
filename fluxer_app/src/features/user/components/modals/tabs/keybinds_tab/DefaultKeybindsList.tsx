@@ -5,8 +5,6 @@ import Keybind, {
 	type KeybindConfig,
 	type KeybindSection,
 } from '@app/features/input/state/InputKeybind';
-import {resolveKeybindCommand} from '@app/features/input/state/input_keybind/KeybindCommands';
-import {isActiveCustomKeybind, isBuiltinDisableMarker} from '@app/features/input/state/KeybindResolution';
 import styles from '@app/features/user/components/modals/tabs/KeybindsTab.module.css';
 import {DefaultShortcutRow} from '@app/features/user/components/modals/tabs/keybinds_tab/DefaultShortcutRow';
 import {
@@ -16,25 +14,32 @@ import {
 	partitionMergedShortcutRows,
 	sortBySectionDisplayOrder,
 } from '@app/features/user/components/modals/tabs/keybinds_tab/shared';
-import {
-	MESSAGES_3_DESCRIPTOR as MESSAGES_DESCRIPTOR,
-	NAVIGATION_DESCRIPTOR,
-} from '@app/features/user/components/settings_utils/section_registry/SharedDescriptors';
-import {
-	MESSAGES_AND_MEDIA_DESCRIPTOR as CHAT_DESCRIPTOR,
-	DEFAULT_SHORTCUTS_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useMemo} from 'react';
 
+const DEFAULT_SHORTCUTS_DESCRIPTOR = msg({
+	message: 'Default shortcuts',
+	comment: 'Short label in the keybinds tab. Keep it concise.',
+});
+const MESSAGES_DESCRIPTOR = msg({
+	message: 'Messages',
+	comment: 'Short label in the keybinds tab. Keep it concise.',
+});
+const NAVIGATION_DESCRIPTOR = msg({
+	message: 'Navigation',
+	comment: 'Short label in the keybinds tab. Keep it concise.',
+});
 const DRAG_AND_DROP_DESCRIPTOR = msg({
 	message: 'Drag and drop',
 	comment: 'Short label in the keybinds tab. Keep it concise.',
 });
-
+const CHAT_DESCRIPTOR = msg({
+	message: 'Chat',
+	comment: 'Short label in the keybinds tab. Keep it concise.',
+});
 const VOICE_AND_VIDEO_DESCRIPTOR = msg({
 	message: 'Voice and video',
 	comment: 'Short label in the keybinds tab. Keep it concise.',
@@ -47,14 +52,13 @@ export const DefaultKeybindsList: React.FC<{searchQuery: string}> = observer(({s
 	const {i18n} = useLingui();
 	const defaults = Keybind.getDefaults();
 	const customKeybinds = Keybind.getCustomKeybinds();
-	const overriddenActions = new Set<KeybindCommand>();
-	const disabledActions = new Set<KeybindCommand>();
-	for (const entry of customKeybinds) {
-		const action = resolveKeybindCommand(entry.action);
-		if (action === null) continue;
-		if (isActiveCustomKeybind(entry)) overriddenActions.add(action);
-		else if (isBuiltinDisableMarker(entry)) disabledActions.add(action);
-	}
+	const overriddenActions = useMemo(() => {
+		const set = new Set<KeybindCommand>();
+		for (const entry of customKeybinds) {
+			if (entry.action) set.add(entry.action);
+		}
+		return set;
+	}, [customKeybinds]);
 	const normalized = normalizeQuery(searchQuery);
 	const sectionLabels: Record<KeybindSection, string> = {
 		defaults: i18n._(DEFAULT_SHORTCUTS_DESCRIPTOR),
@@ -120,7 +124,6 @@ export const DefaultKeybindsList: React.FC<{searchQuery: string}> = observer(({s
 									key={Array.isArray(row) ? `${row[0].action}-${row[1].action}-${idx}` : `${row.action}-${idx}`}
 									row={row}
 									overriddenActions={overriddenActions}
-									disabledActions={disabledActions}
 									data-flx="user.keybinds-tab.default-keybinds-list.default-shortcut-row"
 								/>
 							))}

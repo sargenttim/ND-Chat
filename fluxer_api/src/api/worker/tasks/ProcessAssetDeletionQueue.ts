@@ -3,7 +3,6 @@
 import {createGuildID, createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
-import {stripAnimationPrefix} from '@app/api/infrastructure/AssetEntitlementUtils';
 import type {IPurgeQueue} from '@app/api/infrastructure/CachePurgeQueue';
 import type {
 	IAssetDeletionQueue,
@@ -276,6 +275,10 @@ function parseAssetEntityId(value: string | undefined, field: 'entityId' | 'guil
 	const parsed = SnowflakeType.safeParse(value);
 	if (!parsed.success) throw new Error(`Asset deletion reference has an invalid ${field}`);
 	return parsed.data;
+}
+
+function stripAnimationPrefix(hash: string): string {
+	return hash.startsWith('a_') ? hash.substring(2) : hash;
 }
 
 export default processAssetDeletionQueue;

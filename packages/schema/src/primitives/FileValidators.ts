@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {BASE64_IMAGE_MAX_SIZE} from '@fluxer/constants/src/LimitConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {
 	normalizeString,
@@ -106,8 +105,4 @@ export function createBase64StringType(minLength = 1, maxLength = 256) {
 			}),
 		'Base64ImageType',
 	);
-}
-
-export function createBase64ImageType() {
-	return createBase64StringType(1, base64LengthForBytes(BASE64_IMAGE_MAX_SIZE));
 }

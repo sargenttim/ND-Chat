@@ -2,10 +2,7 @@
 
 import {createAttachmentID, createChannelID, createMessageID, createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
-import {
-	EMBED_MEDIA_OWNED_ATTACHMENT_FLAG,
-	purgeMessageAttachments,
-} from '@app/api/channel/services/message/MessageHelpers';
+import {purgeMessageAttachments} from '@app/api/channel/services/message/MessageHelpers';
 import type {MessageEmbed} from '@app/api/database/types/MessageTypes';
 import type {IPurgeQueue} from '@app/api/infrastructure/CachePurgeQueue';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
@@ -17,7 +14,7 @@ const CHANNEL_ID = createChannelID(10n);
 const ATTACHMENT_KEY = 'attachments/10/200/ação.png';
 const OTHER_MESSAGE_ATTACHMENT_KEY = 'attachments/11/300/photo.jpg';
 
-function imageEmbed(key: string, flags = 0): MessageEmbed {
+function imageEmbed(key: string): MessageEmbed {
 	return {
 		type: 'image',
 		title: null,
@@ -36,7 +33,7 @@ function imageEmbed(key: string, flags = 0): MessageEmbed {
 			content_type: 'image/png',
 			content_hash: null,
 			placeholder: null,
-			flags,
+			flags: 0,
 			duration: null,
 		},
 		video: null,
@@ -46,9 +43,7 @@ function imageEmbed(key: string, flags = 0): MessageEmbed {
 	};
 }
 
-function makeMessageWithMedia(
-	embeds: Array<MessageEmbed> = [imageEmbed(ATTACHMENT_KEY), imageEmbed(OTHER_MESSAGE_ATTACHMENT_KEY)],
-): Message {
+function makeMessageWithMedia(): Message {
 	return new Message({
 		channel_id: CHANNEL_ID,
 		bucket: 0,
@@ -84,7 +79,7 @@ function makeMessageWithMedia(
 				waveform: null,
 			},
 		],
-		embeds,
+		embeds: [imageEmbed(ATTACHMENT_KEY), imageEmbed(OTHER_MESSAGE_ATTACHMENT_KEY)],
 		sticker_items: null,
 		message_reference: null,
 		message_snapshots: null,
@@ -113,28 +108,5 @@ describe('purgeMessageAttachments', () => {
 
 		expect(deletedObjects).toEqual([`${Config.s3.buckets.cdn}/${ATTACHMENT_KEY}`]);
 		expect(queuedUrls).toEqual([`${Config.endpoints.media}/${ATTACHMENT_KEY}`]);
-	});
-
-	it('purges embed files the message owns and leaves marked files under other channels alone', async () => {
-		const deletedObjects: Array<string> = [];
-		const storageService = {
-			deleteObject: async (_bucket: string, key: string) => {
-				deletedObjects.push(key);
-			},
-		} as unknown as IStorageService;
-		const purgeQueue: IPurgeQueue = {addUrls: async () => {}};
-		const ownedEmbedKey = 'attachments/10/201/embed.png';
-
-		await purgeMessageAttachments(
-			makeMessageWithMedia([
-				imageEmbed(ownedEmbedKey, EMBED_MEDIA_OWNED_ATTACHMENT_FLAG),
-				imageEmbed(OTHER_MESSAGE_ATTACHMENT_KEY, EMBED_MEDIA_OWNED_ATTACHMENT_FLAG),
-				imageEmbed('attachments/10/202/unmarked.png'),
-			]),
-			storageService,
-			purgeQueue,
-		);
-
-		expect(deletedObjects).toEqual([ATTACHMENT_KEY, ownedEmbedKey]);
 	});
 });

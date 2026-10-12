@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {UserSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
+import {showDmActionErrorModal} from '@app/features/app/components/alerts/DmActionErrorModal';
+import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
 import * as Modal from '@app/features/app/components/dialogs/Modal';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import Authentication from '@app/features/auth/state/Authentication';
+import * as PrivateChannelCommands from '@app/features/channel/commands/PrivateChannelCommands';
 import DeveloperOptions from '@app/features/devtools/state/DeveloperOptions';
 import {
+	BLOCKED_USER_DM_WARNING_DESCRIPTOR,
 	COPY_USER_ID_DESCRIPTOR,
 	COPY_USERNAME_DESCRIPTOR,
 	OPEN_DM_DESCRIPTOR,
@@ -13,11 +16,8 @@ import {
 	START_VOICE_CALL_DESCRIPTOR,
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import GuildMembers from '@app/features/member/state/GuildMembers';
-import {
-	BLOCK_DESCRIPTOR,
-	REPORT_USER_PROFILE_DESCRIPTOR,
-} from '@app/features/moderation/utils/ModerationMessageDescriptors';
-import {openReportUserProfileModal} from '@app/features/moderation/utils/ReportActionUtils';
+import {BLOCK_DESCRIPTOR, REPORT_USER_DESCRIPTOR} from '@app/features/moderation/utils/ModerationMessageDescriptors';
+import {openReportUserModal} from '@app/features/moderation/utils/ReportActionUtils';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import MemberPresenceSubscription from '@app/features/presence/state/MemberPresenceSubscription';
 import Relationships from '@app/features/relationship/state/Relationships';
@@ -46,6 +46,7 @@ import * as TextCopyCommands from '@app/features/ui/commands/TextCopyCommands';
 import ContextMenu from '@app/features/ui/state/ContextMenu';
 import {Tooltip} from '@app/features/ui/tooltip/Tooltip';
 import userProfileModalStyles from '@app/features/user/components/modals/UserProfileModal.module.css';
+import {UserSettingsModal} from '@app/features/user/components/modals/UserSettingsModal';
 import {ProfileModalContent} from '@app/features/user/components/modals/user_profile_modal/ProfileModalContent';
 import {UserProfileLoadingSkeleton} from '@app/features/user/components/profile/UserProfileLoadingSkeleton';
 import {useUserProfileSurfaceState} from '@app/features/user/hooks/useUserProfileSurfaceState';
@@ -53,7 +54,6 @@ import type {Profile} from '@app/features/user/models/Profile';
 import {User} from '@app/features/user/models/User';
 import UserNote from '@app/features/user/state/UserNote';
 import Users from '@app/features/user/state/Users';
-import {blockedDmConfirmModal, openDMChannelOrShowError} from '@app/features/user/utils/DMActionUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
 import type * as ProfileDisplayUtils from '@app/features/user/utils/ProfileDisplayUtils';
 import {
@@ -62,15 +62,6 @@ import {
 	toProfileDisplayContext,
 } from '@app/features/user/utils/ProfileGuildMembership';
 import {createMockProfile} from '@app/features/user/utils/ProfileUtils';
-import {
-	MORE_ACTIONS_DESCRIPTOR,
-	SEND_FRIEND_REQUEST_DESCRIPTOR,
-	UNBLOCK_USER_DESCRIPTOR,
-	USER_PROFILE_DESCRIPTOR,
-	VIEW_COMMUNITY_PROFILE_DESCRIPTOR,
-	VIEW_GLOBAL_PROFILE_DESCRIPTOR,
-	YOU_CAN_T_MESSAGE_YOURSELF_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
 import * as CallUtils from '@app/features/voice/utils/CallUtils';
 import {hasActiveDirectCallWithUser} from '@app/features/voice/utils/PrivateCallMenuUtils';
 import {PublicUserFlags, RelationshipTypes} from '@fluxer/constants/src/UserConstants';
@@ -96,24 +87,49 @@ import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 
+const USER_PROFILE_DESCRIPTOR = msg({
+	message: 'User profile',
+	comment: 'Short label in the user profile modal. Keep it concise.',
+});
 const USER_PROFILE_2_DESCRIPTOR = msg({
 	message: 'User profile: {tag}',
 	comment: 'Short label in the user profile modal. Keep it concise. Preserve {tag}; it is inserted by code.',
 });
-
+const VIEW_COMMUNITY_PROFILE_DESCRIPTOR = msg({
+	message: 'View community profile',
+	comment: 'Button or menu action label in the user profile modal. Keep it concise.',
+});
+const VIEW_GLOBAL_PROFILE_DESCRIPTOR = msg({
+	message: 'View global profile',
+	comment: 'Button or menu action label in the user profile modal. Keep it concise.',
+});
 const YOU_CAN_T_BEFRIEND_YOURSELF_DESCRIPTOR = msg({
 	message: "You can't befriend yourself",
 	comment: 'Error message in the user profile modal.',
 });
-
+const YOU_CAN_T_MESSAGE_YOURSELF_DESCRIPTOR = msg({
+	message: "You can't message yourself",
+	comment: 'Error message in the user profile modal.',
+});
+const MORE_ACTIONS_DESCRIPTOR = msg({
+	message: 'More actions',
+	comment: 'Short label in the user profile modal. Keep it concise.',
+});
+const UNBLOCK_USER_DESCRIPTOR = msg({
+	message: 'Unblock user',
+	comment: 'Button or menu action label in the user profile modal. Keep it concise. Keep the tone plain and specific.',
+});
 const CLAIM_YOUR_ACCOUNT_TO_SEND_FRIEND_REQUESTS_DESCRIPTOR = msg({
 	message: 'Claim your account to send friend requests.',
 	comment: 'Description text in the user profile modal.',
 });
-
+const SEND_FRIEND_REQUEST_DESCRIPTOR = msg({
+	message: 'Send friend request',
+	comment: 'Button or menu action label in the user profile modal. Keep it concise.',
+});
 const logger = new Logger('UserProfileModal');
 
-interface UserProfileModalProps {
+export interface UserProfileModalProps {
 	userId: string;
 	guildId?: string;
 	autoFocusNote?: boolean;
@@ -241,29 +257,35 @@ export const UserProfileModal: UserProfileModalComponent = observer(
 		const handleEditProfile = () => {
 			ModalCommands.pop();
 			ModalCommands.push(
-				modal(
-					() => (
-						<UserSettingsModal
-							initialTab="my_profile"
-							data-flx="user.user-profile-modal.handle-edit-profile.user-settings-modal"
-						/>
-					),
-					'user-settings',
-				),
+				modal(() => (
+					<UserSettingsModal
+						initialTab="my_profile"
+						data-flx="user.user-profile-modal.handle-edit-profile.user-settings-modal"
+					/>
+				)),
 			);
 		};
 		const handleMessage = async () => {
-			ModalCommands.pop();
-			await openDMChannelOrShowError(userId);
+			try {
+				ModalCommands.pop();
+				await PrivateChannelCommands.openDMChannel(userId);
+			} catch (error) {
+				logger.error('Failed to open DM channel:', error);
+				showDmActionErrorModal(error);
+			}
 		};
 		const handleOpenBlockedDm = () => {
 			ModalCommands.push(
-				blockedDmConfirmModal(
-					i18n,
-					displayUserName,
-					handleMessage,
-					'user.user-profile-modal.handle-open-blocked-dm.confirm-modal',
-				),
+				modal(() => (
+					<ConfirmModal
+						title={i18n._(OPEN_DM_DESCRIPTOR)}
+						description={i18n._(BLOCKED_USER_DM_WARNING_DESCRIPTOR, {userName: displayUserName})}
+						primaryText={i18n._(OPEN_DM_DESCRIPTOR)}
+						primaryVariant="primary"
+						onPrimary={handleMessage}
+						data-flx="user.user-profile-modal.handle-open-blocked-dm.confirm-modal"
+					/>
+				)),
 			);
 		};
 		const handleSendFriendRequest = () => {
@@ -297,16 +319,28 @@ export const UserProfileModal: UserProfileModalComponent = observer(
 			RelationshipActionUtils.cancelFriendRequest(i18n, userId);
 		};
 		const handleStartVoiceCall = async (event?: ContextMenuActionEvent) => {
-			await CallUtils.startCallWithUser(i18n, userId, CallUtils.getCallStartRequestOptions(event, {kind: 'voice'}));
+			try {
+				const channelId = await PrivateChannelCommands.ensureDMChannel(userId);
+				await CallUtils.requestStartCall(i18n, channelId, CallUtils.getCallStartRequestOptions(event, {kind: 'voice'}));
+			} catch (error) {
+				logger.error('Failed to start voice call:', error);
+				showDmActionErrorModal(error);
+			}
 		};
 		const handleStartVideoCall = async (event?: ContextMenuActionEvent) => {
-			await CallUtils.startCallWithUser(i18n, userId, CallUtils.getCallStartRequestOptions(event, {kind: 'video'}));
+			try {
+				const channelId = await PrivateChannelCommands.ensureDMChannel(userId);
+				await CallUtils.requestStartCall(i18n, channelId, CallUtils.getCallStartRequestOptions(event, {kind: 'video'}));
+			} catch (error) {
+				logger.error('Failed to start video call:', error);
+				showDmActionErrorModal(error);
+			}
 		};
-		const handleReportUserProfile = () => {
-			openReportUserProfileModal({user: displayUser, guildId});
+		const handleReportUser = () => {
+			openReportUserModal({i18n, user: displayUser, guildId});
 		};
 		const handleCopyFluxerTag = () => {
-			TextCopyCommands.copy(i18n, displayUser.tag, true);
+			TextCopyCommands.copy(i18n, `${displayUser.username}#${displayUser.discriminator}`, true);
 		};
 		const handleCopyUserId = () => {
 			TextCopyCommands.copy(i18n, displayUser.id, true);
@@ -454,13 +488,13 @@ export const UserProfileModal: UserProfileModalComponent = observer(
 							<MenuItem
 								icon={<FlagIcon data-flx="user.user-profile-modal.open-more-options-menu.flag-icon" />}
 								onClick={() => {
-									handleReportUserProfile();
+									handleReportUser();
 									props.onClose();
 								}}
 								danger
-								data-flx="user.user-profile-modal.open-more-options-menu.menu-item.report-user-profile"
+								data-flx="user.user-profile-modal.open-more-options-menu.menu-item.report-user"
 							>
-								{i18n._(REPORT_USER_PROFILE_DESCRIPTOR)}
+								{i18n._(REPORT_USER_DESCRIPTOR)}
 							</MenuItem>
 							{renderBlockMenuItem(props.onClose)}
 						</MenuGroup>

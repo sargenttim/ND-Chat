@@ -16,24 +16,15 @@ import {
 	startRegistration,
 } from '@simplewebauthn/browser';
 
-interface NativeCeremonyRequestContext {
-	pin?: string;
-	instanceKey?: string;
-}
-
-async function runNativeCeremonyWithPinSupport<T>(
-	instanceKey: string | null,
-	run: (requestContext?: NativeCeremonyRequestContext) => Promise<T>,
-): Promise<T> {
-	const baseContext = instanceKey == null ? undefined : {instanceKey};
+async function runNativeCeremonyWithPinSupport<T>(run: (requestContext?: {pin?: string}) => Promise<T>): Promise<T> {
 	try {
-		return await run(baseContext);
+		return await run();
 	} catch (error) {
 		if (parsePasskeyPinFailure(error)?.kind !== 'required') {
 			throw error;
 		}
 	}
-	return promptForSecurityKeyPin((pin) => run({...baseContext, pin}));
+	return promptForSecurityKeyPin((pin) => run({pin}));
 }
 
 async function rememberMigratedPasskeyUse<T>(rpId: string | undefined, ceremony: Promise<T>): Promise<T> {
@@ -44,20 +35,19 @@ async function rememberMigratedPasskeyUse<T>(rpId: string | undefined, ceremony:
 	return result;
 }
 
-export function isBrowserWebAuthnSupported(): boolean {
-	return browserSupportsWebAuthn();
-}
-
-export async function isWebAuthnSupported(): Promise<boolean> {
+export async function assertWebAuthnSupported(): Promise<void> {
 	if (Platform.isElectron) {
 		const electronApi = getElectronAPI();
-		return electronApi != null && (await electronApi.passkeyIsSupported?.()) === true;
+		const nativeSupported = electronApi && (await electronApi.passkeyIsSupported?.());
+		if (nativeSupported) {
+			return;
+		}
+		if (browserSupportsWebAuthn()) {
+			return;
+		}
+		throw new Error('WebAuthn is not supported in this environment.');
 	}
-	return browserSupportsWebAuthn();
-}
-
-export async function assertWebAuthnSupported(): Promise<void> {
-	if (!(await isWebAuthnSupported())) {
+	if (!browserSupportsWebAuthn()) {
 		throw new Error('WebAuthn is not supported in this environment.');
 	}
 }
@@ -73,7 +63,7 @@ export async function performRegistration(
 		if (nativeSupported && passkeyRegister) {
 			return rememberMigratedPasskeyUse(
 				options.rp.id,
-				runNativeCeremonyWithPinSupport(null, (requestContext) => passkeyRegister(options, requestContext)),
+				runNativeCeremonyWithPinSupport((requestContext) => passkeyRegister(options, requestContext)),
 			);
 		}
 	}
@@ -82,7 +72,6 @@ export async function performRegistration(
 
 export async function performAuthentication(
 	options: PublicKeyCredentialRequestOptionsJSON,
-	instanceKey: string | null = null,
 ): Promise<AuthenticationResponseJSON> {
 	await assertWebAuthnSupported();
 	if (Platform.isElectron) {
@@ -92,7 +81,7 @@ export async function performAuthentication(
 		if (nativeSupported && passkeyAuthenticate) {
 			return rememberMigratedPasskeyUse(
 				options.rpId,
-				runNativeCeremonyWithPinSupport(instanceKey, (requestContext) => passkeyAuthenticate(options, requestContext)),
+				runNativeCeremonyWithPinSupport((requestContext) => passkeyAuthenticate(options, requestContext)),
 			);
 		}
 	}

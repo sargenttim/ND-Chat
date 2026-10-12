@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {EXAMPLE_REPORT_EMAIL} from '@app/features/app/config/I18nDisplayConstants';
-import {CONTINUE_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import styles from '@app/features/moderation/components/pages/ReportPage.module.css';
-import {ResendCooldownLabel} from '@app/features/moderation/components/report/ReportStepVerification';
 import {Button} from '@app/features/ui/button/Button';
 import {Input} from '@app/features/ui/components/form/FormInput';
 import {msg} from '@lingui/core/macro';
@@ -19,8 +17,6 @@ interface Props {
 	email: string;
 	errorMessage: string | null;
 	isSending: boolean;
-	verified: boolean;
-	resendCooldownSeconds: number;
 	onEmailChange: (value: string) => void;
 	onSubmit: () => void;
 	onStartOver: () => void;
@@ -30,8 +26,6 @@ export const ReportStepEmail: React.FC<Props> = ({
 	email,
 	errorMessage,
 	isSending,
-	verified,
-	resendCooldownSeconds,
 	onEmailChange,
 	onSubmit,
 	onStartOver,
@@ -74,7 +68,6 @@ export const ReportStepEmail: React.FC<Props> = ({
 					<Input
 						label={i18n._(EMAIL_ADDRESS_DESCRIPTOR)}
 						type="email"
-						dir="ltr"
 						value={email}
 						onChange={(e) => onEmailChange(e.target.value)}
 						placeholder={EXAMPLE_REPORT_EMAIL}
@@ -85,21 +78,12 @@ export const ReportStepEmail: React.FC<Props> = ({
 						<Button
 							fitContent
 							type="submit"
-							disabled={!emailLooksValid || isSending || (!verified && resendCooldownSeconds > 0)}
+							disabled={!emailLooksValid || isSending}
 							submitting={isSending}
 							className={styles.actionButton}
 							data-flx="moderation.report.report-step-email.action-button.submit"
 						>
-							{verified ? (
-								i18n._(CONTINUE_DESCRIPTOR)
-							) : resendCooldownSeconds > 0 ? (
-								<ResendCooldownLabel
-									resendCooldownSeconds={resendCooldownSeconds}
-									data-flx="moderation.report.report-step-email.resend-cooldown-label"
-								/>
-							) : (
-								<Trans>Send verification code</Trans>
-							)}
+							<Trans>Send verification code</Trans>
 						</Button>
 						<Button
 							variant="secondary"

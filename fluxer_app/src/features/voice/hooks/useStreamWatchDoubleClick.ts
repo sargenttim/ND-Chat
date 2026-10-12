@@ -53,6 +53,7 @@ export function useStreamWatchDoubleClick({
 				startWatching();
 				VoiceCallLayoutCommands.setLayoutMode('focus');
 				VoiceCallLayoutCommands.setPinnedParticipant(streamParticipantIdentity, VoiceTrackSource.ScreenShare);
+				VoiceCallLayoutCommands.markUserOverride();
 				if (isConnectedToChannel) {
 					handleNavigateToWatch();
 				} else if (channelId) {

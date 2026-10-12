@@ -5,7 +5,6 @@
 
 -export([
     is_stale/2,
-    current_twin/3,
     record/4,
     forget/2,
     forget_all/1,
@@ -29,32 +28,6 @@ is_stale(ListId, State) ->
             Recorded =/= inputs(ChannelId, State);
         _ ->
             true
-    end.
-
--spec current_twin(channel_id(), [list_id()], guild_state()) -> {ok, list_id()} | none.
-current_twin(ChannelId, ListIds, State) ->
-    AccessByChannel = virtual_access_by_channel(State),
-    find_current_twin(
-        inputs(ChannelId, State, AccessByChannel),
-        ListIds,
-        recorded(State),
-        AccessByChannel,
-        State
-    ).
-
--spec find_current_twin(inputs(), [list_id()], map(), #{term() => [term()]}, guild_state()) ->
-    {ok, list_id()} | none.
-find_current_twin(_Inputs, [], _Recorded, _AccessByChannel, _State) ->
-    none;
-find_current_twin(Inputs, [ListId | Rest], Recorded, AccessByChannel, State) ->
-    case {maps:find(ListId, Recorded), channel_id(ListId)} of
-        {{ok, Inputs}, TwinChannelId} when is_integer(TwinChannelId) ->
-            case inputs(TwinChannelId, State, AccessByChannel) of
-                Inputs -> {ok, ListId};
-                _ -> find_current_twin(Inputs, Rest, Recorded, AccessByChannel, State)
-            end;
-        _ ->
-            find_current_twin(Inputs, Rest, Recorded, AccessByChannel, State)
     end.
 
 -spec record(list_id(), channel_id(), guild_state(), guild_state()) -> guild_state().
@@ -95,10 +68,7 @@ inputs(ChannelId, State) ->
 
 -spec inputs(channel_id(), guild_state(), #{term() => [term()]}) -> inputs().
 inputs(ChannelId, State, AccessByChannel) ->
-    {
-        guild_permissions_check:view_inputs(ChannelId, State),
-        maps:get(ChannelId, AccessByChannel, [])
-    }.
+    {guild_permissions:view_inputs(ChannelId, State), maps:get(ChannelId, AccessByChannel, [])}.
 
 -spec virtual_access_by_channel(guild_state()) -> #{term() => [term()]}.
 virtual_access_by_channel(State) ->

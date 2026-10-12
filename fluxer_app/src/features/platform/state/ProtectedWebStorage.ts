@@ -58,4 +58,6 @@ export function installBrowserStorageAccessProtection(): void {
 	deleteWindowStorageProperty('caches');
 }
 
+export const installLocalStorageAccessProtection = installBrowserStorageAccessProtection;
+
 installBrowserStorageAccessProtection();

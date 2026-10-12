@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Channels from '@app/features/channel/state/Channels';
-import {hasForumUnread} from '@app/features/forum/state/ForumReadState';
 import {
 	type GuildReadStateContribution,
 	resolveGuildReadStateContribution,
@@ -9,15 +8,11 @@ import {
 import Guilds from '@app/features/guild/state/Guilds';
 import {deferUntilModulesLoaded} from '@app/features/platform/utils/DeferUntilModulesLoaded';
 import ReadStates from '@app/features/read_state/state/ReadStates';
-import ChannelThreads from '@app/features/threads/state/ChannelThreads';
-import ThreadMemberships from '@app/features/threads/state/ThreadMemberships';
-import {getThreadParent, isThreadMuted} from '@app/features/threads/utils/ThreadNotificationUtils';
 import AdvancedSettings from '@app/features/user/state/AdvancedSettings';
 import UserGuildSettings from '@app/features/user/state/UserGuildSettings';
 import {ME} from '@fluxer/constants/src/AppConstants';
 import {GUILD_TEXT_BASED_CHANNEL_TYPES} from '@fluxer/constants/src/ChannelConstants';
 import {MessageNotifications} from '@fluxer/constants/src/NotificationConstants';
-import {THREAD_CHANNEL_TYPES, THREAD_ONLY_CHANNEL_TYPES} from '@fluxer/constants/src/ThreadConstants';
 import type {ChannelId, GuildId} from '@fluxer/schema/src/branded/WireIds';
 import {makeAutoObservable, observable, reaction, runInAction} from 'mobx';
 
@@ -32,6 +27,13 @@ class GuildReadStateEntry {
 
 	bumpChangeTicket(): void {
 		this.changeTicket.set(this.changeTicket.get() + 1);
+	}
+
+	reset(): void {
+		this.unread.set(false);
+		this.firstUnreadChannelId.set(null);
+		this.mentionCount.set(0);
+		this.mentionChannels.clear();
 	}
 }
 
@@ -60,35 +62,11 @@ function resolveUnreadBadgesLevel(channel: ContributeChannel): number | null {
 	});
 }
 
-function getThreadContribution(channelId: string): GuildReadStateContribution {
-	const thread = ChannelThreads.getThread(channelId);
-	const parent = thread ? getThreadParent(thread) : undefined;
-	if (!thread || !parent) {
-		return {mentionAllowed: false, unreadAllowed: false, mentionCount: 0};
-	}
-	const contribution = resolveGuildReadStateContribution({
-		isEligibleTextChannel: true,
-		isPrivate: false,
-		unreadBadgesLevel: resolveUnreadBadgesLevel(parent),
-		isMutedForUnread: isThreadMuted(thread),
-		hasUnread: ReadStates.hasUnread(channelId),
-		mentionCount: ReadStates.getMentionCount(channelId),
-	});
-	if (!ThreadMemberships.isMember(channelId) || isThreadMuted(thread)) {
-		return {...contribution, unreadAllowed: false};
-	}
-	return contribution;
-}
-
 function getChannelContribution(channel: ContributeChannel, channelId: string): GuildReadStateContribution {
-	if (THREAD_CHANNEL_TYPES.has(channel.type)) {
-		return getThreadContribution(channelId);
-	}
-	const forum = THREAD_ONLY_CHANNEL_TYPES.has(channel.type) ? Channels.getChannel(channelId) : undefined;
 	const mentionCount = ReadStates.getMentionCount(channelId);
-	const hasUnread = forum ? hasForumUnread(forum) : ReadStates.hasUnread(channelId);
+	const hasUnread = ReadStates.hasUnread(channelId);
 	return resolveGuildReadStateContribution({
-		isEligibleTextChannel: GUILD_TEXT_BASED_CHANNEL_TYPES.has(channel.type) || forum != null,
+		isEligibleTextChannel: GUILD_TEXT_BASED_CHANNEL_TYPES.has(channel.type),
 		isPrivate: channel.isPrivate(),
 		unreadBadgesLevel: resolveUnreadBadgesLevel(channel),
 		isMutedForUnread: isChannelMutedForUnread(channel),
@@ -293,9 +271,7 @@ class GuildReadState {
 				return false;
 			}
 			const channels = Channels.getGuildChannels(guildId);
-			const threadIds = ChannelThreads.getGuildThreadIds(guildId);
-			const threads = threadIds.length > 0 ? ChannelThreads.getGuildThreads(guildId) : [];
-			for (const channel of threads.length > 0 ? [...channels, ...threads] : channels) {
+			for (const channel of channels) {
 				const contribution = getChannelContribution(channel, channel.id);
 				if (contribution.mentionAllowed) {
 					newState.mentionCount.set(newState.mentionCount.get() + contribution.mentionCount);
@@ -380,24 +356,28 @@ class GuildReadState {
 		return total;
 	}
 
+	directMessageMentionCount(): number {
+		const state = this.guildStates.get(PRIVATE_CHANNEL_SENTINEL as GuildId);
+		return state?.mentionCount.get() ?? 0;
+	}
+
+	directMessageMentionCountFor(channelId: string): number {
+		return ReadStates.getMentionCount(channelId);
+	}
+
+	guildChangeTicketFor(guildId: string | null): number {
+		const id = guildId ?? PRIVATE_CHANNEL_SENTINEL;
+		const state = this.guildStates.get(id as GuildId);
+		return state?.changeTicket.get() ?? 0;
+	}
+
 	guildUnreadIgnoringMute(guildId: string): boolean {
 		const channels = Channels.getGuildChannels(guildId);
 		for (const channel of channels) {
-			if (THREAD_ONLY_CHANNEL_TYPES.has(channel.type)) {
-				if (hasForumUnread(channel) || ReadStates.getMentionCount(channel.id) > 0) {
-					return true;
-				}
-				continue;
-			}
 			if (!GUILD_TEXT_BASED_CHANNEL_TYPES.has(channel.type)) {
 				continue;
 			}
 			if (ReadStates.isUnreadOrMentioned(channel.id)) {
-				return true;
-			}
-		}
-		for (const threadId of ChannelThreads.getGuildThreadIds(guildId)) {
-			if (ThreadMemberships.isMember(threadId) && ReadStates.isUnreadOrMentioned(threadId)) {
 				return true;
 			}
 		}
@@ -433,10 +413,48 @@ class GuildReadState {
 		this.notifyChange();
 	}
 
+	handleChannelUpdate(action: {
+		channel: {
+			id: string;
+			guildId?: string;
+		};
+	}): void {
+		this.recomputeChannels(action.channel.guildId ?? null, [action.channel.id as ChannelId]);
+	}
+
 	handleGenericUpdate(channelId: string): void {
 		const channel = Channels.getChannel(channelId);
 		if (channel == null) return;
 		this.recomputeChannels(channel.guildId ?? null, [channelId as ChannelId]);
+	}
+
+	handleBulkChannelUpdate(action: {
+		channels: Array<{
+			id: string;
+			guildId?: string;
+		}>;
+	}): void {
+		const byGuild = new Map<GuildId | null, Array<ChannelId>>();
+		for (const channel of action.channels) {
+			const guildId = channel.guildId ?? null;
+			let channels = byGuild.get(guildId as GuildId | null);
+			if (channels == null) {
+				channels = [];
+				byGuild.set(guildId as GuildId | null, channels);
+			}
+			channels.push(channel.id as ChannelId);
+		}
+		for (const [guildId, channelIds] of byGuild.entries()) {
+			this.recomputeChannels(guildId, channelIds);
+		}
+	}
+
+	handleGuildSettingsUpdate(action: {guildId: string}): void {
+		this.recomputeAll(action.guildId);
+	}
+
+	handleRecomputeAll(): void {
+		this.handleGatewayReady();
 	}
 
 	handleWindowFocused(): void {

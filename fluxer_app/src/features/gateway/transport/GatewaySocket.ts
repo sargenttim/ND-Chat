@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import GeoIP from '@app/features/app/state/GeoIP';
+import Authentication from '@app/features/auth/state/Authentication';
+import {takeFastConnect} from '@app/features/gateway/transport/FastConnect';
 import {
 	type CompressionType,
 	GatewayCompression,
 	isGatewayCompressionError,
 } from '@app/features/gateway/transport/GatewayCompression';
-import {GatewayConnectionRole} from '@app/features/gateway/transport/GatewayConnectionRole';
+import GatewayConnection from '@app/features/gateway/transport/GatewayConnection';
 import {
 	DISPATCH_FLUSH_DELAY_MS,
 	DISPATCH_IDLE_RETRY_TIMEOUT_MS,
@@ -20,22 +23,19 @@ import {
 	type GatewayTimings,
 	type RpcTimings,
 } from '@app/features/gateway/transport/GatewayTimingsFormatter';
-import {
-	createGatewayWireTransport,
-	type GatewayWireCloseEvent,
-	type GatewayWireErrorEvent,
-	type GatewayWireMessageEvent,
-	type GatewayWireOpenEvent,
-	GatewayWireReadyState,
-	type GatewayWireTransport,
-} from '@app/features/gateway/transport/GatewayWireTransport';
+import AppStorage, {
+	PRESERVED_RESET_STORAGE_KEY_PREFIXES,
+	PRESERVED_RESET_STORAGE_KEYS,
+} from '@app/features/platform/state/PersistentStorage';
 import {Logger, LogLevel} from '@app/features/platform/utils/AppLogger';
 import {ExponentialBackoff} from '@app/features/platform/utils/RetryScheduler';
+import LayerManager from '@app/features/ui/state/LayerManager';
+import MobileLayout from '@app/features/ui/state/MobileLayout';
 import type {GatewayCustomStatusPayload} from '@app/features/user/state/CustomStatus';
+import MediaEngine from '@app/features/voice/engine/MediaEngineFacade';
 import type {GatewayErrorCode} from '@fluxer/constants/src/GatewayConstants';
 import {GatewayCloseCodes, GatewayOpcodes} from '@fluxer/constants/src/GatewayConstants';
 import type {ValueOf} from '@fluxer/constants/src/ValueOf';
-import {isRecord} from '@fluxer/record_utils/src/RecordGuards';
 import EventEmitter from 'eventemitter3';
 
 const GATEWAY_TIMEOUTS = {
@@ -47,11 +47,6 @@ const GATEWAY_TIMEOUTS = {
 	ReconnectSpread: 2000,
 	Hello: 20000,
 } as const;
-
-export const MAX_DEFERRED_GATEWAY_EMITS = 1024;
-export const MAX_DEFERRED_GATEWAY_EMIT_BYTES = 16 * 1024 * 1024;
-const MAX_UTF8_BYTES_PER_UTF16_CODE_UNIT = 3;
-
 export const GatewayState = {
 	Disconnected: 'DISCONNECTED',
 	Connecting: 'CONNECTING',
@@ -102,25 +97,7 @@ export interface GatewayVoiceStateUpdateParams {
 	self_stream: boolean;
 	viewer_stream_keys?: ReadonlyArray<string>;
 	connection_id: string | null;
-	p2p?: boolean;
 }
-
-export interface GatewayVoiceSignalParams {
-	guild_id: string | null;
-	channel_id: string;
-	to: string;
-	data: object;
-}
-
-export const VOICE_SIGNAL_MAX_JSON_BYTES = 16000;
-
-export const VoiceSignalSendResult = {
-	Sent: 'sent',
-	Oversized: 'oversized',
-	Unsent: 'unsent',
-} as const;
-
-export type VoiceSignalSendResult = ValueOf<typeof VoiceSignalSendResult>;
 
 export interface GatewaySocketOptions {
 	token: string;
@@ -130,17 +107,6 @@ export interface GatewaySocketOptions {
 	compression?: CompressionType;
 	identifyFlags?: number;
 	initialGuildId?: string | null;
-	isMobileLayout: () => boolean;
-	geo: () => {latitude: string | null; longitude: string | null};
-	role: GatewayConnectionRole;
-}
-
-export interface GatewaySocketOwnership {
-	readonly role: GatewayConnectionRole;
-	readonly presence: GatewayPresence | undefined;
-	readonly initialGuildId: string | null;
-	readonly isMobileLayout: () => boolean;
-	readonly geo: () => {latitude: string | null; longitude: string | null};
 }
 
 interface GatewayResumeProbeOptions {
@@ -150,6 +116,10 @@ interface GatewayResumeProbeOptions {
 export interface GatewayErrorData {
 	code: GatewayErrorCode;
 	message: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function parseGatewayPayload(json: string): GatewayPayload {
@@ -172,23 +142,8 @@ function parseGatewayPayload(json: string): GatewayPayload {
 }
 
 function isGatewayErrorData(value: unknown): value is GatewayErrorData {
-	return isRecord(value) && typeof value.code === 'string' && typeof value.message === 'string';
+	return isRecord(value) && typeof value.code === 'number' && typeof value.message === 'string';
 }
-
-export interface GatewayDispatchReceipt {
-	readonly sequence: number;
-	readonly generation: number;
-}
-
-export interface GatewayDispatchDelivery {
-	readonly type: string;
-	readonly data: unknown;
-	readonly retainedByteSize: number;
-	readonly receipt: GatewayDispatchReceipt;
-	readonly persistedAuthTokenAccountKey?: string;
-}
-
-export const MAX_GATEWAY_AUTH_TOKEN_LENGTH = 16 * 1024;
 
 export interface GatewaySocketEvents {
 	connecting: () => void;
@@ -196,10 +151,11 @@ export interface GatewaySocketEvents {
 	ready: (data: unknown) => void;
 	resumed: (data: unknown) => void;
 	disconnect: (event: {code: number; reason: string; wasClean: boolean}) => void;
-	error: (error: unknown) => void;
+	error: (error: Error | Event | CloseEvent) => void;
 	fatalError: (error: Error) => void;
 	gatewayError: (error: GatewayErrorData) => void;
-	dispatch: (delivery: GatewayDispatchDelivery) => void;
+	message: (payload: GatewayPayload) => void;
+	dispatch: (type: string, data: unknown) => void;
 	stateChange: (newState: GatewayState, oldState: GatewayState) => void;
 	heartbeat: (sequence: number) => void;
 	heartbeatAck: () => void;
@@ -215,8 +171,7 @@ type GatewaySocketEventArgs<K extends keyof GatewaySocketEvents> = GatewaySocket
 export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 	private readonly log: Logger;
 	private reconnectBackoff: ExponentialBackoff;
-	private socket: GatewayWireTransport | null = null;
-	private removeSocketMessageListener: (() => void) | null = null;
+	private socket: WebSocket | null = null;
 	private connectionState: GatewayState = GatewayState.Disconnected;
 	private activeSessionId: string | null = null;
 	private lastSequenceNumber = 0;
@@ -236,13 +191,9 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 	private isUserInitiatedDisconnect = false;
 	private shouldReconnectImmediately = false;
 	private deferredEmitQueue: Array<() => void> = [];
-	private deferredEmitBytes = 0;
 	private deferredEmitTimeoutId: number | null = null;
 	private deferredEmitIdleId: number | null = null;
 	private criticalWorkScheduled = false;
-	private dispatchGeneration = 0;
-	private consecutiveDispatchFailures = 0;
-	private readonly completedDispatchReceipts = new WeakSet<GatewayDispatchReceipt>();
 	private payloadDecompressor: GatewayCompression | null = null;
 	private compressionFallbackInProgress = false;
 
@@ -260,26 +211,10 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 	}
 
 	private emitDeferred<K extends keyof GatewaySocketEvents>(event: K, ...args: GatewaySocketEventArgs<K>): void {
-		this.enqueueDeferredEmit(0, null, () => {
+		this.deferredEmitQueue.push(() => {
 			(this.emit as (event: K, ...args: GatewaySocketEventArgs<K>) => boolean)(event, ...args);
 		});
-	}
-	private emitDispatchDeferred(delivery: GatewayDispatchDelivery): void {
-		this.enqueueDeferredEmit(delivery.retainedByteSize, delivery.type, () => this.emit('dispatch', delivery));
-	}
-
-	private enqueueDeferredEmit(byteSize: number, dispatchType: string | null, run: () => void): void {
-		if (
-			this.deferredEmitQueue.length >= MAX_DEFERRED_GATEWAY_EMITS ||
-			this.deferredEmitBytes + byteSize > MAX_DEFERRED_GATEWAY_EMIT_BYTES
-		) {
-			this.log.warn(
-				`Deferred gateway emit queue reached its bound (${this.deferredEmitQueue.length} entries, ${this.deferredEmitBytes} bytes), flushing before enqueueing`,
-			);
-			this.flushDeferredEmits();
-		}
-		this.deferredEmitQueue.push(run);
-		this.deferredEmitBytes += byteSize;
+		const dispatchType = event === 'dispatch' ? (args[0] as string) : null;
 		this.scheduleDeferredFlush(dispatchType);
 	}
 
@@ -347,21 +282,9 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		this.criticalWorkScheduled = false;
 		const queue = this.deferredEmitQueue;
 		this.deferredEmitQueue = [];
-		this.deferredEmitBytes = 0;
 		for (const emitFn of queue) {
-			try {
-				emitFn();
-			} catch (error) {
-				this.log.error('Deferred gateway event listener threw', error);
-			}
+			emitFn();
 		}
-	}
-
-	private discardDeferredEmits(): void {
-		this.clearDeferredFlushWork();
-		this.criticalWorkScheduled = false;
-		this.deferredEmitQueue = [];
-		this.deferredEmitBytes = 0;
 	}
 
 	connect(): void {
@@ -389,11 +312,11 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 			this.invalidSessionTimeoutId = null;
 		}
 		this.stopHeartbeat();
-		if (this.socket && this.socket.readyState === GatewayWireReadyState.OPEN) {
+		if (this.socket && this.socket.readyState === WebSocket.OPEN) {
 			try {
 				this.socket.close(code, reason);
 			} catch (error) {
-				this.log.error('Error while closing the gateway transport', error);
+				this.log.error('Error while closing WebSocket', error);
 			}
 		}
 		if (resumable) {
@@ -415,7 +338,6 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 
 	reset(shouldReconnect = true): void {
 		this.log.info(`Resetting gateway connection (reconnect=${shouldReconnect})`);
-		this.discardDeferredEmits();
 		this.clearHelloTimeout();
 		this.clearResumeTimeout();
 		if (this.reconnectTimeoutId != null) {
@@ -424,7 +346,6 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		}
 		this.stopHeartbeat();
 		this.clearSession();
-		this.consecutiveDispatchFailures = 0;
 		this.resetBackoffInternal();
 		this.teardownSocket();
 		this.updateState(GatewayState.Disconnected);
@@ -516,7 +437,7 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 			this.forceReconnect(`Stale connection on resume: ${reason}`);
 			return;
 		}
-		if (this.socket?.readyState !== GatewayWireReadyState.OPEN) {
+		if (this.socket?.readyState !== WebSocket.OPEN) {
 			this.log.warn(
 				`Connection state is Connected but socket readyState is ${this.socket?.readyState ?? 'null'}; forcing reconnect`,
 			);
@@ -568,13 +489,6 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		mobile?: boolean,
 		customStatus?: GatewayCustomStatusPayload | null,
 	): void {
-		const current = this.options.presence;
-		this.options.presence = {
-			status,
-			afk: afk ?? current?.afk ?? false,
-			mobile: mobile ?? current?.mobile ?? false,
-			custom_status: customStatus === undefined ? current?.custom_status : customStatus,
-		};
 		if (!this.isConnected()) return;
 		this.sendPayload({
 			op: GatewayOpcodes.PRESENCE_UPDATE,
@@ -587,39 +501,30 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		});
 	}
 
-	private resendPresence(): void {
-		const presence = this.options.presence;
-		if (!presence) return;
-		this.sendPayload({op: GatewayOpcodes.PRESENCE_UPDATE, d: presence});
-	}
-
-	private buildVoiceStatePayload(params: GatewayVoiceStateUpdateParams): GatewayPayload {
-		const {latitude, longitude} = this.options.geo();
+	private buildVoiceStatePayload(
+		params: GatewayVoiceStateUpdateParams,
+		options: {useCurrentConnectionFallback: boolean},
+	): GatewayPayload {
+		const isMobileLayout = MobileLayout.isMobileLayout();
+		const {latitude, longitude} = GeoIP;
 		return {
 			op: GatewayOpcodes.VOICE_STATE_UPDATE,
 			d: {
 				...params,
-				connection_id: params.connection_id,
-				is_mobile: this.options.isMobileLayout(),
+				connection_id: params.connection_id ?? (options.useCurrentConnectionFallback ? MediaEngine.connectionId : null),
+				is_mobile: isMobileLayout,
 				latitude: latitude ?? undefined,
 				longitude: longitude ?? undefined,
 			},
 		};
 	}
 
-	updateVoiceStateExplicit(params: GatewayVoiceStateUpdateParams): boolean {
-		return this.sendPayload(this.buildVoiceStatePayload(params));
+	updateVoiceState(params: GatewayVoiceStateUpdateParams): boolean {
+		return this.sendPayload(this.buildVoiceStatePayload(params, {useCurrentConnectionFallback: true}));
 	}
 
-	sendVoiceSignal(params: GatewayVoiceSignalParams): VoiceSignalSendResult {
-		if (!this.isConnected()) return VoiceSignalSendResult.Unsent;
-		const payload: GatewayPayload = {op: GatewayOpcodes.VOICE_SIGNAL, d: params};
-		const bytes = new TextEncoder().encode(JSON.stringify(payload)).byteLength;
-		if (bytes > VOICE_SIGNAL_MAX_JSON_BYTES) {
-			this.log.warn(`Refusing voice signal of ${bytes} bytes`);
-			return VoiceSignalSendResult.Oversized;
-		}
-		return this.sendPayload(payload) ? VoiceSignalSendResult.Sent : VoiceSignalSendResult.Unsent;
+	updateVoiceStateExplicit(params: GatewayVoiceStateUpdateParams): boolean {
+		return this.sendPayload(this.buildVoiceStatePayload(params, {useCurrentConnectionFallback: false}));
 	}
 
 	requestGuildMembers(params: {
@@ -667,8 +572,6 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 				typing?: boolean;
 				members?: Array<string>;
 				sync?: boolean;
-				threads?: boolean;
-				thread_member_lists?: Array<string>;
 			}
 		>;
 	}): void {
@@ -704,28 +607,8 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		});
 	}
 
-	requestForumUnreads(params: {
-		guild_id: string;
-		channel_id: string;
-		threads: Array<{thread_id: string; ack_message_id: string}>;
-	}): void {
-		if (!this.isConnected()) return;
-		this.sendPayload({
-			op: GatewayOpcodes.REQUEST_FORUM_UNREADS,
-			d: params,
-		});
-	}
-
 	setToken(token: string): void {
 		this.options.token = token;
-	}
-
-	configureOwnership(ownership: GatewaySocketOwnership): void {
-		this.options.role = ownership.role;
-		this.options.presence = ownership.presence;
-		this.options.initialGuildId = ownership.initialGuildId;
-		this.options.isMobileLayout = ownership.isMobileLayout;
-		this.options.geo = ownership.geo;
 	}
 
 	getState(): GatewayState {
@@ -736,38 +619,55 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		return this.activeSessionId;
 	}
 
+	getSequence(): number {
+		return this.lastSequenceNumber;
+	}
+
 	isConnected(): boolean {
-		return this.connectionState === GatewayState.Connected && this.socket?.readyState === GatewayWireReadyState.OPEN;
+		return this.connectionState === GatewayState.Connected && this.socket?.readyState === WebSocket.OPEN;
+	}
+
+	isConnecting(): boolean {
+		return this.connectionState === GatewayState.Connecting;
 	}
 
 	private openSocket(): void {
 		this.teardownSocket();
 		this.buildGatewayUrl()
 			.then((url) => {
-				this.log.debug(`Opening gateway connection to ${url}`);
+				const adopted = takeFastConnect(url);
+				this.log.debug(`Opening WebSocket connection to ${url}`);
 				try {
+					this.socket = adopted ? adopted.ws : new WebSocket(url);
 					const compression: CompressionType = this.options.compression ?? 'zstd-stream';
 					if (compression !== 'none') {
-						this.payloadDecompressor = new GatewayCompression(compression);
+						this.socket.binaryType = 'arraybuffer';
+						this.payloadDecompressor = new GatewayCompression(compression, true);
 						void this.payloadDecompressor.warmup();
 					} else {
+						this.socket.binaryType = 'blob';
 						this.payloadDecompressor = null;
 					}
 					this.compressionFallbackInProgress = false;
-					const transport = createGatewayWireTransport(url, {
-						binaryType: compression !== 'none' ? 'arraybuffer' : 'blob',
-						adoptPrebootSocket: this.options.role === GatewayConnectionRole.FOREGROUND,
-					});
-					this.socket = transport;
-					transport.on('open', this.handleSocketOpen);
-					this.removeSocketMessageListener = transport.on('message', this.handleSocketMessage);
-					transport.on('close', this.handleSocketClose);
-					transport.on('error', this.handleSocketError);
+					this.socket.addEventListener('open', this.handleSocketOpen);
+					this.socket.addEventListener('message', this.handleSocketMessage);
+					this.socket.addEventListener('close', this.handleSocketClose);
+					this.socket.addEventListener('error', this.handleSocketError);
 					this.startHelloTimeout();
 					this.emitDeferred('connecting');
-					transport.start();
+					if (adopted) {
+						this.log.info(
+							`Adopted fast connect socket opened ${Date.now() - adopted.state.startedAt}ms ago with ${adopted.state.messages.length} buffered message(s)`,
+						);
+						if (adopted.state.open || this.socket.readyState === WebSocket.OPEN) {
+							this.handleSocketOpen(new Event('open'));
+						}
+						for (const message of adopted.state.messages) {
+							void this.handleSocketMessage(message);
+						}
+					}
 				} catch (error) {
-					this.log.error('Failed to open the gateway transport', error);
+					this.log.error('Failed to create WebSocket', error);
 					this.handleConnectionFailure();
 				}
 			})
@@ -782,33 +682,34 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 			this.payloadDecompressor.destroy();
 			this.payloadDecompressor = null;
 		}
-		const socket = this.socket;
-		this.socket = null;
-		this.removeSocketMessageListener = null;
-		if (!socket) return;
+		if (!this.socket) return;
 		try {
-			socket.dispose();
+			this.socket.removeEventListener('open', this.handleSocketOpen);
+			this.socket.removeEventListener('message', this.handleSocketMessage);
+			this.socket.removeEventListener('close', this.handleSocketClose);
+			this.socket.removeEventListener('error', this.handleSocketError);
+			if (this.socket.readyState === WebSocket.OPEN) {
+				this.socket.close(1000, 'Disposing stale socket');
+			}
 		} catch (error) {
 			this.log.error('Error while disposing socket', error);
+		} finally {
+			this.socket = null;
 		}
 	}
 
-	private handleSocketOpen = (event: GatewayWireOpenEvent): void => {
+	private handleSocketOpen = (event: Event): void => {
 		if (!this.isCurrentSocketEvent(event)) return;
-		this.log.info('Gateway connection established');
+		this.log.info('WebSocket connection established');
 		this.emitDeferred('connected');
 	};
-	private handleSocketMessage = async (event: GatewayWireMessageEvent): Promise<void> => {
+	private handleSocketMessage = async (event: MessageEvent): Promise<void> => {
 		try {
 			if (!this.isCurrentSocketEvent(event)) return;
 			const json = await this.extractPayload(event);
 			if (!this.isCurrentSocketEvent(event)) return;
 			if (!json) return;
 			const payload = parseGatewayPayload(json);
-			const retainedByteSize = Math.min(
-				json.length * MAX_UTF8_BYTES_PER_UTF16_CODE_UNIT,
-				MAX_DEFERRED_GATEWAY_EMIT_BYTES,
-			);
 			this.lastGatewayMessageAt = Date.now();
 			this.log.debug('Gateway message received', payload);
 			if (
@@ -818,7 +719,8 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 			) {
 				this.lastSequenceNumber = payload.s;
 			}
-			this.routeGatewayPayload(payload, retainedByteSize);
+			this.routeGatewayPayload(payload);
+			this.emitDeferred('message', payload);
 		} catch (error) {
 			const fatalError = error instanceof Error ? error : new Error(String(error));
 			if (this.handleRecoverableCompressionDecodeError(fatalError)) {
@@ -831,11 +733,11 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		}
 	};
 
-	private isCurrentSocketEvent(event: {target?: GatewayWireTransport}): boolean {
+	private isCurrentSocketEvent(event: Event): boolean {
 		return event.target == null || event.target === this.socket;
 	}
 
-	private async extractPayload(event: {data: string | ArrayBuffer | Blob}): Promise<string | null> {
+	private async extractPayload(event: MessageEvent): Promise<string | null> {
 		if (event.data instanceof ArrayBuffer) {
 			if (!this.payloadDecompressor) {
 				throw new Error('Received binary data but no decompressor is configured');
@@ -871,15 +773,16 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		this.options.compression = 'none';
 		this.shouldReconnectImmediately = true;
 		this.log.warn('Gateway compression decode failed; reconnecting with compression disabled', error);
-		this.removeSocketMessageListener?.();
-		this.removeSocketMessageListener = null;
+		if (this.socket) {
+			this.socket.removeEventListener('message', this.handleSocketMessage);
+		}
 		this.disconnect(GatewayCloseCodes.DECODE_ERROR, 'Retrying without compression', true);
 		return true;
 	}
 
-	private handleSocketClose = (event: GatewayWireCloseEvent): void => {
+	private handleSocketClose = (event: CloseEvent): void => {
 		if (!this.isCurrentSocketEvent(event)) return;
-		this.log.warn(`Gateway connection closed [${event.code}] ${event.reason || ''}`);
+		this.log.warn(`WebSocket closed [${event.code}] ${event.reason || ''}`);
 		this.clearHelloTimeout();
 		this.stopHeartbeat();
 		if (this.invalidSessionTimeoutId != null) {
@@ -894,8 +797,7 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 			wasClean: event.wasClean,
 		});
 		if (event.code === GatewayCloseCodes.AUTHENTICATION_FAILED) {
-			this.log.error('Gateway authentication failed, leaving the session to its owner');
-			this.updateState(GatewayState.Disconnected);
+			this.handleAuthFailure();
 			return;
 		}
 		if (
@@ -912,17 +814,17 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 			this.updateState(GatewayState.Disconnected);
 		}
 	};
-	private handleSocketError = (event: GatewayWireErrorEvent): void => {
+	private handleSocketError = (event: Event): void => {
 		if (!this.isCurrentSocketEvent(event)) return;
-		this.log.error('Gateway transport error', event.error);
-		this.emitDeferred('error', event.error);
+		this.log.error('WebSocket error', event);
+		this.emitDeferred('error', event);
 		this.handleConnectionFailure();
 	};
 
-	private routeGatewayPayload(payload: GatewayPayload, retainedByteSize: number): void {
+	private routeGatewayPayload(payload: GatewayPayload): void {
 		switch (payload.op) {
 			case GatewayOpcodes.DISPATCH:
-				this.handleDispatchPayload(payload, retainedByteSize);
+				this.handleDispatchPayload(payload);
 				break;
 			case GatewayOpcodes.HEARTBEAT:
 				this.log.debug('Heartbeat requested by server');
@@ -955,7 +857,7 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		}
 	}
 
-	private handleDispatchPayload(payload: GatewayPayload, retainedByteSize: number): void {
+	private handleDispatchPayload(payload: GatewayPayload): void {
 		if (!payload.t) return;
 		switch (payload.t) {
 			case 'READY': {
@@ -964,7 +866,7 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 				};
 				this.activeSessionId = data.session_id;
 				this.resetHeartbeatHistory();
-				this.resetBackoffUnlessDispatchesKeepFailing();
+				this.resetBackoffInternal();
 				this.updateState(GatewayState.Connected);
 				const readyMs = this.connectStartedAt > 0 ? Date.now() - this.connectStartedAt : 0;
 				this.log.info(`Gateway READY, session=${this.activeSessionId}, ready_ms=${readyMs}`);
@@ -976,41 +878,13 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 				this.clearResumeTimeout();
 				this.resetHeartbeatHistory();
 				this.updateState(GatewayState.Connected);
-				this.resetBackoffUnlessDispatchesKeepFailing();
+				this.resetBackoffInternal();
 				this.log.info('Gateway session resumed');
-				this.resendPresence();
 				this.logDispatchTimings('RESUMED', payload.d);
 				this.emitDeferred('resumed', payload.d);
 				break;
 		}
-		this.emitDispatchDeferred({
-			type: payload.t,
-			data: payload.d,
-			retainedByteSize,
-			receipt: {sequence: payload.s ?? this.lastSequenceNumber, generation: this.dispatchGeneration},
-		});
-	}
-
-	isDispatchActive(receipt: GatewayDispatchReceipt): boolean {
-		return receipt.generation === this.dispatchGeneration && !this.completedDispatchReceipts.has(receipt);
-	}
-
-	completeDispatchProcessing(receipt: GatewayDispatchReceipt): void {
-		if (!this.isDispatchActive(receipt)) return;
-		this.completedDispatchReceipts.add(receipt);
-		this.consecutiveDispatchFailures = 0;
-	}
-
-	failDispatchProcessing(receipt: GatewayDispatchReceipt, error: unknown): void {
-		if (!this.isDispatchActive(receipt)) return;
-		this.completedDispatchReceipts.add(receipt);
-		this.consecutiveDispatchFailures += 1;
-		this.log.error(
-			`Gateway dispatch processing failed at sequence ${receipt.sequence} (${this.consecutiveDispatchFailures} in a row)`,
-			error,
-		);
-		this.clearSession();
-		this.disconnect(4000, 'Gateway dispatch processing failed', true);
+		this.emitDeferred('dispatch', payload.t, payload.d);
 	}
 
 	private logDispatchTimings(eventName: 'READY' | 'RESUMED', data: unknown): void {
@@ -1271,16 +1145,6 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		this.reconnectBackoff.reset();
 	}
 
-	private resetBackoffUnlessDispatchesKeepFailing(): void {
-		if (this.consecutiveDispatchFailures > 0) {
-			this.log.warn(
-				`Holding the reconnect backoff after ${this.consecutiveDispatchFailures} dispatch failures in a row`,
-			);
-			return;
-		}
-		this.resetBackoffInternal();
-	}
-
 	private canResumeSession(): boolean {
 		const now = Date.now();
 		if (!this.activeSessionId) return false;
@@ -1309,7 +1173,6 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		this.activeSessionId = null;
 		this.lastSequenceNumber = 0;
 		this.lastGatewayMessageAt = null;
-		this.dispatchGeneration += 1;
 		this.resetHeartbeatHistory();
 		if (hadSession) {
 			this.log.info('Gateway session cleared');
@@ -1364,7 +1227,7 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 	}
 
 	private sendPayload(payload: GatewayPayload): boolean {
-		if (!this.socket || this.socket.readyState !== GatewayWireReadyState.OPEN) {
+		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
 			this.log.warn('Attempted to send gateway payload while socket is not open');
 			return false;
 		}
@@ -1398,5 +1261,14 @@ export class GatewaySocket extends EventEmitter<GatewaySocketEvents> {
 		this.connectionState = nextState;
 		this.log.info(`Gateway state ${previous} -> ${nextState}`);
 		this.emitDeferred('stateChange', nextState, previous);
+	}
+
+	private handleAuthFailure(): void {
+		this.log.error('Authentication failed: clearing client state and logging out');
+		this.updateState(GatewayState.Disconnected);
+		AppStorage.clearExcept(PRESERVED_RESET_STORAGE_KEYS, PRESERVED_RESET_STORAGE_KEY_PREFIXES);
+		LayerManager.closeAll();
+		GatewayConnection.logout();
+		Authentication.handleConnectionClosed({code: 4004});
 	}
 }

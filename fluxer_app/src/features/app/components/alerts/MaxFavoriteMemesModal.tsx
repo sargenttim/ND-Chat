@@ -2,10 +2,11 @@
 
 import {GenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModal';
 import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
+import {PREMIUM_PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {Limits} from '@app/features/app/utils/UserLimits';
 import {CLOSE_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import * as PremiumModalCommands from '@app/features/premium/commands/PremiumModalCommands';
-import {getPremiumProductName, shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
+import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import Users from '@app/features/user/state/Users';
 import {MAX_FAVORITE_MEMES_PREMIUM} from '@fluxer/constants/src/LimitConstants';
 import {msg, plural} from '@lingui/core/macro';
@@ -40,7 +41,7 @@ export const MaxFavoriteMemesModal = observer(() => {
 	const {i18n} = useLingui();
 	const currentUser = Users.currentUser;
 	const showPremium = shouldShowPremiumFeatures();
-	const premiumLimit = Limits.getStockValue('max_favorite_memes', MAX_FAVORITE_MEMES_PREMIUM);
+	const premiumLimit = Limits.getPremiumValue('max_favorite_memes', MAX_FAVORITE_MEMES_PREMIUM);
 	const maxFavoriteMemes = currentUser?.maxFavoriteMemes ?? premiumLimit;
 	const canUpgradeFavoriteMemes = maxFavoriteMemes < premiumLimit;
 	if (!showPremium) {
@@ -72,14 +73,14 @@ export const MaxFavoriteMemesModal = observer(() => {
 	}
 	const freeDescription = i18n._(YOU_VE_REACHED_THE_MAXIMUM_LIMIT_OF_FOR_DESCRIPTOR, {
 		count: maxFavoriteMemes,
-		premiumProductName: getPremiumProductName(),
+		premiumProductName: PREMIUM_PRODUCT_NAME,
 		premiumCount: premiumLimit,
 	});
 	return (
 		<ConfirmModal
 			title={i18n._(SAVED_MEDIA_LIMIT_REACHED_DESCRIPTOR)}
 			description={freeDescription}
-			primaryText={i18n._(UPGRADE_TO_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
+			primaryText={i18n._(UPGRADE_TO_DESCRIPTOR, {premiumProductName: PREMIUM_PRODUCT_NAME})}
 			primaryVariant="primary"
 			onPrimary={() => {
 				window.setTimeout(() => {

@@ -18,6 +18,10 @@ function createPortalRoot(): HTMLElement | null {
 	return root;
 }
 
+export function ensureIncomingCallPortalRoot(): HTMLElement | null {
+	return createPortalRoot();
+}
+
 export function useIncomingCallPortalRoot(): HTMLElement | null {
 	const [root, setRoot] = useState<HTMLElement | null>(() => createPortalRoot());
 	useEffect(() => {

@@ -53,6 +53,7 @@ async function scheduleDeletion(
 		currentPendingDeletionAt: user.pendingDeletionAt,
 		nextPendingDeletionAt: pendingDeletionAt,
 		deletionReasonCode: DeletionReasons.INACTIVITY,
+		userRepository,
 		deletionQueue: deletionQueueService,
 	});
 	await revokeAllAuthSessions({users: userRepository, gateway: gatewayService}, userId);

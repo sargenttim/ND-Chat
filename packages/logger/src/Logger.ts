@@ -99,6 +99,14 @@ export class Logger {
 				: serviceNameOrPinoLogger;
 	}
 
+	getPinoLogger(): PinoLogger {
+		return this.logger;
+	}
+
+	setPinoLogger(logger: PinoLogger): void {
+		this.logger = logger;
+	}
+
 	static createWithLogger(logger: PinoLogger): Logger {
 		return new Logger(logger);
 	}

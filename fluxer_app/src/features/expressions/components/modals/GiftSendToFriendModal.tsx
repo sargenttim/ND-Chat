@@ -1,25 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {showDmActionErrorModal} from '@app/features/app/components/alerts/DmActionErrorModal';
 import * as Modal from '@app/features/app/components/dialogs/Modal';
 import {CopyLinkSection} from '@app/features/app/components/dialogs/shared/CopyLinkSection';
-import {
-	RecipientList,
-	useRecipientItems,
-	useSendLinkToRecipients,
-} from '@app/features/app/components/dialogs/shared/RecipientList';
+import type {RecipientItem} from '@app/features/app/components/dialogs/shared/RecipientList';
+import {RecipientList, useRecipientItems} from '@app/features/app/components/dialogs/shared/RecipientList';
 import selectorStyles from '@app/features/app/components/dialogs/shared/SelectorModalStyles.module.css';
+import {PREMIUM_PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import * as PrivateChannelCommands from '@app/features/channel/commands/PrivateChannelCommands';
 import styles from '@app/features/expressions/components/modals/GiftSendToFriendModal.module.css';
 import {SEARCH_FRIENDS_DESCRIPTOR, SENT_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
-import {getPremiumProductName} from '@app/features/premium/utils/PremiumUtils';
+import * as MessageCommands from '@app/features/messaging/commands/MessageCommands';
+import {Logger} from '@app/features/platform/utils/AppLogger';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Input} from '@app/features/ui/components/form/FormInput';
 import {useCopyLinkHandler} from '@app/lib/copy-link';
+import * as SnowflakeUtils from '@fluxer/snowflake/src/SnowflakeUtils';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {MagnifyingGlassIcon} from '@phosphor-icons/react';
 import {observer} from 'mobx-react-lite';
-import {useState} from 'react';
+import {useCallback, useState} from 'react';
 
 const YOU_ALREADY_HAVE_LIFETIME_DESCRIPTOR = msg({
 	message: 'You already have lifetime {premiumProductName}',
@@ -33,29 +35,52 @@ const GIFT_LINK_DESCRIPTOR = msg({
 	message: 'Gift link',
 	comment: 'Form field label for a gift redemption URL.',
 });
+const logger = new Logger('GiftSendToFriendModal');
 
 interface GiftSendToFriendModalProps {
 	code: string;
 }
 
 export const GiftSendToFriendModal = observer(function GiftSendToFriendModal({code}: GiftSendToFriendModalProps) {
-	const PREMIUM_PRODUCT_NAME = getPremiumProductName();
 	const {i18n} = useLingui();
-
+	const [sentTo, setSentTo] = useState(new Map<string, boolean>());
+	const [sendingTo, setSendingTo] = useState(new Set<string>());
 	const recipients = useRecipientItems();
 	const [searchQuery, setSearchQuery] = useState('');
 	const giftUrl = `${RuntimeConfig.giftEndpoint}/${code}`;
 	const handleCopy = useCopyLinkHandler(giftUrl, true);
-	const {sendingTo, sentTo, send: handleSendGift} = useSendLinkToRecipients(() => giftUrl);
+	const handleSendGift = useCallback(
+		async (item: RecipientItem) => {
+			const userId = item.type === 'group_dm' ? item.id : item.user.id;
+			setSendingTo((previous) => new Set(previous).add(userId));
+			try {
+				const targetChannelId = item.channelId
+					? item.channelId
+					: await PrivateChannelCommands.ensureDMChannel(item.user.id);
+				const result = await MessageCommands.send(targetChannelId, {
+					content: giftUrl,
+					nonce: SnowflakeUtils.fromTimestamp(Date.now()),
+				});
+				if (result) {
+					setSentTo((previous) => new Map(previous).set(userId, true));
+				}
+			} catch (error) {
+				logger.error('Failed to send gift link:', error);
+				showDmActionErrorModal(error);
+			} finally {
+				setSendingTo((previous) => {
+					const next = new Set(previous);
+					next.delete(userId);
+					return next;
+				});
+			}
+		},
+		[giftUrl],
+	);
 	return (
-		<Modal.Root
-			size="small"
-			centered
-			className={selectorStyles.selectorRoot}
-			data-flx="expressions.gift-send-to-friend-modal.modal-root"
-		>
+		<Modal.Root size="small" centered data-flx="expressions.gift-send-to-friend-modal.modal-root">
 			<Modal.Header
-				title={i18n._(YOU_ALREADY_HAVE_LIFETIME_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
+				title={i18n._(YOU_ALREADY_HAVE_LIFETIME_DESCRIPTOR, {premiumProductName: PREMIUM_PRODUCT_NAME})}
 				data-flx="expressions.gift-send-to-friend-modal.modal-header"
 			>
 				<p className={styles.description} data-flx="expressions.gift-send-to-friend-modal.description">

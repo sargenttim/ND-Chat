@@ -2,7 +2,6 @@
 
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {makePersistent, stopPersistent} from '@app/features/platform/utils/MobXPersistence';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import {getElectronAPI} from '@app/features/ui/utils/NativeUtils';
 import {makeAutoObservable, reaction, runInAction} from 'mobx';
 
@@ -35,7 +34,7 @@ class StreamerModeState {
 			},
 			{autoBind: true},
 		);
-		initializeStore(this, () => this.initPersistence());
+		void this.initPersistence();
 		if (typeof window !== 'undefined') {
 			this.autoPollingDisposer = reaction(
 				() => this.autoEnable,

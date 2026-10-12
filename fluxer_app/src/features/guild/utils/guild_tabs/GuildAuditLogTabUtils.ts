@@ -42,9 +42,6 @@ const targetTypeMap: Partial<Record<AuditLogActionType, AuditLogTargetType>> = {
 	[AuditLogActionType.MESSAGE_BULK_DELETE]: AuditLogTargetType.MESSAGE,
 	[AuditLogActionType.MESSAGE_PIN]: AuditLogTargetType.MESSAGE,
 	[AuditLogActionType.MESSAGE_UNPIN]: AuditLogTargetType.MESSAGE,
-	[AuditLogActionType.THREAD_CREATE]: AuditLogTargetType.CHANNEL,
-	[AuditLogActionType.THREAD_UPDATE]: AuditLogTargetType.CHANNEL,
-	[AuditLogActionType.THREAD_DELETE]: AuditLogTargetType.CHANNEL,
 };
 
 export function getTargetType(actionType: AuditLogActionType): AuditLogTargetType {
@@ -61,7 +58,6 @@ const createActions = new Set<AuditLogActionType>([
 	AuditLogActionType.STICKER_CREATE,
 	AuditLogActionType.BOT_ADD,
 	AuditLogActionType.MESSAGE_PIN,
-	AuditLogActionType.THREAD_CREATE,
 ]);
 const updateActions = new Set<AuditLogActionType>([
 	AuditLogActionType.GUILD_UPDATE,
@@ -76,7 +72,6 @@ const updateActions = new Set<AuditLogActionType>([
 	AuditLogActionType.STICKER_UPDATE,
 	AuditLogActionType.MEMBER_MOVE,
 	AuditLogActionType.MEMBER_DISCONNECT,
-	AuditLogActionType.THREAD_UPDATE,
 ]);
 
 export function getActionKind(actionType: AuditLogActionType): AuditLogActionKind {

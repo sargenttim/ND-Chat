@@ -15,7 +15,6 @@ import {
 } from '@app/api/BrandedTypes';
 import type {GatewayMentionSourceEntry, IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import {Logger} from '@app/api/Logger';
-import {ThreadMentionScope} from '@app/api/worker/tasks/ThreadMentionScope';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
 import type {WorkerTaskHandler, WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
 import {z} from 'zod';
@@ -119,7 +118,6 @@ async function enqueueMentionChunks({
 	addJob,
 	firstChunkIndex = 0,
 	chunkCount,
-	thread = false,
 }: {
 	chunks: Array<Array<MentionChunkEntry>>;
 	channelId: string;
@@ -128,7 +126,6 @@ async function enqueueMentionChunks({
 	addJob: WorkerTaskHelpers['addJob'];
 	firstChunkIndex?: number;
 	chunkCount?: number;
-	thread?: boolean;
 }): Promise<number> {
 	for (let offset = 0; offset < chunks.length; offset += MENTION_CHUNK_ENQUEUE_CONCURRENCY) {
 		const chunkSlice = chunks.slice(offset, offset + MENTION_CHUNK_ENQUEUE_CONCURRENCY);
@@ -143,7 +140,6 @@ async function enqueueMentionChunks({
 						guildId,
 						chunkIndex: index,
 						...(chunkCount !== undefined && {chunkCount}),
-						...(thread && {thread: true}),
 						mentions: chunk,
 					},
 					{
@@ -168,7 +164,6 @@ async function enqueueGuildMentionSourcePages({
 	roleIds,
 	userIds,
 	addJob,
-	threadScope,
 }: {
 	gatewayService: IGatewayService;
 	guildId: GuildID;
@@ -180,7 +175,6 @@ async function enqueueGuildMentionSourcePages({
 	roleIds: Array<RoleID>;
 	userIds: Array<UserID>;
 	addJob: WorkerTaskHelpers['addJob'];
-	threadScope: ThreadMentionScope | null;
 }): Promise<{totalMentioned: number; chunkCount: number; pageCount: number}> {
 	let cursor: string | undefined;
 	let chunkIndex = 0;
@@ -199,9 +193,8 @@ async function enqueueGuildMentionSourcePages({
 			...(cursor !== undefined && {cursor}),
 		});
 		pageCount++;
-		const mentions = threadScope ? await threadScope.filter(page.mentions) : page.mentions;
-		totalMentioned += mentions.length;
-		const chunks = chunkEntries(mentions.map(toMentionChunkEntry), MENTION_CHUNK_SIZE);
+		totalMentioned += page.mentions.length;
+		const chunks = chunkEntries(page.mentions.map(toMentionChunkEntry), MENTION_CHUNK_SIZE);
 		chunkIndex = await enqueueMentionChunks({
 			chunks,
 			channelId: channelId.toString(),
@@ -209,7 +202,6 @@ async function enqueueGuildMentionSourcePages({
 			guildId: guildId.toString(),
 			addJob,
 			firstChunkIndex: chunkIndex,
-			thread: threadScope !== null,
 		});
 		const nextCursor = page.nextCursor ?? undefined;
 		if (nextCursor !== undefined && nextCursor === cursor) {
@@ -233,12 +225,12 @@ const handleMentions: WorkerTaskHandler = async (payload, helpers) => {
 	const messageId = createMessageID(BigInt(validated.messageId));
 	const payloadGuildId = validated.guildId ? createGuildID(BigInt(validated.guildId)) : null;
 	const mentionHere = validated.mentionHere ?? false;
-	const message = await channelRepository.messages.getMessage(channelId, messageId);
+	const message = await channelRepository.getMessage(channelId, messageId);
 	if (!message) {
 		Logger.debug({messageId}, 'handleMentions: Message not found, skipping');
 		return;
 	}
-	const channel = await channelRepository.channelData.findUnique(channelId);
+	const channel = await channelRepository.findUnique(channelId);
 	if (!channel) {
 		Logger.debug({channelId}, 'handleMentions: Channel not found, skipping');
 		return;
@@ -249,7 +241,6 @@ const handleMentions: WorkerTaskHandler = async (payload, helpers) => {
 	const userIds =
 		validated.mentionUserIds?.map((userId) => createUserID(BigInt(userId))) ?? Array.from(message.mentionedUserIds);
 	if (channel.guildId) {
-		const threadScope = await ThreadMentionScope.load({channelRepository, gatewayService}, channel, messageId);
 		const result = await enqueueGuildMentionSourcePages({
 			gatewayService,
 			guildId: channel.guildId,
@@ -261,9 +252,7 @@ const handleMentions: WorkerTaskHandler = async (payload, helpers) => {
 			userIds,
 			messageId,
 			addJob: helpers.addJob,
-			threadScope,
 		});
-		await threadScope?.finish();
 		if (result.totalMentioned === 0) {
 			Logger.debug({channelId, guildId: channel.guildId}, 'No users to mention, skipping read state updates');
 			return;

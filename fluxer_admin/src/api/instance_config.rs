@@ -1,12 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use reqwest::Method;
-
 use super::client::{AdminApiClient, ApiResult};
 use super::types::{
-    AccountIdentitySettings, CreateRegistrationUrlRequest, CreateRegistrationUrlResponse,
-    InstanceAccountIdentityDiscovery, InstanceConfigResponse, InstanceConfigUpdateRequest,
-    InstanceEmailSmtpTestResponse, InstancePremiumDiscovery,
+    CreateRegistrationUrlRequest, CreateRegistrationUrlResponse, InstanceConfigResponse,
+    InstanceConfigUpdateRequest, InstanceEmailSmtpTestRequest, InstanceEmailSmtpTestResponse,
+    InstancePremiumDiscovery,
 };
 
 impl AdminApiClient {
@@ -18,57 +16,37 @@ impl AdminApiClient {
         self.get("/.well-known/fluxer", None).await
     }
 
-    pub async fn get_instance_account_identity(&self) -> ApiResult<AccountIdentitySettings> {
-        let discovery: InstanceAccountIdentityDiscovery =
-            self.get("/.well-known/fluxer", None).await?;
-        let mode = discovery.features.account_identity;
-        Ok(AccountIdentitySettings {
-            mode,
-            tag_style: discovery.features.tag_style,
-        })
-    }
-
     pub async fn update_instance_config(
         &self,
         update: &InstanceConfigUpdateRequest,
     ) -> ApiResult<InstanceConfigResponse> {
-        self.send(Method::PATCH, "/admin/instance/config", Some(update), None)
+        self.patch_typed_with_reason("/admin/instance/config", update, None)
             .await
     }
 
-    pub async fn test_saved_instance_smtp_config(
+    pub async fn test_instance_smtp_config(
         &self,
+        request: &InstanceEmailSmtpTestRequest,
     ) -> ApiResult<InstanceEmailSmtpTestResponse> {
-        self.send(
-            Method::POST,
-            "/admin/instance/config/smtp-tests",
-            Some(&serde_json::json!({})),
-            None,
-        )
-        .await
+        self.post_typed("/admin/instance/config/smtp-tests", request)
+            .await
     }
 
     pub async fn create_registration_url(
         &self,
         request: &CreateRegistrationUrlRequest,
     ) -> ApiResult<CreateRegistrationUrlResponse> {
-        self.send(
-            Method::POST,
-            "/admin/instance/registration-urls",
-            Some(request),
-            None,
-        )
-        .await
+        self.post_typed("/admin/instance/registration-urls", request)
+            .await
     }
 
     pub async fn revoke_registration_url(&self, id: &str) -> ApiResult<InstanceConfigResponse> {
-        self.send(
-            Method::DELETE,
+        self.delete_with_reason(
             &format!(
                 "/admin/instance/registration-urls/{}",
                 urlencoding::encode(id)
             ),
-            None::<&serde_json::Value>,
+            None,
             None,
         )
         .await
@@ -94,8 +72,7 @@ impl AdminApiClient {
         status: &str,
     ) -> ApiResult<InstanceConfigResponse> {
         let body = serde_json::json!({"status": status});
-        self.send(
-            Method::PATCH,
+        self.patch_with_reason(
             &format!(
                 "/admin/instance/pending-registrations/{}",
                 urlencoding::encode(user_id)

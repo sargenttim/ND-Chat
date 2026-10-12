@@ -34,7 +34,7 @@ import {
 import {VoiceDetailsPopout} from '@app/features/voice/components/voice_connection_status/VoiceDetailsPopout';
 import MediaEngine, {useMediaEngineVersion} from '@app/features/voice/engine/MediaEngineFacade';
 import VoiceSettings from '@app/features/voice/state/VoiceSettings';
-import {readEffectiveNoiseSuppressionBackend} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionRuntime';
+import {readNoiseSuppressionBackend} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionRuntime';
 import {VOICE_DISCONNECT_DESCRIPTOR, VOICE_IN_CHAT_DESCRIPTOR} from '@app/features/voice/utils/VoiceMessageDescriptors';
 import {getActiveVoiceProcessingMode} from '@app/features/voice/utils/VoiceProcessingProfile';
 import {msg} from '@lingui/core/macro';
@@ -111,7 +111,7 @@ const ResolvedVoiceConnectionStatusInner = observer(function ResolvedVoiceConnec
 	const storeIsConnected = MediaEngine.connected;
 	const voiceSettings = VoiceSettings;
 	const processingMode = getActiveVoiceProcessingMode(voiceSettings);
-	const noiseSuppressionBackend = readEffectiveNoiseSuppressionBackend();
+	const noiseSuppressionBackend = readNoiseSuppressionBackend();
 	const isProcessingActive = isAudioProcessingActive(processingMode, noiseSuppressionBackend);
 	const showVoiceConnectionId = voiceSettings.showVoiceConnectionId;
 	const openNoiseSuppressionModal = useCallback(() => {
@@ -390,7 +390,7 @@ const ResolvedVoiceConnectionStatusInner = observer(function ResolvedVoiceConnec
 							entries={participantAvatarEntries}
 							guildId={avatarGuildId}
 							channelId={channel.id}
-							size={32}
+							size={20}
 							maxVisible={4}
 							deduplicateUsers
 							data-flx="voice.voice-connection-status.voice-connection-status-inner.voice-participant-speaking-avatar-stack"

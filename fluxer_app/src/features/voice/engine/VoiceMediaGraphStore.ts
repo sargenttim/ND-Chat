@@ -23,7 +23,7 @@ import {makeObservable, observableRef} from 'mobx';
 const logger = new Logger('VoiceMediaGraphStore');
 const LOGGED_VIOLATION_LIMIT = 256;
 
-class VoiceMediaGraphStore extends Store {
+export class VoiceMediaGraphStore extends Store {
 	graph: VoiceMediaGraphSnapshot = createVoiceMediaGraphSnapshot();
 
 	private readonly clock: VoiceMediaGraphClockPort;
@@ -73,6 +73,12 @@ class VoiceMediaGraphStore extends Store {
 		});
 	}
 
+	reset(): void {
+		this.update(() => {
+			this.graph = createVoiceMediaGraphSnapshot();
+		});
+	}
+
 	private checkInvariants(): void {
 		if (!IS_DEV) return;
 		const violations = checkVoiceMediaGraphInvariants(this.graph);
@@ -86,3 +92,5 @@ class VoiceMediaGraphStore extends Store {
 }
 
 export const voiceMediaGraphStore = new VoiceMediaGraphStore();
+
+export default voiceMediaGraphStore;

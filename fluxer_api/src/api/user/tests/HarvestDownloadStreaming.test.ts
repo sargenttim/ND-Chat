@@ -81,12 +81,34 @@ describe('Harvest download streaming', () => {
 		});
 	});
 
+	test('rejects a tampered token', async () => {
+		await withStreamingHarvestDownloads(async () => {
+			const {account, harvestId} = await completedHarvest(harness);
+			const download = await fetchHarvestDownload(harness, account.token, harvestId);
+			const path = downloadPath(download.download_url);
+			const response = await get(harness, `${path.slice(0, -2)}xy`);
+			expect(response.status).toBe(404);
+		});
+	});
+
 	test('rejects a token signed with the wrong secret', async () => {
 		await withStreamingHarvestDownloads(async () => {
 			const {account, harvestId, storageKey} = await completedHarvest(harness);
 			const token = signHarvestDownloadToken(
 				{userId: account.userId, harvestId, storageKey, expiresAt: Date.now() + 60_000},
 				'not-the-configured-secret',
+			);
+			const response = await get(harness, `/harvest-downloads/${harvestId}?token=${encodeURIComponent(token)}`);
+			expect(response.status).toBe(404);
+		});
+	});
+
+	test('rejects an expired token even while the harvest is still valid', async () => {
+		await withStreamingHarvestDownloads(async () => {
+			const {account, harvestId, storageKey} = await completedHarvest(harness);
+			const token = signHarvestDownloadToken(
+				{userId: account.userId, harvestId, storageKey, expiresAt: Date.now() - 1},
+				getConfig().auth.connectionInitiationSecret,
 			);
 			const response = await get(harness, `/harvest-downloads/${harvestId}?token=${encodeURIComponent(token)}`);
 			expect(response.status).toBe(404);
@@ -141,30 +163,6 @@ describe('Harvest download streaming', () => {
 			const {harvestId} = await completedHarvest(harness);
 			const response = await get(harness, `/harvest-downloads/${harvestId}`);
 			expect(response.status).toBe(404);
-			expect(await response.text()).toBe('Not Found');
-		});
-	});
-
-	test.each([
-		['an empty token', '?token='],
-		['a token longer than a download URL', `?token=${'a'.repeat(2049)}`],
-		['a token given twice', '?token=a&token=b'],
-	])('answers not found for %s', async (_label, query) => {
-		await withStreamingHarvestDownloads(async () => {
-			const {harvestId} = await completedHarvest(harness);
-			const response = await get(harness, `/harvest-downloads/${harvestId}${query}`);
-			expect(response.status).toBe(404);
-			expect(await response.text()).toBe('Not Found');
-		});
-	});
-
-	test('serves the archive when the link has other query parameters', async () => {
-		await withStreamingHarvestDownloads(async () => {
-			const {account, harvestId} = await completedHarvest(harness);
-			const download = await fetchHarvestDownload(harness, account.token, harvestId);
-			const response = await get(harness, `${downloadPath(download.download_url)}&source=email`);
-			expect(response.status).toBe(200);
-			expect(new Uint8Array(await response.arrayBuffer())).toEqual(ZIP_BYTES);
 		});
 	});
 });

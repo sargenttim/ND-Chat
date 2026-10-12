@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {recordAdminWrite} from '@app/api/admin/AdminAuditRecorder';
 import {Config} from '@app/api/Config';
-import {SYSTEM_USER_ID} from '@app/api/constants/Core';
 import {requireAdminACL} from '@app/api/middleware/AdminMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
@@ -44,17 +42,18 @@ export function CodesAdminController(app: HonoApp) {
 				count,
 				durationType: duration_type,
 				durationQuantity: duration_quantity,
-				createdByUserId: Config.instance.selfHosted ? ctx.get('adminUserId') : SYSTEM_USER_ID,
 			});
-			await recordAdminWrite(ctx, {
+			await adminService.auditService.createAuditLog({
+				adminUserId: ctx.get('adminUserId'),
 				targetType: 'gift_code',
 				targetId: BigInt(0),
 				action: 'generate_gift_codes',
-				metadata: {
-					count: codes.length.toString(),
-					duration_type: duration_type,
-					duration_quantity: duration_quantity.toString(),
-				},
+				auditLogReason: ctx.get('auditLogReason'),
+				metadata: new Map([
+					['count', codes.length.toString()],
+					['duration_type', duration_type],
+					['duration_quantity', duration_quantity.toString()],
+				]),
 			});
 			const baseUrl = trimTrailingSlash(Config.endpoints.gift);
 			return ctx.json({

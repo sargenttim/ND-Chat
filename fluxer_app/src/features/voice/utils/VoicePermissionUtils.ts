@@ -14,9 +14,18 @@ export interface VoiceChannelPermissions {
 	canUseVad: boolean;
 }
 
-type VoicePermissionMuteReason = 'server_suppress' | 'missing_speak_permission' | null;
+export const DEFAULT_VOICE_CHANNEL_PERMISSIONS: VoiceChannelPermissions = {
+	canSpeak: true,
+	canStream: true,
+	canUseVideo: true,
+	canConnect: true,
+	canPrioritySpeaker: false,
+	canUseVad: true,
+};
 
-interface VoicePermissionMuteState {
+export type VoicePermissionMuteReason = 'server_suppress' | 'missing_speak_permission' | null;
+
+export interface VoicePermissionMuteState {
 	muted: boolean;
 	reason: VoicePermissionMuteReason;
 }
@@ -47,7 +56,7 @@ export function isVoiceSpeakPermissionDenied(
 	return voicePermissions !== null && !voicePermissions.canSpeak;
 }
 
-function getVoicePermissionMuteState(
+export function getVoicePermissionMuteState(
 	voiceState: Pick<VoiceState, 'suppress'> | null | undefined,
 	guildId: string | null | undefined,
 	channelId: string | null | undefined,

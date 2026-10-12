@@ -2,21 +2,20 @@
 
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import type {CachePurgeAdapterName, StoreProductSlotName} from '@fluxer/config/src/MasterConfig';
-import type {AccountIdentityMode, TagStyle} from '@fluxer/constants/src/AccountIdentityConstants';
-import type {SmtpTlsMode} from '@fluxer/constants/src/SmtpConstants';
 
 export type APIWorkerMode = 'all_lanes' | 'single_lane' | 'single_task';
-export type APIWorkerLaneName = 'realtime' | 'unfurl' | 'lifecycle' | 'batch' | 'crosspost';
+export type APIWorkerLaneName = 'realtime' | 'unfurl' | 'lifecycle' | 'batch';
+export type PushProviderEnvironment = 'production' | 'development';
+
+export interface PushProviderAppConfig {
+	appId: string;
+	topic?: string;
+	environment?: PushProviderEnvironment;
+}
 
 export interface AppStoreAppConfig {
 	bundleId: string;
 	appAppleId: number;
-}
-
-export interface TrustedCallerConfig {
-	name: string;
-	key: string;
-	buckets: Array<string>;
 }
 
 export interface APICachePurgeConfig {
@@ -40,7 +39,7 @@ interface APIGeoipS3Config {
 	s3Key: string;
 }
 
-type APIGeoipConfig = APIGeoipFilesystemConfig | APIGeoipS3Config;
+export type APIGeoipConfig = APIGeoipFilesystemConfig | APIGeoipS3Config;
 
 export interface APIConfig {
 	nodeEnv: 'development' | 'production';
@@ -48,7 +47,6 @@ export interface APIConfig {
 	headersTimeoutMs: number;
 	requestTimeoutMs: number;
 	maxInflightRequests: number;
-	automatedMessageDeletionDelayDays: number;
 	ipBanExemptIps: Array<string>;
 	cassandra: {
 		hosts: string;
@@ -131,7 +129,7 @@ export interface APIConfig {
 	};
 	internal: {
 		gatewayRpcAuthToken: string;
-		trustedCallers: Array<TrustedCallerConfig>;
+		donationProxyKey: string;
 	};
 	hosts: {
 		marketing: string;
@@ -157,14 +155,13 @@ export interface APIConfig {
 		webhookSecret?: string;
 		fromEmail: string;
 		fromName: string;
-		replyToEmail: string;
 		appBaseUrl: string;
 		smtp?: {
 			host: string;
 			port: number;
 			username: string;
 			password: string;
-			tlsMode: SmtpTlsMode | null;
+			secure: boolean;
 		};
 	};
 	blocklistFeeds: {
@@ -186,7 +183,6 @@ export interface APIConfig {
 			latitude: number;
 			longitude: number;
 		};
-		p2pStunUrls?: Array<string>;
 	};
 	stripe: {
 		enabled: boolean;
@@ -198,7 +194,6 @@ export interface APIConfig {
 			monthlyBrl?: string;
 			monthlyDkk?: string;
 			monthlyInr?: string;
-			monthlyIsk?: string;
 			monthlyNok?: string;
 			monthlyPln?: string;
 			monthlySek?: string;
@@ -208,7 +203,6 @@ export interface APIConfig {
 			yearlyBrl?: string;
 			yearlyDkk?: string;
 			yearlyInr?: string;
-			yearlyIsk?: string;
 			yearlyNok?: string;
 			yearlyPln?: string;
 			yearlySek?: string;
@@ -221,8 +215,6 @@ export interface APIConfig {
 			gift1YearDkk?: string;
 			gift1MonthNok?: string;
 			gift1YearNok?: string;
-			gift1MonthIsk?: string;
-			gift1YearIsk?: string;
 			gift1MonthBrl?: string;
 			gift1MonthInr?: string;
 			gift1MonthPln?: string;
@@ -249,12 +241,16 @@ export interface APIConfig {
 	auth: {
 		sudoModeSecret: string;
 		connectionInitiationSecret: string;
-		profilePseudonymSecret: string;
 		ssoAllowPrivateAddresses: boolean;
 		passkeys: {
 			rpName: string;
 			rpId: string;
 			allowedOrigins: Array<string>;
+		};
+		vapid: {
+			publicKey: string;
+			privateKey: string;
+			email?: string;
 		};
 		bluesky: BlueskyOAuthConfig;
 	};
@@ -266,7 +262,6 @@ export interface APIConfig {
 	};
 	instance: {
 		selfHosted: boolean;
-		baseDomain: string;
 		autoJoinInviteCode?: string;
 		visionariesGuildId?: string;
 		visionariesGuildVisionaryRoleId?: string;
@@ -284,8 +279,6 @@ export interface APIConfig {
 		setup: {
 			configured: boolean;
 		};
-		accountIdentity: AccountIdentityMode | null;
-		tagStyle: TagStyle | null;
 	};
 	discovery: {
 		enabled: boolean;
@@ -302,14 +295,17 @@ export interface APIConfig {
 	presignedHarvestDownloadsEnabled: boolean;
 	attachmentDecayEnabled: boolean;
 	deletionGracePeriodHours: number;
-	reportRetention: {
-		days: number;
-		resolvedDays: number | null;
-		dryRun: boolean;
-	};
 	inactivityDeletionThresholdDays?: number;
 	push: {
 		publicVapidKey?: string;
+		apns: {
+			enabled: boolean;
+			teamId?: string;
+			keyId?: string;
+			privateKey?: string;
+			privateKeyPath?: string;
+			apps: Array<PushProviderAppConfig>;
+		};
 	};
 	appStore: {
 		enabled: boolean;
@@ -341,14 +337,19 @@ export interface APIConfig {
 		laneName?: APIWorkerLaneName;
 		taskName?: WorkerTaskName;
 		enableCronScheduler?: boolean;
-		metricsPort?: number;
 		laneConcurrencyOverrides: {
 			realtime?: number;
 			unfurl?: number;
 			lifecycle?: number;
 			batch?: number;
-			crosspost?: number;
 		};
+	};
+	ncmec: {
+		enabled: boolean;
+		baseUrl?: string;
+		username?: string;
+		password?: string;
+		reporterEmail?: string;
 	};
 }
 

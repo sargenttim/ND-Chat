@@ -4,11 +4,11 @@ import type {Gif} from '@app/features/expressions/commands/GifCommands';
 
 export type View = 'default' | 'trending' | 'favorites';
 
-interface FavoriteGifLookup {
+export interface FavoriteGifLookup {
 	url: string;
 }
 
-type FavoriteAwareGif = Gif & {
+export type FavoriteAwareGif = Gif & {
 	favoriteGifLookup?: FavoriteGifLookup;
 	contentType?: string;
 };

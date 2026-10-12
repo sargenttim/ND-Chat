@@ -10,7 +10,7 @@ interface CollapsedMessageVisibilityContextValue {
 const defaultValue: CollapsedMessageVisibilityContextValue = {
 	isMessageRevealed: () => false,
 };
-const CollapsedMessageVisibilityContext = createContext<CollapsedMessageVisibilityContextValue>(defaultValue);
+export const CollapsedMessageVisibilityContext = createContext<CollapsedMessageVisibilityContextValue>(defaultValue);
 export const CollapsedMessageVisibilityProvider = CollapsedMessageVisibilityContext.Provider;
 
 export function useCollapsedMessageVisibility(): CollapsedMessageVisibilityContextValue {

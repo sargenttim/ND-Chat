@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::templates::components::pagination::pager_with_missing;
-
 use crate::{
     api::types::AdminUser,
     config::AdminConfig,
@@ -20,14 +18,11 @@ use crate::{
                 empty_state, table_body, table_cell, table_container, table_head,
                 table_header_cell, table_row,
             },
-            user_profile_badges::user_profile_badges,
+            user_profile_badges::{ProfileBadges, user_profile_badges},
         },
         layout::admin_layout,
     },
-    utils::{
-        bigint::format_discriminator,
-        user_tag::{unique_usernames, user_tag},
-    },
+    utils::bigint::format_discriminator,
 };
 use maud::{Markup, html};
 
@@ -35,6 +30,7 @@ pub struct UserListParams {
     pub q: String,
     pub email: String,
     pub ip: String,
+    pub ids: String,
     pub requested_ids: Vec<String>,
     pub limit: u32,
     pub page: u32,
@@ -55,6 +51,7 @@ impl UserListParams {
             email: email.unwrap_or_default().trim().to_owned(),
             ip: ip.unwrap_or_default().trim().to_owned(),
             requested_ids: parse_ids_query(&ids),
+            ids: ids.trim().to_owned(),
             limit: match limit.unwrap_or(25) {
                 50 => 50,
                 100 => 100,
@@ -106,8 +103,7 @@ pub fn users_list_page(
     results: Option<&[AdminUser]>,
     has_more: bool,
     can_view_email: bool,
-    username_sign_in: bool,
-    premium_badge_name: Option<&str>,
+    profile_badges: ProfileBadges<'_>,
     is_htmx: bool,
 ) -> Markup {
     let base = &config.base_path;
@@ -117,7 +113,7 @@ pub fn users_list_page(
         results,
         has_more,
         can_view_email,
-        premium_badge_name,
+        profile_badges,
     );
 
     if is_htmx {
@@ -131,7 +127,7 @@ pub fn users_list_page(
                 p class="mb-1 text-xs text-neutral-500" {
                     "For example, type " span class="font-mono" { "*" } " in to search for all users."
                 }
-                (search_form(base, params, !username_sign_in))
+                (search_form(base, params))
             }
             (results_markup)
         }
@@ -157,20 +153,15 @@ fn parse_ids_query(ids_query: &str) -> Vec<String> {
     ids
 }
 
-fn search_form(base: &str, params: &UserListParams, show_email_search: bool) -> Markup {
+fn search_form(base: &str, params: &UserListParams) -> Markup {
     let action = format!("{base}/users");
-    let placeholder = if unique_usernames() {
-        "Search by user ID, username, or Stripe ID..."
-    } else {
-        "Search by user ID, username, tag#0000, or Stripe ID..."
-    };
     html! {
         form method="get" action=(&action)
             class="flex flex-col gap-3 sm:flex-row sm:items-center" {
             div class="flex flex-1 flex-col gap-2 sm:flex-row" {
                 div class="flex-1" {
                     input id="search-q" type="text" name="q" value=(params.q)
-                        placeholder=(placeholder)
+                        placeholder="Search by user ID, username, tag#0000, or Stripe ID..."
                         class={(FORM_CONTROL_CLASS) " " (FORM_SEARCH_INPUT_SIZE_CLASS)}
                         hx-get=(&action)
                         hx-trigger="input changed delay:300ms, search"
@@ -179,18 +170,16 @@ fn search_form(base: &str, params: &UserListParams, show_email_search: bool) -> 
                         hx-include="closest form"
                         hx-swap="outerHTML";
                 }
-                @if show_email_search {
-                    div class="flex-1" {
-                        input id="search-email" type="text" name="email" value=(params.email)
-                            placeholder="Exact email address..."
-                            class={(FORM_CONTROL_CLASS) " " (FORM_SEARCH_INPUT_SIZE_CLASS)}
-                            hx-get=(&action)
-                            hx-trigger="input changed delay:300ms, search"
-                            hx-target="#users-results"
-                            hx-push-url="true"
-                            hx-include="closest form"
-                            hx-swap="outerHTML";
-                    }
+                div class="flex-1" {
+                    input id="search-email" type="text" name="email" value=(params.email)
+                        placeholder="Exact email address..."
+                        class={(FORM_CONTROL_CLASS) " " (FORM_SEARCH_INPUT_SIZE_CLASS)}
+                        hx-get=(&action)
+                        hx-trigger="input changed delay:300ms, search"
+                        hx-target="#users-results"
+                        hx-push-url="true"
+                        hx-include="closest form"
+                        hx-swap="outerHTML";
                 }
                 div class="flex-1" {
                     input id="search-ip" type="text" name="ip" value=(params.ip)
@@ -235,7 +224,7 @@ fn render_results(
     results: Option<&[AdminUser]>,
     page_has_more: bool,
     can_view_email: bool,
-    premium_badge_name: Option<&str>,
+    profile_badges: ProfileBadges<'_>,
 ) -> Markup {
     let base = &config.base_path;
     html! {
@@ -257,7 +246,7 @@ fn render_results(
                             "Copy IDs"
                         }
                     }
-                    (render_users_table(config, users, can_view_email, premium_badge_name))
+                    (render_users_table(config, users, can_view_email, profile_badges))
                     script { (maud::PreEscaped(copy_ids_script())) }
                     @if !params.has_id_lookup() && (params.page > 0 || page_has_more) {
                         (pagination_controls(base, params, page_has_more))
@@ -326,7 +315,7 @@ fn render_users_table(
     config: &AdminConfig,
     users: &[AdminUser],
     can_view_email: bool,
-    premium_badge_name: Option<&str>,
+    profile_badges: ProfileBadges<'_>,
 ) -> Markup {
     let base = &config.base_path;
     table_container(html! {
@@ -360,22 +349,23 @@ fn render_users_table(
                                             @if user.global_name.as_deref().map(|n| !n.trim().is_empty()).unwrap_or(false) {
                                                 (display_name)
                                             } @else {
-                                                (user_tag(&user.username, &format_discriminator(&user.discriminator), user.bot))
+                                                (user.username) "#" (format_discriminator(&user.discriminator))
                                             }
                                         }
                                         (user_profile_badges(
                                             &config.static_cdn_endpoint,
                                             user.flags,
+                                            profile_badges,
+                                            &user.badge_ids,
                                             user.premium_type,
                                             user.premium_since.as_deref(),
                                             config.self_hosted,
-                                            premium_badge_name,
                                             true,
                                         ))
                                     }
                                     @if user.global_name.as_deref().map(|n| !n.trim().is_empty()).unwrap_or(false) {
                                         p class="text-xs font-normal text-neutral-500" {
-                                            (user_tag(&user.username, &format_discriminator(&user.discriminator), user.bot))
+                                            (user.username) "#" (format_discriminator(&user.discriminator))
                                         }
                                     }
                                 }
@@ -424,12 +414,26 @@ fn render_users_table(
 
 fn pagination_controls(base: &str, params: &UserListParams, has_more: bool) -> Markup {
     let next_page = params.page.checked_add(1).filter(|_| has_more);
-    pager_with_missing(
-        (params.page > 0).then(|| users_url(base, params, params.page - 1)),
-        None,
-        next_page.map(|page| users_url(base, params, page)),
-        true,
-    )
+    html! {
+        div class="mt-4 flex items-center justify-between" {
+            @if params.page > 0 {
+                a href=(users_url(base, params, params.page - 1))
+                    class="text-neutral-900 underline decoration-neutral-300 hover:text-neutral-600 hover:decoration-neutral-500" {
+                    "< Previous"
+                }
+            } @else {
+                span {}
+            }
+            @if let Some(next_page) = next_page {
+                a href=(users_url(base, params, next_page))
+                    class="text-neutral-900 underline decoration-neutral-300 hover:text-neutral-600 hover:decoration-neutral-500" {
+                    "Next >"
+                }
+            } @else {
+                span {}
+            }
+        }
+    }
 }
 
 fn users_url(base: &str, params: &UserListParams, page: u32) -> String {

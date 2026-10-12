@@ -4,8 +4,8 @@ import * as AuthEmailRevert from '@app/api/auth/AuthEmailRevert';
 import {requireEmailVerified} from '@app/api/auth/EmailVerificationUtils';
 import {requireSudoMode, type SudoVerificationResult} from '@app/api/auth/services/SudoVerificationService';
 import {createChannelID, createGuildID, type UserID} from '@app/api/BrandedTypes';
+import {mapBadgeIds} from '@app/api/badge/BadgeUtils';
 import type {UserConnectionRow} from '@app/api/database/types/ConnectionTypes';
-import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import {emitActivity} from '@app/api/infrastructure/activity/ActivityEvents';
 import {isBlockedEmailDomain} from '@app/api/infrastructure/activity/SharedLists';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
@@ -14,35 +14,33 @@ import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {AuthSession} from '@app/api/models/AuthSession';
 import type {User} from '@app/api/models/User';
 import type {HonoEnv} from '@app/api/types/HonoEnv';
-import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
-import {isProfileHidden} from '@app/api/user/ProfileVisibility';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import type {EmailChangeService} from '@app/api/user/services/EmailChangeService';
 import type {UserAccountService} from '@app/api/user/services/UserAccountService';
 import type {UserChannelService} from '@app/api/user/services/UserChannelService';
-
-import {createPremiumClearPatch, shouldStripExpiredPremium} from '@app/api/user/UserHelpers';
+import {mapUserToPartialResponseWithCache} from '@app/api/user/UserCacheHelpers';
+import {
+	createPremiumClearPatch,
+	getEffectiveSuspiciousFlags,
+	shouldStripExpiredPremium,
+} from '@app/api/user/UserHelpers';
 import {
 	mapGuildMemberToProfileResponse,
 	mapUserToPrivateResponse,
 	mapUserToProfileResponse,
 } from '@app/api/user/UserMappers';
 import {extractEmailDomain} from '@app/api/utils/EmailDomainUtils';
-import {AccountIdentityModes} from '@fluxer/constants/src/AccountIdentityConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {getCurrentTimeZoneOffsetMinutes} from '@fluxer/date_utils/src/TimeZoneUtils';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import {UnauthorizedError} from '@fluxer/errors/src/domains/core/UnauthorizedError';
+import {AccountSuspiciousActivityError} from '@fluxer/errors/src/domains/user/AccountSuspiciousActivityError';
 import type {ConnectionResponse} from '@fluxer/schema/src/domains/connection/ConnectionSchemas';
 import type {
 	EmailChangeApplyRequest,
 	UserUpdateWithVerificationRequest,
 } from '@fluxer/schema/src/domains/user/UserRequestSchemas';
-import type {
-	UserPrivateResponse,
-	UserProfileFullResponse,
-	UserUpdateResponse,
-} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
+import type {UserPrivateResponse, UserProfileFullResponse} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 import type {Context} from 'hono';
 
 type UserUpdatePayload = Omit<
@@ -99,20 +97,25 @@ export class UserAccountRequestService {
 		private readonly emailChangeService: EmailChangeService,
 		private readonly userAccountService: UserAccountService,
 		private readonly userChannelService: UserChannelService,
-		private readonly userRepository: UserRepository,
+		private readonly userRepository: IUserRepository,
 		private readonly userCacheService: UserCacheService,
 	) {}
 
 	getCurrentUserResponse(params: {
 		authTokenType?: 'session' | 'bearer' | 'bot' | 'admin_api_key';
 		oauthBearerScopes?: Set<string> | null;
+		allowSuspicious?: boolean;
 		user?: User;
 	}): UserPrivateResponse {
 		const tokenType = params.authTokenType;
+		const allowSuspicious = params.allowSuspicious ?? false;
 		if (tokenType === 'bearer') {
 			const bearerUser = params.user;
 			if (!bearerUser) {
 				throw new UnauthorizedError();
+			}
+			if (!allowSuspicious) {
+				this.enforceUserAccess(bearerUser);
 			}
 			const includeEmail = params.oauthBearerScopes?.has('email') ?? false;
 			const response = mapUserToPrivateResponse(bearerUser);
@@ -124,6 +127,9 @@ export class UserAccountRequestService {
 		}
 		const user = params.user;
 		if (user) {
+			if (!allowSuspicious) {
+				this.enforceUserAccess(user);
+			}
 			return mapUserToPrivateResponse(user);
 		}
 		throw new UnauthorizedError();
@@ -134,7 +140,7 @@ export class UserAccountRequestService {
 		user: User;
 		body: UserUpdateWithVerificationRequest;
 		authSession: AuthSession;
-	}): Promise<UserUpdateResponse> {
+	}): Promise<UserPrivateResponse> {
 		const {ctx, body, authSession} = params;
 		const {user} = params;
 		const oldEmail = user.email;
@@ -151,6 +157,7 @@ export class UserAccountRequestService {
 		if (!emailTokenProvided && !hasDefinedUserUpdatePayload(userUpdateData)) {
 			return mapUserToPrivateResponse(user);
 		}
+		this.enforceSuspiciousSelfUpdateAllowance(user, body);
 		if (userUpdateData.email !== undefined) {
 			throw InputValidationError.fromCode('email', ValidationErrorCodes.EMAIL_MUST_BE_CHANGED_VIA_TOKEN);
 		}
@@ -160,12 +167,6 @@ export class UserAccountRequestService {
 		}
 		if (isUnclaimed) {
 			const allowed = new Set(['new_password', 'has_dismissed_premium_onboarding', 'has_unread_gift_inventory']);
-			if (
-				userUpdateData.new_password !== undefined &&
-				(await ctx.get('instanceConfigRepository').getAccountIdentityMode()) === AccountIdentityModes.USERNAME
-			) {
-				allowed.add('username');
-			}
 			const disallowedField = Object.keys(userUpdateData).find((key) => !allowed.has(key));
 			if (disallowedField) {
 				throw InputValidationError.fromCode(
@@ -176,7 +177,6 @@ export class UserAccountRequestService {
 		}
 		if (!isUnclaimed && hasProfileCustomizationUpdate(userUpdateData)) {
 			requireEmailVerified(user, 'profile');
-			assertAccountNotLimited(user);
 		}
 		let emailFromToken: string | null = null;
 		let emailVerifiedViaToken = false;
@@ -193,7 +193,7 @@ export class UserAccountRequestService {
 				throw InputValidationError.fromCode('email', ValidationErrorCodes.INVALID_EMAIL_ADDRESS);
 			}
 		}
-		const {user: updatedUser, authSessionReplacement} = await this.userAccountService.update({
+		const updatedUser = await this.userAccountService.update({
 			user,
 			oldAuthSession: authSession,
 			data: userUpdateData,
@@ -214,6 +214,8 @@ export class UserAccountRequestService {
 				new_email: updatedUser.email,
 				was_unclaimed: isUnclaimed,
 				has_ever_purchased: updatedUser.hasEverPurchased,
+				suspicious_flags: updatedUser.suspiciousActivityFlags ?? 0,
+				suspicious_flags_before: user.suspiciousActivityFlags ?? 0,
 			});
 		}
 		if (profileFieldsChanged(user, updatedUser)) {
@@ -237,15 +239,7 @@ export class UserAccountRequestService {
 				Logger.warn({error, userId: updatedUser.id}, 'Failed to issue email revert token');
 			}
 		}
-		const response = mapUserToPrivateResponse(updatedUser);
-		if (!authSessionReplacement) {
-			return response;
-		}
-		return {
-			...response,
-			token: authSessionReplacement.token,
-			auth_session_id_hash: authSessionReplacement.authSessionIdHash,
-		};
+		return mapUserToPrivateResponse(updatedUser);
 	}
 
 	async applyEmailChange(params: {
@@ -264,14 +258,12 @@ export class UserAccountRequestService {
 
 	async preloadMessages(params: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		channels: ReadonlyArray<bigint>;
 		requestCache: RequestCache;
 	}): Promise<Record<string, unknown>> {
 		const channelIds = params.channels.map((channelId) => createChannelID(channelId));
 		return this.userChannelService.preloadDMMessages({
 			userId: params.userId,
-			viewer: params.viewer,
 			channelIds,
 		});
 	}
@@ -312,32 +304,32 @@ export class UserAccountRequestService {
 			}
 		}
 		const restrictProfile = profile.restrictProfile;
-		const hidden = isProfileHidden(profileUser);
 		const userProfile = mapUserToProfileResponse(profileUser, {restrictProfile});
-		const guildMemberProfile = mapGuildMemberToProfileResponse(profile.guildMemberDomain ?? null, {
-			restrictProfile,
-			hidden,
-		});
+		const guildMemberProfile = mapGuildMemberToProfileResponse(profile.guildMemberDomain ?? null, {restrictProfile});
 		const timezoneOffset = profile.timezoneVisible ? getCurrentTimeZoneOffsetMinutes(profileUser.timezone) : null;
 		const mutualFriends = profile.mutualFriends
-			? profile.mutualFriends.map(
-					(user) =>
-						params.requestCache.userPartials.get(user.id) ??
-						this.userCacheService.setUserPartialResponseFromUserInRequestCache(user, params.requestCache),
+			? profile.mutualFriends.map((user) =>
+					mapUserToPartialResponseWithCache({
+						user,
+						userCacheService: this.userCacheService,
+						requestCache: params.requestCache,
+					}),
 				)
 			: undefined;
-		const connectedAccounts =
-			profile.connections && !hidden ? this.mapConnectionsToResponse(profile.connections) : undefined;
+		const connectedAccounts = profile.connections ? this.mapConnectionsToResponse(profile.connections) : undefined;
 		return {
-			user:
-				params.requestCache.userPartials.get(profileUser.id) ??
-				this.userCacheService.setUserPartialResponseFromUserInRequestCache(profileUser, params.requestCache),
+			user: mapUserToPartialResponseWithCache({
+				user: profileUser,
+				userCacheService: this.userCacheService,
+				requestCache: params.requestCache,
+			}),
 			user_profile: userProfile,
 			guild_member: profile.guildMember ?? undefined,
 			guild_member_profile: guildMemberProfile ?? undefined,
 			premium_type: premiumType,
 			premium_since: premiumSince?.toISOString(),
 			premium_lifetime_sequence: premiumLifetimeSequence,
+			badges: mapBadgeIds(profileUser.badgeIds),
 			mutual_friends: mutualFriends,
 			mutual_guilds: profile.mutualGuilds,
 			connected_accounts: connectedAccounts,
@@ -365,6 +357,7 @@ export class UserAccountRequestService {
 		response.mfa_enabled = false;
 		response.authenticator_types = undefined;
 		response.password_last_changed_at = null;
+		response.required_actions = [];
 		response.nsfw_allowed = false;
 		response.premium_since = null;
 		response.premium_until = null;
@@ -383,6 +376,47 @@ export class UserAccountRequestService {
 		response.has_unread_gift_inventory = false;
 		response.unread_gift_inventory_count = 0;
 		response.pending_bulk_message_deletion = null;
+	}
+
+	private enforceUserAccess(user: User): void {
+		const flags = getEffectiveSuspiciousFlags(user);
+		if (flags !== 0) {
+			throw new AccountSuspiciousActivityError(flags);
+		}
+	}
+
+	private enforceSuspiciousSelfUpdateAllowance(user: User, body: UserUpdateWithVerificationRequest): void {
+		const flags = getEffectiveSuspiciousFlags(user);
+		if (flags === 0) {
+			return;
+		}
+		if (this.isAllowedSuspiciousRecoveryUpdate(body)) {
+			return;
+		}
+		throw new AccountSuspiciousActivityError(flags);
+	}
+
+	private isAllowedSuspiciousRecoveryUpdate(body: UserUpdateWithVerificationRequest): boolean {
+		if (!body.email_token) {
+			return false;
+		}
+		const allowedKeys = new Set([
+			'email_token',
+			'password',
+			'mfa_method',
+			'mfa_code',
+			'webauthn_response',
+			'webauthn_challenge',
+		]);
+		for (const [key, value] of Object.entries(body)) {
+			if (value === undefined) {
+				continue;
+			}
+			if (!allowedKeys.has(key)) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private requiresSensitiveUserVerification(user: User, data: UserUpdatePayload, emailTokenProvided: boolean): boolean {

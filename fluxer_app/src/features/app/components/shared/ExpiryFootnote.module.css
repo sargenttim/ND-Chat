@@ -12,7 +12,7 @@
 	-webkit-user-select: none;
 }
 
-.footnote[href]:hover {
+.footnote:hover {
 	text-decoration: underline;
 }
 
@@ -28,7 +28,7 @@
 	-webkit-user-select: none;
 }
 
-.inlineFootnote[href]:hover {
+.inlineFootnote:hover {
 	color: var(--text-tertiary) !important;
 	text-decoration: underline;
 }

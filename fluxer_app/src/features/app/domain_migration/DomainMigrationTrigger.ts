@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {
+	desktopPasskeysSupported,
 	readDomainMigrationGateInput,
 	startDomainMigrationFromSource,
 } from '@app/features/app/domain_migration/DomainMigrationBrowser';
@@ -17,9 +18,8 @@ import {
 	shouldStartDomainMigration,
 } from '@app/features/app/domain_migration/DomainMigrationCore';
 import DomainMigrationRollout from '@app/features/app/domain_migration/DomainMigrationRollout';
-import {runtimeConfigSnapshotsAreSameInstance} from '@app/features/app/state/InstanceSnapshotStore';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
-import Accounts from '@app/features/auth/state/Accounts';
+import AccountManager from '@app/features/auth/state/AccountManager';
 import {EXPERIMENT_ASSIGNMENTS_PATH} from '@app/features/experiment/state/ExperimentAssignments';
 import SessionManager from '@app/features/platform/state/AuthSession';
 import {getProtectedLocalStorage} from '@app/features/platform/state/ProtectedWebStorage';
@@ -52,7 +52,7 @@ function isVoiceActive(): boolean {
 }
 
 function isSessionSettled(): boolean {
-	return SessionManager.isAuthenticated && SessionManager.userId !== null && !Accounts.transitioning;
+	return SessionManager.isAuthenticated && SessionManager.userId !== null && !AccountManager.transitioning;
 }
 
 function sourceMayStart(): boolean {
@@ -63,8 +63,12 @@ function sourceMayStart(): boolean {
 	);
 }
 
-function evaluateSource(side: DomainMigrationSide): void {
+async function evaluateSource(side: DomainMigrationSide): Promise<void> {
 	if (!sourceMayStart()) {
+		return;
+	}
+	const passkeysSupported = await desktopPasskeysSupported();
+	if (!passkeysSupported || !sourceMayStart()) {
 		return;
 	}
 	navigating = true;
@@ -100,17 +104,9 @@ async function probeStoredAccounts(): Promise<void> {
 	) {
 		return;
 	}
-	const activeAccountKey = SessionManager.currentAccountKey;
-	const runtimeSnapshot = RuntimeConfig.getSnapshotOrNull();
+	const activeUserId = SessionManager.userId;
 	const tokens = SessionManager.accounts
-		.filter(
-			(account) =>
-				account.storageKey !== activeAccountKey &&
-				account.isValid !== false &&
-				Boolean(account.token) &&
-				runtimeSnapshot !== null &&
-				runtimeConfigSnapshotsAreSameInstance(account.instance, runtimeSnapshot),
-		)
+		.filter((account) => account.userId !== activeUserId && account.isValid !== false && Boolean(account.token))
 		.map((account) => account.token);
 	if (tokens.length === 0) {
 		return;
@@ -154,7 +150,9 @@ function handleSourceGateState(side: DomainMigrationSide, state: SourceGateState
 		});
 		return;
 	}
-	evaluateSource(side);
+	evaluateSource(side).catch((err) => {
+		logger.warn('Domain migration trigger failed:', err);
+	});
 }
 
 function offerNotificationReenable(): void {

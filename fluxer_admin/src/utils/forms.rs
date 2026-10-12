@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use axum::{body, extract::Request};
+use serde::Deserialize;
 use std::collections::BTreeMap;
 use url::form_urlencoded;
 
@@ -52,10 +53,6 @@ impl MultiValueForm {
 
     pub fn contains_key(&self, key: &str) -> bool {
         self.fields.contains_key(key)
-    }
-
-    pub fn has_key_starting_with(&self, prefix: &str) -> bool {
-        self.fields.keys().any(|key| key.starts_with(prefix))
     }
 
     pub fn values(&self, key: &str) -> &[String] {
@@ -126,5 +123,146 @@ impl MultiValueForm {
             .iter()
             .map(|value| value.parse())
             .collect()
+    }
+}
+
+pub fn parse_page(value: Option<&str>) -> u32 {
+    value
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(1)
+        .max(1)
+}
+
+pub fn parse_per_page(value: Option<&str>, default: u32) -> u32 {
+    value
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(default)
+        .clamp(1, 100)
+}
+
+pub fn sanitize_redirect(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || !trimmed.starts_with('/') || trimmed.starts_with("//") {
+        return "/".to_owned();
+    }
+    trimmed.to_owned()
+}
+
+#[derive(Deserialize)]
+pub struct HtmxFormData {
+    #[serde(default)]
+    pub _csrf: String,
+    #[serde(flatten)]
+    pub fields: std::collections::HashMap<String, String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clean_string_trims_whitespace() {
+        assert_eq!(clean_string("  hello  "), Some("hello".to_owned()));
+    }
+
+    #[test]
+    fn clean_string_returns_none_for_empty() {
+        assert_eq!(clean_string(""), None);
+        assert_eq!(clean_string("   "), None);
+        assert_eq!(clean_string("\t\n"), None);
+    }
+
+    #[test]
+    fn clean_string_preserves_inner_spaces() {
+        assert_eq!(
+            clean_string("  hello world  "),
+            Some("hello world".to_owned())
+        );
+    }
+
+    #[test]
+    fn parse_comma_separated_splits() {
+        assert_eq!(parse_comma_separated("a, b, c"), vec!["a", "b", "c"]);
+        assert_eq!(parse_comma_separated("a\nb\r\nc"), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn parse_comma_separated_filters_empty() {
+        assert_eq!(parse_comma_separated("a,,b, ,c"), vec!["a", "b", "c"]);
+        assert!(parse_comma_separated("").is_empty());
+        assert!(parse_comma_separated(", , ,").is_empty());
+    }
+
+    #[test]
+    fn multi_value_form_preserves_repeated_fields() {
+        let form = MultiValueForm::parse(b"fields%5B%5D=avatar&fields%5B%5D=banner&name=Test");
+
+        assert_eq!(
+            form.list_values("fields[]"),
+            vec!["avatar".to_owned(), "banner".to_owned()]
+        );
+        assert_eq!(form.clean("name"), Some("Test".to_owned()));
+    }
+
+    #[test]
+    fn multi_value_form_list_values_accepts_comma_and_repeated_values() {
+        let form = MultiValueForm::parse(b"acls=user.read,user.write&acls=guild.read");
+
+        assert_eq!(
+            form.list_values("acls"),
+            vec![
+                "user.read".to_owned(),
+                "user.write".to_owned(),
+                "guild.read".to_owned()
+            ]
+        );
+    }
+
+    #[test]
+    fn multi_value_form_bool_value_accepts_html_checkbox_values() {
+        assert!(MultiValueForm::parse(b"enabled=on").bool_value("enabled"));
+        assert!(MultiValueForm::parse(b"enabled=true").bool_value("enabled"));
+        assert!(!MultiValueForm::parse(b"enabled=false").bool_value("enabled"));
+    }
+
+    #[test]
+    fn parse_page_defaults_to_one() {
+        assert_eq!(parse_page(None), 1);
+        assert_eq!(parse_page(Some("")), 1);
+        assert_eq!(parse_page(Some("abc")), 1);
+    }
+
+    #[test]
+    fn parse_page_clamps_to_minimum_one() {
+        assert_eq!(parse_page(Some("0")), 1);
+    }
+
+    #[test]
+    fn parse_page_valid_input() {
+        assert_eq!(parse_page(Some("5")), 5);
+        assert_eq!(parse_page(Some("100")), 100);
+    }
+
+    #[test]
+    fn sanitize_redirect_prevents_open_redirect() {
+        assert_eq!(sanitize_redirect(""), "/");
+        assert_eq!(sanitize_redirect("https://evil.com"), "/");
+        assert_eq!(sanitize_redirect("//evil.com"), "/");
+        assert_eq!(sanitize_redirect("javascript:alert(1)"), "/");
+    }
+
+    #[test]
+    fn sanitize_redirect_allows_valid_paths() {
+        assert_eq!(sanitize_redirect("/users"), "/users");
+        assert_eq!(sanitize_redirect("/guilds/123"), "/guilds/123");
+        assert_eq!(sanitize_redirect("  /trimmed  "), "/trimmed");
+    }
+
+    #[test]
+    fn parse_per_page_clamps_range() {
+        assert_eq!(parse_per_page(None, 25), 25);
+        assert_eq!(parse_per_page(Some("0"), 25), 1);
+        assert_eq!(parse_per_page(Some("200"), 25), 100);
+        assert_eq!(parse_per_page(Some("50"), 25), 50);
     }
 }

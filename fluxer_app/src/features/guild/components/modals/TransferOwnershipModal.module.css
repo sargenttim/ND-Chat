@@ -9,3 +9,14 @@
 .warningText {
 	margin: 0;
 }
+
+.footer {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.footer > * {
+	flex: 1;
+	min-width: fit-content;
+}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {UserRow} from '@app/api/database/types/UserTypes';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import {contentModerationService} from '@app/api/infrastructure/ContentModerationService';
 import type {EntityAssetService, PreparedAssetUpload} from '@app/api/infrastructure/EntityAssetService';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
@@ -9,7 +9,7 @@ import {resolveLimitSafe} from '@app/api/limits/LimitConfigUtils';
 import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder';
 import {profileSubstringBlocklistCache} from '@app/api/middleware/ProfileSubstringBlocklistCache';
 import type {User} from '@app/api/models/User';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserAccountRepository} from '@app/api/user/repositories/IUserAccountRepository';
 import {isProfileSubstringExempt} from '@app/api/user/UserHelpers';
 import {deriveDominantAvatarColor} from '@app/api/utils/AvatarColorUtils';
 import * as EmojiUtils from '@app/api/utils/EmojiUtils';
@@ -33,8 +33,8 @@ interface ProfileUpdateResult {
 }
 
 interface UserAccountProfileServiceDeps {
-	userAccountRepository: UserRepository;
-	guildRepository: GuildRepository;
+	userAccountRepository: IUserAccountRepository;
+	guildRepository: IGuildRepositoryAggregate;
 	entityAssetService: EntityAssetService;
 	rateLimitService: IRateLimitService;
 	limitConfigService: LimitConfigService;
@@ -56,6 +56,7 @@ export class UserAccountProfileService {
 		const updates: UserFieldUpdates = {
 			avatar_hash: user.avatarHash,
 			banner_hash: user.bannerHash,
+			flags: user.flags,
 		};
 		let preparedAvatarUpload: PreparedAssetUpload | null = null;
 		let preparedBannerUpload: PreparedAssetUpload | null = null;

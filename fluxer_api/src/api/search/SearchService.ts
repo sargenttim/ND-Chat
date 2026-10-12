@@ -1,21 +1,32 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createChannelID, createGuildID, type UserID} from '@app/api/BrandedTypes';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
-import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {GlobalSearchService} from '@app/api/search/GlobalSearchService';
-import {normalizeQuotedPhrases} from '@app/api/search/SearchQuotedPhrases';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import type {GlobalSearchMessagesRequest} from '@fluxer/schema/src/domains/message/MessageRequestSchemas';
-import type {MessageSearchResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
+import type {MessageResponse, MessageSearchResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 import type {IWorkerService} from '@pkgs/worker/src/contracts/IWorkerService';
+
+function omitReferencedMessages(result: MessageSearchResponse): MessageSearchResponse {
+	if (!('messages' in result)) {
+		return result;
+	}
+	return {
+		...result,
+		messages: result.messages.map((message) => {
+			const {referenced_message: _referencedMessage, ...rest} = message as MessageResponse;
+			return rest;
+		}),
+	};
+}
 
 export class SearchService {
 	private readonly globalSearch: GlobalSearchService;
@@ -23,10 +34,10 @@ export class SearchService {
 	private readonly guildService: GuildService;
 
 	constructor(params: {
-		channelRepository: ChannelRepository;
+		channelRepository: IChannelRepository;
 		channelService: ChannelService;
 		guildService: GuildService;
-		userRepository: UserRepository;
+		userRepository: IUserRepository;
 		userCacheService: UserCacheService;
 		workerService: IWorkerService<WorkerTaskName>;
 	}) {
@@ -43,13 +54,11 @@ export class SearchService {
 
 	async searchMessages(params: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		requestCache: RequestCache;
 		data: GlobalSearchMessagesRequest;
 	}): Promise<MessageSearchResponse> {
-		const {userId, viewer, requestCache, data} = params;
-		const {channel_id, channel_ids, context_channel_id, context_guild_id, ...rawSearchParams} = data;
-		const searchParams = normalizeQuotedPhrases(rawSearchParams);
+		const {userId, requestCache, data} = params;
+		const {channel_id, channel_ids, context_channel_id, context_guild_id, ...searchParams} = data;
 		const contextChannelId = context_channel_id ? createChannelID(context_channel_id) : null;
 		const contextGuildId = context_guild_id ? createGuildID(context_guild_id) : null;
 		const channelIds = (channel_ids ?? channel_id)?.map((id) => createChannelID(id)) ?? [];
@@ -59,7 +68,6 @@ export class SearchService {
 			case 'all_guilds':
 				result = await this.guildService.search.searchAllGuilds({
 					userId,
-					viewer,
 					channelIds,
 					searchParams,
 					requestCache,
@@ -69,7 +77,6 @@ export class SearchService {
 			case 'open_dms':
 				result = await this.globalSearch.searchAcrossDms({
 					userId,
-					viewer,
 					scope,
 					searchParams,
 					requestCache,
@@ -80,7 +87,6 @@ export class SearchService {
 			case 'all':
 				result = await this.globalSearch.searchAcrossGuildsAndDms({
 					userId,
-					viewer,
 					dmScope: 'all_dms',
 					searchParams,
 					requestCache,
@@ -91,7 +97,6 @@ export class SearchService {
 			case 'open_dms_and_all_guilds':
 				result = await this.globalSearch.searchAcrossGuildsAndDms({
 					userId,
-					viewer,
 					dmScope: 'open_dms',
 					searchParams,
 					requestCache,
@@ -103,7 +108,6 @@ export class SearchService {
 				if (contextGuildId) {
 					result = await this.guildService.search.searchMessages({
 						userId,
-						viewer,
 						guildId: contextGuildId,
 						channelIds,
 						searchParams,
@@ -112,7 +116,6 @@ export class SearchService {
 				} else if (contextChannelId) {
 					result = await this.channelService.messages.retrieval.searchMessages({
 						userId,
-						viewer,
 						channelId: contextChannelId,
 						searchParams,
 						requestCache,
@@ -122,6 +125,6 @@ export class SearchService {
 				}
 				break;
 		}
-		return result;
+		return omitReferencedMessages(result);
 	}
 }

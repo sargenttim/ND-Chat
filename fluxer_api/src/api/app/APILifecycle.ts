@@ -2,10 +2,12 @@
 
 import {randomUUID} from 'node:crypto';
 import {ensureDeletionQueueState} from '@app/api/app/DeletionQueueStartup';
+import {renderPhoneRpcMetrics, setPhoneRpcConnection} from '@app/api/auth/PhoneVerificationClient';
 import type {APIConfig} from '@app/api/config/APIConfig';
 import {hasDatabaseQueryExecutor, setDatabaseQueryExecutor} from '@app/api/database/CassandraQueryExecution';
 import {ensurePostgresKvSchema, PostgresKvQueryExecutor} from '@app/api/database/PostgresKvQueryExecutor';
-import {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import {GuildDataRepository} from '@app/api/guild/repositories/GuildDataRepository';
+import type {ILogger} from '@app/api/ILogger';
 import {
 	jetStreamActivityPublisher,
 	renderActivityMetrics,
@@ -39,6 +41,7 @@ import {
 	shutdownInstanceConfigRepository,
 	shutdownServiceSingletons,
 } from '@app/api/middleware/ServiceSingletons';
+import {ensureApnsSigningKey} from '@app/api/push/ApnsPushService';
 import {initializeSearch, shutdownSearch} from '@app/api/SearchFactory';
 import {warmupAdminSearchIndexes} from '@app/api/search/SearchWarmup';
 import {VisionarySlotInitializer} from '@app/api/stripe/VisionarySlotInitializer';
@@ -46,7 +49,7 @@ import {VoiceDataInitializer} from '@app/api/voice/VoiceDataInitializer';
 import {JetStreamWorkerQueue} from '@app/api/worker/JetStreamWorkerQueue';
 import {WorkerService} from '@app/api/worker/WorkerService';
 import {registerMetricsSection} from '@fluxer/hono/src/middleware/Metrics';
-import type {LoggerInterface} from '@fluxer/logger/src/LoggerInterface';
+import type {JetStreamClient} from '@nats-io/jetstream';
 import {initCassandra, shutdownCassandra} from '@pkgs/cassandra/src/Client';
 import {ensureGeoipDatabaseOnStartup} from '@pkgs/geoip/src/GeoipStartup';
 import {JetStreamConnectionManager} from '@pkgs/nats/src/JetStreamConnectionManager';
@@ -54,6 +57,11 @@ import {getDefaultPostgresClient, initPostgres, shutdownPostgres} from '@pkgs/po
 
 let jsConnectionManager: JetStreamConnectionManager | null = null;
 const unregisterMetricsSections: Array<() => void> = [];
+
+export function getActivityJetStream(): JetStreamClient | null {
+	if (!jsConnectionManager || jsConnectionManager.isClosed()) return null;
+	return jsConnectionManager.getJetStreamClient();
+}
 
 interface RefreshCacheLifecycle {
 	initialize(): Promise<void>;
@@ -63,17 +71,13 @@ interface RefreshCacheLifecycle {
 const refreshCaches = new Map<RefreshCacheLifecycle, string>();
 let refreshCacheShutdownPromise: Promise<void> | null = null;
 
-async function initializeRefreshCache(
-	cache: RefreshCacheLifecycle,
-	name: string,
-	logger: LoggerInterface,
-): Promise<void> {
+async function initializeRefreshCache(cache: RefreshCacheLifecycle, name: string, logger: ILogger): Promise<void> {
 	refreshCaches.set(cache, name);
 	await cache.initialize();
 	logger.info(`${name} initialized`);
 }
 
-async function shutdownRefreshCaches(logger: LoggerInterface): Promise<void> {
+async function shutdownRefreshCaches(logger: ILogger): Promise<void> {
 	if (refreshCacheShutdownPromise) return await refreshCacheShutdownPromise;
 	const caches = [...refreshCaches];
 	refreshCaches.clear();
@@ -99,10 +103,11 @@ function unsupportedDatabaseBackend(backend: never): never {
 	throw new Error(`Unsupported database backend during shutdown: ${String(backend)}`);
 }
 
-export function createInitializer(config: APIConfig, logger: LoggerInterface): () => Promise<void> {
+export function createInitializer(config: APIConfig, logger: ILogger): () => Promise<void> {
 	return async (): Promise<void> => {
 		try {
 			logger.info('Initializing API service...');
+			await ensureApnsSigningKey();
 			const geoipStartupResult = await ensureGeoipDatabaseOnStartup({
 				geoip: config.geoip,
 				s3Config: {
@@ -187,9 +192,11 @@ export function createInitializer(config: APIConfig, logger: LoggerInterface): (
 				});
 				startRequestErrorTelemetry();
 				startSharedListWatch(connection.getJetStreamClient());
+				setPhoneRpcConnection(() => (connection.isClosed() ? null : connection.getConnection()));
 				unregisterMetricsSections.push(
 					registerMetricsSection(renderActivityMetrics),
 					registerMetricsSection(renderSharedListMetrics),
+					registerMetricsSection(renderPhoneRpcMetrics),
 				);
 				logger.info('Activity events initialized');
 			}
@@ -215,7 +222,7 @@ export function createInitializer(config: APIConfig, logger: LoggerInterface): (
 					try {
 						await warmupAdminSearchIndexes({
 							userRepository: getUserRepository(),
-							guildRepository: new GuildRepository(),
+							guildRepository: new GuildDataRepository(),
 							reportRepository: getReportRepository(),
 							logger,
 						});
@@ -264,7 +271,7 @@ export function createInitializer(config: APIConfig, logger: LoggerInterface): (
 	};
 }
 
-export function createShutdown(config: APIConfig, logger: LoggerInterface): () => Promise<void> {
+export function createShutdown(config: APIConfig, logger: ILogger): () => Promise<void> {
 	return async (): Promise<void> => {
 		logger.info('Shutting down API service...');
 		try {
@@ -275,6 +282,7 @@ export function createShutdown(config: APIConfig, logger: LoggerInterface): () =
 		}
 		stopRequestErrorTelemetry();
 		stopSharedListWatch();
+		setPhoneRpcConnection(null);
 		for (const unregister of unregisterMetricsSections.splice(0)) unregister();
 		await shutdownActivityEvents();
 		if (jsConnectionManager) {

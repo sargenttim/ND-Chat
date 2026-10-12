@@ -50,6 +50,7 @@ interface PickerSearchInputProps {
 	maxLength?: number;
 	showBackButton?: boolean;
 	onBackButtonClick?: () => void;
+	rightCustomElement?: React.ReactNode;
 }
 
 const assignRef = <T,>(ref: React.Ref<T> | null | undefined, value: T | null) => {
@@ -62,7 +63,17 @@ const assignRef = <T,>(ref: React.Ref<T> | null | undefined, value: T | null) =>
 };
 export const PickerSearchInput = React.forwardRef<HTMLInputElement, PickerSearchInputProps>(
 	(
-		{value, onChange, placeholder, inputRef, onKeyDown, maxLength = 100, showBackButton = false, onBackButtonClick},
+		{
+			value,
+			onChange,
+			placeholder,
+			inputRef,
+			onKeyDown,
+			maxLength = 100,
+			showBackButton = false,
+			onBackButtonClick,
+			rightCustomElement,
+		},
 		forwardedRef,
 	) => {
 		const {i18n} = useLingui();
@@ -186,6 +197,7 @@ export const PickerSearchInput = React.forwardRef<HTMLInputElement, PickerSearch
 							className={styles.rightElementContainer}
 							data-flx="channel.picker-search-input.right-element-container"
 						>
+							{rightCustomElement}
 							{value ? (
 								<button
 									type="button"

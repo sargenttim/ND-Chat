@@ -13,18 +13,11 @@ import {
 	readStoredSessionUserId,
 } from '@app/features/platform/state/auth_session/AuthSessionStorage';
 import AppStorage from '@app/features/platform/state/PersistentStorage';
-import {
-	readRawStorageItem,
-	writeRawStorageItem,
-	ZOOM_PREBOOT_MIRROR_STORAGE_KEY,
-} from '@app/features/platform/state/PrebootMirror';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {applyAppZoomToDocument} from '@app/features/ui/utils/AppZoomUtils';
 import {makeSyncedField} from '@app/features/user/state/SyncedField';
+import {decodeSyncedPreferencesLenient} from '@app/features/user/state/SyncedPreferencesEngine';
 import {StickerAnimationOptions} from '@fluxer/constants/src/UserConstants';
-import {isRecord} from '@fluxer/record_utils/src/RecordGuards';
-import {decodeSyncedPreferencesLenient} from '@fluxer/schema/src/domains/user/SyncedPreferencesCodec';
 import {
 	AccessibilitySettingsSchema,
 	ChannelTypingIndicatorMode as ProtoChannelTypingIndicatorMode,
@@ -77,7 +70,7 @@ interface StartupSettingsStorage {
 	getItem(key: string): string | null;
 }
 
-interface LocalMotionSettings {
+export interface LocalMotionSettings {
 	syncReducedMotionWithSystem: boolean;
 	reducedMotionOverride: boolean | null;
 	enableSmoothScrolling: boolean;
@@ -94,6 +87,10 @@ const DEFAULT_LOCAL_MOTION_SETTINGS: LocalMotionSettings = {
 	keepGifAutoPlayUnderReducedMotion: false,
 	keepStickerAnimationUnderReducedMotion: false,
 };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
 
 const FONT_SIZE_MIN = 8;
 const FONT_SIZE_MAX = 48;
@@ -152,18 +149,6 @@ function readLocalZoomLevel(storage: StartupSettingsStorage = AppStorage): numbe
 		return null;
 	}
 	return typeof parsed === 'number' ? clampZoomLevel(parsed) : null;
-}
-
-function readPrebootZoomFactor(): number | null {
-	if (window.electron == null) {
-		return null;
-	}
-	const raw = readRawStorageItem(ZOOM_PREBOOT_MIRROR_STORAGE_KEY);
-	if (raw === null) {
-		return null;
-	}
-	const zoomPercent = Number.parseInt(raw, 10);
-	return Number.isFinite(zoomPercent) ? clampZoomLevel(zoomPercent / 100) : null;
 }
 
 function readStoredBoolean(storage: StartupSettingsStorage, key: string): boolean | null {
@@ -473,7 +458,7 @@ function readAccessibilityStartupSettings(
 	storage: StartupSettingsStorage = AppStorage,
 	options: AccessibilityStartupSettingsOptions = {},
 ): AccessibilityStartupSettings | null {
-	const localZoomLevel = readPrebootZoomFactor() ?? readLocalZoomLevel(storage);
+	const localZoomLevel = readLocalZoomLevel(storage);
 	const localMotionSettings = readLocalMotionSettings(storage);
 	const legacySettings = readLegacyAccessibilityStartupSettings(storage);
 	const cachedSyncedMotionSettings = localMotionSettings === null ? readCachedSyncedMotionSettings(storage) : null;
@@ -519,15 +504,6 @@ function persistLocalZoomLevel(level: number): void {
 	} catch {}
 }
 
-function writeZoomPrebootMirror(level: number, isDesktop: boolean): void {
-	if (!isDesktop) {
-		writeRawStorageItem(ZOOM_PREBOOT_MIRROR_STORAGE_KEY, null);
-		return;
-	}
-	const zoomPercent = Math.max(50, Math.min(200, Math.round(clampZoomLevel(level) * 100)));
-	writeRawStorageItem(ZOOM_PREBOOT_MIRROR_STORAGE_KEY, String(zoomPercent));
-}
-
 function persistLocalMotionSettings(settings: LocalMotionSettings): void {
 	try {
 		AppStorage.setItem(ACCESSIBILITY_MOTION_STORAGE_KEY, JSON.stringify(settings));
@@ -567,6 +543,12 @@ function resolveStartupReducedMotion(
 	systemReducedMotion: boolean,
 ): boolean {
 	return settings.syncReducedMotionWithSystem ? systemReducedMotion : (settings.reducedMotionOverride ?? false);
+}
+
+export enum GuildChannelPresenceIndicatorMode {
+	AVATARS = 0,
+	INDICATOR_ONLY = 1,
+	HIDDEN = 2,
 }
 
 export enum DMMessagePreviewMode {
@@ -761,6 +743,7 @@ class Accessibility {
 	keepNekoStill = false;
 	showVideoSeekPreviewThumbnails = false;
 	mediaQuery: MediaQueryList | null = null;
+	private _hydrated = false;
 	private unsubscribeZoomStorage: (() => void) | null = null;
 	private unsubscribeMotionStorage: (() => void) | null = null;
 	private unsubscribeShowNekoSession: (() => void) | null = null;
@@ -781,6 +764,9 @@ class Accessibility {
 			persistLocalMotionSettings(this.localMotionSettingsSnapshot);
 		}
 		this.customThemeCss = readLocalCustomThemeCss();
+		if (this.customThemeCss !== null) {
+			persistLocalCustomThemeCss(this.customThemeCss);
+		}
 		this.customThemeCssSyncAcrossDevices = readLocalCustomThemeCssSyncAcrossDevices();
 		this.showNeko = readAndMigrateLocalShowNeko();
 		this.keepNekoStill = readAndMigrateLocalKeepNekoStill();
@@ -792,9 +778,12 @@ class Accessibility {
 		this.initializeShowNekoSessionSync();
 		this.initializeShowNekoStorageSync();
 		this.initializeVideoSeekPreviewThumbnailsStorageSync();
-		this.initializeCustomThemeCssStorageSync();
 		this.applyStartupPresentationSettings();
-		initializeStore(this, () => this.initPersistence());
+		this.initPersistence();
+	}
+
+	get isHydrated(): boolean {
+		return this._hydrated;
 	}
 
 	private async initPersistence(): Promise<void> {
@@ -1016,6 +1005,10 @@ class Accessibility {
 			},
 		});
 		await this.applyStoredZoom();
+		this.applyStoredCustomThemeCss();
+		runInAction(() => {
+			this._hydrated = true;
+		});
 	}
 
 	private initializeMotionDetection() {
@@ -1219,6 +1212,10 @@ class Accessibility {
 		return MobileLayout.isMobileLayout()
 			? COMFY_MESSAGE_GROUP_SPACING_DEFAULT
 			: getMessageGroupSpacingForDisplayMode(this, messageDisplayCompact);
+	}
+
+	get messageGutterValue(): number {
+		return MobileLayout.isMobileLayout() ? 12 : this.messageGutter;
 	}
 
 	updateSettings(data: Readonly<Partial<AccessibilitySettings>>): void {
@@ -1482,7 +1479,6 @@ class Accessibility {
 	async applyZoom(level: number): Promise<void> {
 		const zoomLevel = clampZoomLevel(level);
 		applyAppZoomToDocument(zoomLevel * 100, window.electron);
-		writeZoomPrebootMirror(zoomLevel, window.electron != null);
 	}
 
 	async applyStoredZoom(): Promise<void> {
@@ -1492,23 +1488,12 @@ class Accessibility {
 		await this.applyZoom(zoomLevel);
 	}
 
-	private initializeCustomThemeCssStorageSync(): void {
-		AppStorage.subscribe(
-			(event) => {
-				if (
-					event.key !== null &&
-					event.key !== ACCESSIBILITY_CUSTOM_THEME_STORAGE_KEY &&
-					event.key !== ACCESSIBILITY_CUSTOM_THEME_SYNC_STORAGE_KEY
-				) {
-					return;
-				}
-				runInAction(() => {
-					this.customThemeCss = readLocalCustomThemeCss();
-					this.customThemeCssSyncAcrossDevices = readLocalCustomThemeCssSyncAcrossDevices();
-				});
-			},
-			{source: 'external'},
-		);
+	applyStoredCustomThemeCss(): void {
+		const customThemeCss = readLocalCustomThemeCss();
+		if (customThemeCss !== null) {
+			this.customThemeCss = customThemeCss;
+			persistLocalCustomThemeCss(customThemeCss);
+		}
 	}
 
 	private applyStartupPresentationSettings(): void {

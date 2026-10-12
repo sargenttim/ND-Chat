@@ -114,7 +114,6 @@ fn overview_card(config: &AdminConfig, app: &Application, can_list_by_owner: boo
         app.owner_global_name.as_deref(),
         app.owner_username.as_deref(),
         app.owner_discriminator.as_deref(),
-        false,
     );
     section_card_simple(
         "Overview",
@@ -158,7 +157,6 @@ fn bot_display_markup(config: &AdminConfig, app: &Application) -> Markup {
                 app.bot_global_name.as_deref(),
                 app.bot_username.as_deref(),
                 app.bot_discriminator.as_deref(),
-                true,
             );
             html! {
                 div class="space-y-1" {

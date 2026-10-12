@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::admin_flags::DELETION_REASONS;
-use crate::utils::plural::{count_noun, noun_for};
 use crate::{
     acl,
     api::{
@@ -31,6 +29,31 @@ const TEMP_BAN_DURATIONS: &[(&str, &str)] = &[
     ("0", "Permanent"),
 ];
 
+const DELETION_REASONS: &[(&str, &str)] = &[
+    ("1", "User requested"),
+    ("2", "Other"),
+    ("3", "Spam"),
+    ("4", "Cheating or exploitation"),
+    ("5", "Coordinated raiding or manipulation"),
+    ("6", "Automation or self-bot usage"),
+    ("7", "Nonconsensual sexual content"),
+    ("8", "Scam or social engineering"),
+    ("9", "Child sexual content"),
+    ("10", "Privacy violation or doxxing"),
+    ("11", "Harassment or bullying"),
+    ("12", "Payment fraud"),
+    ("13", "Child safety violation"),
+    ("14", "Billing dispute or abuse"),
+    ("15", "Unsolicited explicit content"),
+    ("16", "Graphic violence"),
+    ("17", "Ban evasion"),
+    ("18", "Token or credential scam"),
+    ("19", "Inactivity"),
+    ("20", "Hate speech or extremist content"),
+    ("21", "Malicious links or malware distribution"),
+    ("22", "Impersonation or fake identity"),
+];
+
 pub struct CurrentBan<'a> {
     pub entry: &'a AuditLogEntry,
     pub notes: Vec<&'a AuditLogEntry>,
@@ -40,7 +63,6 @@ pub struct CurrentBan<'a> {
 pub struct ModerationContext<'a> {
     pub deletion_scheduler: Option<&'a AdminUser>,
     pub current_ban: Option<CurrentBan<'a>>,
-    pub username_sign_in: bool,
 }
 
 pub fn find_current_ban<'a>(user: &AdminUser, logs: &'a [AuditLogEntry]) -> Option<CurrentBan<'a>> {
@@ -96,8 +118,8 @@ pub fn moderation_tab(
     html! {
         div class="space-y-6" {
             div class="grid grid-cols-1 gap-6 md:grid-cols-2" {
-                (ban_actions_card(base, user, csrf_token, context.current_ban.as_ref(), context.username_sign_in))
-                (deletion_card(base, user, csrf_token, context.deletion_scheduler, context.username_sign_in))
+                (ban_actions_card(base, user, csrf_token, context.current_ban.as_ref()))
+                (deletion_card(base, user, csrf_token, context.deletion_scheduler))
             }
             @if can_delete_all_messages {
                 (delete_all_messages_card(base, user, csrf_token, delete_all_messages_dry_run))
@@ -109,20 +131,11 @@ pub fn moderation_tab(
     }
 }
 
-fn notify_user_checkbox(username_sign_in: bool, label: &str) -> Markup {
-    if username_sign_in {
-        html! { input type="hidden" name="notify_user_present" value="1"; }
-    } else {
-        opt_out_checkbox("notify_user", label)
-    }
-}
-
 fn ban_actions_card(
     base: &str,
     user: &AdminUser,
     csrf_token: &str,
     current_ban: Option<&CurrentBan<'_>>,
-    username_sign_in: bool,
 ) -> Markup {
     html! {
         (card_with_header("Ban Actions", html! {
@@ -146,7 +159,7 @@ fn ban_actions_card(
                                    px-3 py-2 text-sm shadow-sm \
                                    focus:border-brand-primary focus:outline-none \
                                    focus:ring-1 focus:ring-brand-primary";
-                        (notify_user_checkbox(username_sign_in, "Email the user that the suspension was lifted"))
+                        (opt_out_checkbox("notify_user", "Email the user that the suspension was lifted"))
                         (form_actions(html! {
                             (submit_button("Unban User"))
                         }))
@@ -181,7 +194,7 @@ fn ban_actions_card(
                                    px-3 py-2 text-sm shadow-sm \
                                    focus:border-brand-primary focus:outline-none \
                                    focus:ring-1 focus:ring-brand-primary";
-                        (notify_user_checkbox(username_sign_in, "Email the user about this suspension (temporary bans only)"))
+                        (opt_out_checkbox("notify_user", "Email the user about this suspension (temporary bans only)"))
                         (form_actions(html! {
                             (submit_button("Ban/Suspend User"))
                         }))
@@ -322,7 +335,6 @@ fn deletion_card(
     user: &AdminUser,
     csrf_token: &str,
     scheduler: Option<&AdminUser>,
-    username_sign_in: bool,
 ) -> Markup {
     html! {
         (card_with_header("Account Deletion", html! {
@@ -336,14 +348,12 @@ fn deletion_card(
                     div class="space-y-3" {
                         (form_label("Private Reason"))
                         input type="text" name="private_reason" required
-                            placeholder="Why this deletion is being canceled (audit log)..."
+                            placeholder="Why this deletion is being cancelled (audit log)..."
                             class="block w-full rounded-md border border-neutral-300 \
                                    px-3 py-2 text-sm shadow-sm \
                                    focus:border-brand-primary focus:outline-none \
                                    focus:ring-1 focus:ring-brand-primary";
-                        @if !username_sign_in {
-                            (checkbox("notify_user", "true", "Email the user that the deletion was canceled", false, true))
-                        }
+                        (checkbox("notify_user", "true", "Email the user that the deletion was cancelled", false, true))
                         (checkbox("confirm", "true", &confirmation, false, true))
                         (form_actions(html! {
                             (danger_button("Cancel Deletion"))
@@ -387,7 +397,7 @@ fn deletion_card(
                                    px-3 py-2 text-sm shadow-sm \
                                    focus:border-brand-primary focus:outline-none \
                                    focus:ring-1 focus:ring-brand-primary";
-                        (notify_user_checkbox(username_sign_in, "Email the user about the scheduled deletion"))
+                        (opt_out_checkbox("notify_user", "Email the user about the scheduled deletion"))
                         (form_actions(html! {
                             (submit_button("Schedule Deletion"))
                         }))
@@ -544,7 +554,7 @@ fn message_shred_status_content(status: &serde_json::Value) -> Markup {
                 "Status: " (message_shred_status_label(status_value))
             }
             p class="text-sm text-neutral-700" {
-                "Requested " (count_noun(requested, "entry", "entries")) ", skipped " (count_noun(skipped, "entry", "entries"))
+                "Requested " (requested) " entries, skipped " (skipped) " entries"
             }
             @if status_value == "in_progress" {
                 div class="space-y-2" {
@@ -559,17 +569,17 @@ fn message_shred_status_content(status: &serde_json::Value) -> Markup {
             }
             @if status_value == "completed" {
                 p class="text-sm text-neutral-700" {
-                    "Deleted " (processed) " / " (total) " " (noun_for(total, "entry", "entries"))
+                    "Deleted " (processed) " / " (total) " entries"
                 }
             }
             @if let Some(started_at) = value_str(status, "started_at") {
-                p class="text-xs text-neutral-500" { "Started " (format_admin_timestamp(started_at)) }
+                p class="text-xs text-neutral-500" { "Started " (started_at) }
             }
             @if let Some(completed_at) = value_str(status, "completed_at") {
-                p class="text-xs text-neutral-500" { "Completed " (format_admin_timestamp(completed_at)) }
+                p class="text-xs text-neutral-500" { "Completed " (completed_at) }
             }
             @if let Some(failed_at) = value_str(status, "failed_at") {
-                p class="text-xs text-red-600" { "Failed " (format_admin_timestamp(failed_at)) }
+                p class="text-xs text-red-600" { "Failed " (failed_at) }
             }
             @if let Some(error) = value_str(status, "error") {
                 p class="text-sm text-red-600" { (error) }
@@ -725,3 +735,139 @@ const MESSAGE_SHRED_FORM_SCRIPT: &str = r#"
 	});
 })();
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    fn user(extra: Value) -> AdminUser {
+        let mut value =
+            json!({"id": "1500000000000000001", "username": "target", "discriminator": "0001"});
+        if let (Some(target), Some(fields)) = (value.as_object_mut(), extra.as_object()) {
+            target.extend(fields.clone());
+        }
+        serde_json::from_value(value).expect("valid admin user")
+    }
+
+    fn entry(log_id: &str, action: &str, reason: &str, metadata: Value) -> AuditLogEntry {
+        serde_json::from_value(json!({
+            "log_id": log_id,
+            "admin_user_id": "1400000000000000001",
+            "admin_user": {"id": "1400000000000000001", "username": "lilith", "discriminator": "0001", "global_name": null},
+            "action": action,
+            "target_id": "1500000000000000001",
+            "target_type": "user",
+            "audit_log_reason": reason,
+            "metadata": metadata,
+            "created_at": "2026-09-01T10:00:00.000Z"
+        }))
+        .expect("valid audit log entry")
+    }
+
+    #[test]
+    fn pending_deletion_card_names_the_scheduler_and_the_deletion_it_cancels() {
+        let target = user(json!({
+            "pending_deletion_at": "2026-10-30T17:40:29.690Z",
+            "deletion_reason_code": 3,
+            "deletion_public_reason": "Spam",
+            "deletion_audit_log_reason": "Report batch 12",
+            "deletion_scheduled_by": "1400000000000000001",
+            "deletion_scheduled_at": "2026-08-31T17:40:29.690Z"
+        }));
+        let scheduler = user(json!({"id": "1400000000000000001", "username": "lilith"}));
+        let markup = deletion_card("/admin", &target, "csrf", Some(&scheduler)).into_string();
+        assert!(markup.contains(r#"href="/admin/users/1400000000000000001""#));
+        assert!(markup.contains("lilith"));
+        assert!(markup.contains("Report batch 12"));
+        assert!(
+            markup.contains(
+                r#"name="expected_pending_deletion_at" value="2026-10-30T17:40:29.690Z""#
+            )
+        );
+        assert!(markup.contains(r#"name="notify_user" value="true""#));
+        assert!(!markup.contains(r#"name="notify_user" value="true" checked"#));
+        assert!(markup.contains("Cancel lilith's deletion (Spam, due"));
+        assert!(markup.contains(r#"name="private_reason" required"#));
+    }
+
+    #[test]
+    fn schedule_form_makes_the_reason_an_explicit_choice() {
+        let markup = deletion_card("/admin", &user(json!({})), "csrf", None).into_string();
+        assert!(markup.contains(r#"<option value="" disabled selected>Choose a reason</option>"#));
+        assert!(!markup.contains(r#"<option value="1" selected>"#));
+        assert!(!markup.contains("replace_pending_deletion_at"));
+    }
+
+    #[test]
+    fn schedule_form_emails_the_user_by_default() {
+        let markup = deletion_card("/admin", &user(json!({})), "csrf", None).into_string();
+        assert!(markup.contains(r#"name="notify_user" value="true" checked"#));
+        assert!(markup.contains(r#"name="notify_user_present" value="1""#));
+    }
+
+    #[test]
+    fn temp_ban_form_emails_the_user_by_default() {
+        let markup = ban_actions_card("/admin", &user(json!({})), "csrf", None).into_string();
+        assert!(markup.contains(r#"name="notify_user" value="true" checked"#));
+        assert!(markup.contains(r#"name="notify_user_present" value="1""#));
+    }
+
+    #[test]
+    fn unban_form_separates_the_public_and_private_reasons() {
+        let target = user(json!({"temp_banned_until": "2026-10-01T00:00:00.000Z"}));
+        let markup = ban_actions_card("/admin", &target, "csrf", None).into_string();
+        assert!(markup.contains("?action=unban&amp;tab=moderation"));
+        assert!(markup.contains(r#"name="notify_user" value="true" checked"#));
+        assert!(markup.contains(r#"name="notify_user_present" value="1""#));
+        assert!(markup.contains(
+            r#"name="public_reason" placeholder="Enter public unban reason..." maxlength="512""#
+        ));
+        assert!(markup.contains(r#"name="private_reason""#));
+    }
+
+    #[test]
+    fn current_ban_is_the_entry_matching_the_ban_end_and_notes_attach_to_it() {
+        let target = user(json!({"temp_banned_until": "2026-10-01T00:00:00.000Z"}));
+        let logs = vec![
+            entry(
+                "3",
+                "annotate_ban",
+                "Also sent links",
+                json!({"ban_audit_log_id": "2"}),
+            ),
+            entry(
+                "2",
+                "temp_ban",
+                "Regel § 3",
+                json!({"banned_until": "2026-10-01T00:00:00.000Z"}),
+            ),
+            entry(
+                "1",
+                "temp_ban",
+                "Older ban",
+                json!({"banned_until": "2026-01-01T00:00:00.000Z"}),
+            ),
+            entry(
+                "4",
+                "annotate_ban",
+                "Old note",
+                json!({"ban_audit_log_id": "1"}),
+            ),
+        ];
+        let ban = find_current_ban(&target, &logs).expect("current ban");
+        assert_eq!(ban.entry.log_id, "2");
+        assert_eq!(
+            ban.notes
+                .iter()
+                .map(|note| note.log_id.as_str())
+                .collect::<Vec<_>>(),
+            ["3"]
+        );
+        let markup = ban_actions_card("/admin", &target, "csrf", Some(&ban)).into_string();
+        assert!(markup.contains("Regel § 3"));
+        assert!(markup.contains("Also sent links"));
+        assert!(markup.contains(r#"name="ban_audit_log_id" value="2""#));
+        assert!(markup.contains("?action=annotate_ban&amp;tab=moderation"));
+    }
+}

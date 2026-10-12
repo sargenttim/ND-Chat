@@ -2,16 +2,16 @@
 
 import {createGuildID} from '@app/api/BrandedTypes';
 import {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import {createGuildMfaEnforcer} from '@app/api/guild/services/GuildMfaEnforcement';
 import {LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import {getGuildMemberSearchService} from '@app/api/SearchFactory';
-import {channelNeedsReindexing} from '@app/api/search/ChannelIndexingUtils';
+import {guildMembersNeedReindexing} from '@app/api/search/GuildMemberIndexingUtils';
 import type {HonoApp} from '@app/api/types/HonoEnv';
 import {Validator} from '@app/api/Validator';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
-import {GUILD_MEMBERS_REINDEX_AFTER_TIMESTAMP} from '@fluxer/constants/src/GuildConstants';
 import {MissingPermissionsError} from '@fluxer/errors/src/domains/core/MissingPermissionsError';
 import type {SearchableGuildMember} from '@fluxer/schema/src/contracts/search/SearchDocumentTypes';
 import {GuildIdParam} from '@fluxer/schema/src/domains/common/CommonParamSchemas';
@@ -82,13 +82,16 @@ export function GuildMemberSearchController(app: HonoApp) {
 			const guildId = createGuildID(ctx.req.valid('param').guild_id);
 			const guildIdString = guildId.toString();
 			const body = ctx.req.valid('json');
-			const {getMyPermissions, enforceGuildMfa} = await ctx
-				.get('guildService')
-				.getGuildAuthenticated({userId, guildId});
+			const {getMyPermissions, guildData} = await ctx.get('guildService').getGuildAuthenticated({userId, guildId});
 			const permissions = await getMyPermissions();
 			if ((permissions & MEMBERS_PAGE_PERMISSIONS) === 0n) {
 				throw new MissingPermissionsError();
 			}
+			const enforceGuildMfa = await createGuildMfaEnforcer({
+				userRepository: ctx.get('userRepository'),
+				guildData,
+				userId,
+			});
 			enforceGuildMfa(permissions & MEMBERS_PAGE_PERMISSIONS);
 			const canViewInvites = (permissions & Permissions.MANAGE_GUILD) !== 0n;
 			const guild = await guildRepository.findUnique(guildId);
@@ -99,7 +102,7 @@ export function GuildMemberSearchController(app: HonoApp) {
 			if (!searchService?.isAvailable()) {
 				return ctx.json(createEmptySearchResponse(guildIdString, false));
 			}
-			const needsIndexing = channelNeedsReindexing(guild.membersIndexedAt, GUILD_MEMBERS_REINDEX_AFTER_TIMESTAMP);
+			const needsIndexing = guildMembersNeedReindexing(guild.membersIndexedAt);
 			if (needsIndexing) {
 				const workerService = ctx.get('workerService');
 				await workerService.addJob(

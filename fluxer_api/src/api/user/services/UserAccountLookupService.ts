@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {GuildID, UserID} from '@app/api/BrandedTypes';
-import type {ConnectionRepository} from '@app/api/connection/ConnectionRepository';
+import type {IConnectionRepository} from '@app/api/connection/IConnectionRepository';
 import type {UserConnectionRow} from '@app/api/database/types/ConnectionTypes';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
-import type {DiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
+import type {IDiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {GuildMember} from '@app/api/models/GuildMember';
 import type {User} from '@app/api/models/User';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {isUsernameTaken} from '@app/api/user/UniqueUsernames';
-import {getBadgePremiumType} from '@app/api/user/UserHelpers';
-import {hasFixedDiscriminator} from '@app/api/user/UserTag';
+import type {IUserAccountRepository} from '@app/api/user/repositories/IUserAccountRepository';
+import type {IUserChannelRepository} from '@app/api/user/repositories/IUserChannelRepository';
+import type {IUserRelationshipRepository} from '@app/api/user/repositories/IUserRelationshipRepository';
+import type {IUserSettingsRepository} from '@app/api/user/repositories/IUserSettingsRepository';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {
 	PremiumFlags,
@@ -34,12 +34,14 @@ interface ProfileFieldPrivacyContext {
 }
 
 interface UserAccountLookupServiceDeps {
-	userAccountRepository: UserRepository;
-
-	guildRepository: GuildRepository;
+	userAccountRepository: IUserAccountRepository;
+	userChannelRepository: IUserChannelRepository;
+	userRelationshipRepository: IUserRelationshipRepository;
+	userSettingsRepository: IUserSettingsRepository;
+	guildRepository: IGuildRepositoryAggregate;
 	guildService: GuildService;
-	discriminatorService: DiscriminatorService;
-	connectionRepository: ConnectionRepository;
+	discriminatorService: IDiscriminatorService;
+	connectionRepository: IConnectionRepository;
 }
 
 export class UserAccountLookupService {
@@ -47,6 +49,10 @@ export class UserAccountLookupService {
 
 	async findUnique(userId: UserID): Promise<User | null> {
 		return await this.deps.userAccountRepository.findUnique(userId);
+	}
+
+	async findUniqueAssert(userId: UserID): Promise<User> {
+		return await this.deps.userAccountRepository.findUniqueAssert(userId);
 	}
 
 	async getUserProfile(params: {
@@ -95,7 +101,7 @@ export class UserAccountLookupService {
 				}
 			}
 		}
-		let premiumType = getBadgePremiumType(user);
+		let premiumType = user.premiumType ?? undefined;
 		let premiumSince = user.premiumSince ?? undefined;
 		let premiumLifetimeSequence = user.premiumLifetimeSequence ?? undefined;
 		if (restrictProfile || user.premiumFlags & PremiumFlags.BADGE_HIDDEN) {
@@ -148,7 +154,7 @@ export class UserAccountLookupService {
 	private async shouldRestrictProfile(viewerId: UserID, targetId: UserID, targetUser: User): Promise<boolean> {
 		if (viewerId === targetId) return false;
 		if (targetUser.isBot) return false;
-		const targetSettings = await this.deps.userAccountRepository.findSettings(targetId);
+		const targetSettings = await this.deps.userSettingsRepository.findSettings(targetId);
 		const level = targetSettings?.profilePrivacy ?? ProfilePrivacyLevels.ALL_GUILDS;
 		if (level === ProfilePrivacyLevels.ALL_GUILDS) {
 			if (await this.areFriends(viewerId, targetId)) return false;
@@ -175,7 +181,7 @@ export class UserAccountLookupService {
 		if (targetUser.isBot) {
 			return;
 		}
-		const friendship = await this.deps.userAccountRepository.getRelationship(
+		const friendship = await this.deps.userRelationshipRepository.getRelationship(
 			userId,
 			targetId,
 			RelationshipTypes.FRIEND,
@@ -183,7 +189,7 @@ export class UserAccountLookupService {
 		if (friendship) {
 			return;
 		}
-		const incomingRequest = await this.deps.userAccountRepository.getRelationship(
+		const incomingRequest = await this.deps.userRelationshipRepository.getRelationship(
 			userId,
 			targetId,
 			RelationshipTypes.INCOMING_REQUEST,
@@ -191,7 +197,7 @@ export class UserAccountLookupService {
 		if (incomingRequest) {
 			return;
 		}
-		const outgoingRequest = await this.deps.userAccountRepository.getRelationship(
+		const outgoingRequest = await this.deps.userRelationshipRepository.getRelationship(
 			userId,
 			targetId,
 			RelationshipTypes.OUTGOING_REQUEST,
@@ -215,7 +221,7 @@ export class UserAccountLookupService {
 	}
 
 	private async hasSharedGroupDm(userId: UserID, targetId: UserID): Promise<boolean> {
-		const privateChannels = await this.deps.userAccountRepository.listPrivateChannels(userId);
+		const privateChannels = await this.deps.userChannelRepository.listPrivateChannels(userId);
 		return privateChannels.some(
 			(channel) => channel.type === ChannelTypes.GROUP_DM && channel.recipientIds.has(targetId),
 		);
@@ -223,8 +229,8 @@ export class UserAccountLookupService {
 
 	private async getMutualFriends(userId: UserID, targetId: UserID): Promise<Array<User>> {
 		const [userRelationships, targetRelationships] = await Promise.all([
-			this.deps.userAccountRepository.listRelationships(userId),
-			this.deps.userAccountRepository.listRelationships(targetId),
+			this.deps.userRelationshipRepository.listRelationships(userId),
+			this.deps.userRelationshipRepository.listRelationships(targetId),
 		]);
 		const userFriendIds = new Set(
 			userRelationships
@@ -273,15 +279,8 @@ export class UserAccountLookupService {
 		}));
 	}
 
-	async checkUsernameDiscriminatorAvailability(params: {
-		username: string;
-		discriminator: number;
-		currentUser: User;
-	}): Promise<boolean> {
-		const {username, discriminator, currentUser} = params;
-		if (hasFixedDiscriminator(currentUser)) {
-			return await isUsernameTaken(this.deps.userAccountRepository, username, currentUser.id);
-		}
+	async checkUsernameDiscriminatorAvailability(params: {username: string; discriminator: number}): Promise<boolean> {
+		const {username, discriminator} = params;
 		const isAvailable = await this.deps.discriminatorService.isDiscriminatorAvailableForUsername(
 			username,
 			discriminator,
@@ -326,7 +325,7 @@ export class UserAccountLookupService {
 	}
 
 	private async areFriends(userId1: UserID, userId2: UserID): Promise<boolean> {
-		const friendship = await this.deps.userAccountRepository.getRelationship(
+		const friendship = await this.deps.userRelationshipRepository.getRelationship(
 			userId1,
 			userId2,
 			RelationshipTypes.FRIEND,

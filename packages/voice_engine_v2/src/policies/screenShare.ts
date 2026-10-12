@@ -4,7 +4,7 @@ import type {
 	VoiceEngineV2Error,
 	VoiceEngineV2ScreenEncodingOptions,
 	VoiceEngineV2ScreenOptions,
-} from '@fluxer/voice_engine_v2/src/protocol/types';
+} from '@fluxer/voice_engine_v2/src/protocol';
 
 export type VoiceEngineV2ScreenEncodingPlanAction = 'noop' | 'updateEncoding' | 'republish' | 'reject';
 

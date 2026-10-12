@@ -8,12 +8,12 @@ let nextTooltipId = 0;
 let activeTooltipId: number | null = null;
 const tooltipHideCallbacks = new Map<number, HideTooltip>();
 
-function createExclusiveTooltipId(): number {
+export function createExclusiveTooltipId(): number {
 	nextTooltipId += 1;
 	return nextTooltipId;
 }
 
-function registerExclusiveTooltip(id: number, hide: HideTooltip): () => void {
+export function registerExclusiveTooltip(id: number, hide: HideTooltip): () => void {
 	tooltipHideCallbacks.set(id, hide);
 	return () => {
 		tooltipHideCallbacks.delete(id);
@@ -23,14 +23,14 @@ function registerExclusiveTooltip(id: number, hide: HideTooltip): () => void {
 	};
 }
 
-function activateExclusiveTooltip(id: number): void {
+export function activateExclusiveTooltip(id: number): void {
 	if (activeTooltipId !== null && activeTooltipId !== id) {
 		tooltipHideCallbacks.get(activeTooltipId)?.();
 	}
 	activeTooltipId = id;
 }
 
-function deactivateExclusiveTooltip(id: number): void {
+export function deactivateExclusiveTooltip(id: number): void {
 	if (activeTooltipId === id) {
 		activeTooltipId = null;
 	}
@@ -52,4 +52,10 @@ export function useExclusiveTooltip(isOpen: boolean, hide: HideTooltip): void {
 		}
 		return unregister;
 	}, [hide, id, isOpen]);
+}
+
+export function resetExclusiveTooltipRegistryForTests(): void {
+	nextTooltipId = 0;
+	activeTooltipId = null;
+	tooltipHideCallbacks.clear();
 }

@@ -2,7 +2,7 @@
 
 import {createServer, type IncomingMessage, type Server, type ServerResponse} from 'node:http';
 
-type RouteHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
+export type RouteHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
 
 export interface TestServer {
 	url: string;
@@ -52,5 +52,14 @@ export async function createTestServer(): Promise<TestServer> {
 				},
 			});
 		});
+	});
+}
+
+export function readRequestBody(req: IncomingMessage): Promise<string> {
+	return new Promise((resolve, reject) => {
+		const chunks: Array<Buffer> = [];
+		req.on('data', (chunk: Buffer) => chunks.push(chunk));
+		req.on('end', () => resolve(Buffer.concat(chunks).toString('utf-8')));
+		req.on('error', reject);
 	});
 }

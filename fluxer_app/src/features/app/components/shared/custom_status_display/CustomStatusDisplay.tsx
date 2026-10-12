@@ -32,6 +32,7 @@ interface CustomStatusDisplayProps {
 	emojiClassName?: string;
 	customStatus?: CustomStatus | null;
 	userId?: string;
+	showText?: boolean;
 	showTooltip?: boolean;
 	tooltipPosition?: TooltipPosition;
 	allowJumboEmoji?: boolean;
@@ -196,6 +197,7 @@ export const CustomStatusDisplay = observer(
 		emojiClassName,
 		customStatus,
 		userId,
+		showText = true,
 		showTooltip = true,
 		tooltipPosition,
 		allowJumboEmoji = false,
@@ -326,7 +328,7 @@ export const CustomStatusDisplay = observer(
 							data-flx="app.custom-status-display.custom-status-display.content"
 						>
 							{renderEditableEmoji()}
-							{displayText && (
+							{showText && displayText && (
 								<span
 									className={styles.truncatedText}
 									data-flx="app.custom-status-display.custom-status-display.truncated-text"
@@ -463,7 +465,7 @@ export const CustomStatusDisplay = observer(
 					<Trans>Custom status: </Trans>
 				</span>
 				{renderEmojiNode()}
-				{displayText && (
+				{showText && displayText && (
 					<span
 						className={styles.truncatedText}
 						data-flx="app.custom-status-display.custom-status-display.truncated-text--2"

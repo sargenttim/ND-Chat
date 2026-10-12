@@ -119,9 +119,6 @@ pub struct InstancePremiumDiscoveryAppPublic {
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct InstancePremiumDiscoveryBranding {
-    pub product_name: Option<String>,
-    pub icon_url: Option<String>,
-    pub favicon_url: Option<String>,
     pub premium_product_name: Option<String>,
 }
 
@@ -133,65 +130,44 @@ pub struct InstancePremiumDiscoveryFeatures {
 
 impl InstancePremiumDiscovery {
     pub fn premium_product_name(&self) -> Option<&str> {
-        non_blank(self.app_public.branding.premium_product_name.as_deref())
+        self.app_public
+            .branding
+            .premium_product_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PremiumBranding {
     pub name: Option<String>,
     pub premium_enabled: bool,
-    pub product_name: Option<String>,
-    pub favicon_url: Option<String>,
 }
 
 impl PremiumBranding {
     pub fn from_discovery(discovery: &InstancePremiumDiscovery) -> Self {
-        let branding = &discovery.app_public.branding;
         Self {
             name: discovery.premium_product_name().map(str::to_owned),
             premium_enabled: discovery.features.premium_enabled,
-            product_name: non_blank(branding.product_name.as_deref()).map(str::to_owned),
-            favicon_url: favicon_url(
-                branding.favicon_url.as_deref(),
-                branding.icon_url.as_deref(),
-            ),
         }
     }
 
     pub fn from_instance_config(config: &InstanceConfigResponse) -> Self {
-        let branding = &config.app_public.branding;
-        Self {
-            product_name: non_blank(Some(&branding.product_name)).map(str::to_owned),
-            favicon_url: favicon_url(
-                branding.favicon_url.as_deref(),
-                branding.icon_url.as_deref(),
-            ),
-            ..Self::from_config_parts(
-                config.self_hosted,
-                &branding.premium_product_name,
-                config.policy.premium_mode,
-            )
-        }
+        Self::from_config_parts(
+            config.self_hosted,
+            &config.app_public.branding.premium_product_name,
+            config.policy.premium_mode,
+        )
     }
 
     fn from_config_parts(self_hosted: bool, name: &str, premium_mode: PremiumMode) -> Self {
+        let name = name.trim();
         Self {
-            name: non_blank(Some(name)).map(str::to_owned),
+            name: (!name.is_empty()).then(|| name.to_owned()),
             premium_enabled: !self_hosted || matches!(premium_mode, PremiumMode::Mirror),
-            ..Self::default()
         }
     }
-}
-
-fn non_blank(value: Option<&str>) -> Option<&str> {
-    value.map(str::trim).filter(|value| !value.is_empty())
-}
-
-fn favicon_url(favicon_url: Option<&str>, icon_url: Option<&str>) -> Option<String> {
-    non_blank(favicon_url)
-        .or_else(|| non_blank(icon_url))
-        .map(str::to_owned)
 }
 
 #[cfg(test)]
@@ -328,41 +304,8 @@ mod tests {
             PremiumBranding::from_discovery(&discovery),
             PremiumBranding {
                 name: Some("Gold".to_owned()),
-                premium_enabled: true,
-                product_name: Some("Example".to_owned()),
-                favicon_url: None,
+                premium_enabled: true
             }
-        );
-    }
-
-    #[test]
-    fn instance_branding_prefers_the_favicon_and_falls_back_to_the_icon() {
-        let discovery = |branding| -> InstancePremiumDiscovery {
-            serde_json::from_value(json!({"app_public": {"branding": branding}}))
-                .expect("discovery")
-        };
-        let both = discovery(json!({
-            "favicon_url": "https://media.example/favicon.png",
-            "icon_url": "https://media.example/icon.png"
-        }));
-        assert_eq!(
-            PremiumBranding::from_discovery(&both)
-                .favicon_url
-                .as_deref(),
-            Some("https://media.example/favicon.png")
-        );
-        let icon_only =
-            discovery(json!({"favicon_url": " ", "icon_url": "https://media.example/icon.png"}));
-        assert_eq!(
-            PremiumBranding::from_discovery(&icon_only)
-                .favicon_url
-                .as_deref(),
-            Some("https://media.example/icon.png")
-        );
-        let neither = discovery(json!({"product_name": "  "}));
-        assert_eq!(
-            PremiumBranding::from_discovery(&neither),
-            PremiumBranding::default()
         );
     }
 
@@ -372,8 +315,7 @@ mod tests {
             PremiumBranding::from_config_parts(true, " Gold ", PremiumMode::Everyone),
             PremiumBranding {
                 name: Some("Gold".to_owned()),
-                premium_enabled: false,
-                ..PremiumBranding::default()
+                premium_enabled: false
             }
         );
         assert!(
@@ -383,8 +325,7 @@ mod tests {
             PremiumBranding::from_config_parts(false, "  ", PremiumMode::Everyone),
             PremiumBranding {
                 name: None,
-                premium_enabled: true,
-                ..PremiumBranding::default()
+                premium_enabled: true
             }
         );
     }

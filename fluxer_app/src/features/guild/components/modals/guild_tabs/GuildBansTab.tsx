@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
 import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
 import {StatusSlate} from '@app/features/app/components/dialogs/shared/StatusSlate';
 import type {GuildBan} from '@app/features/guild/commands/GuildCommands';
 import * as GuildCommands from '@app/features/guild/commands/GuildCommands';
-
+import {showGuildErrorModal} from '@app/features/guild/components/alerts/GuildErrorModalUtils';
 import {BannedUserActionsSheet} from '@app/features/guild/components/modals/guild_tabs/BannedUserActionsSheet';
 import styles from '@app/features/guild/components/modals/guild_tabs/MemberListStyles.module.css';
 import {UserListItem} from '@app/features/guild/components/modals/guild_tabs/UserListItem';
@@ -23,7 +22,6 @@ import {useContextMenuTrigger} from '@app/features/ui/hooks/useContextMenuTrigge
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
-import {formatUserTag} from '@app/features/user/utils/UserTagUtils';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {MagnifyingGlassIcon, ProhibitIcon} from '@phosphor-icons/react';
@@ -58,8 +56,7 @@ const GuildBansTab: React.FC<{guildId: string}> = observer(({guildId}) => {
 	const {isOpen: isMenuOpen, withTracking} = useContextMenuTrigger();
 	const isMobile = MobileLayout.enabled;
 	const getRawTag = useCallback(
-		(ban: GuildBan) =>
-			ban.user.tag ?? formatUserTag({...ban.user, discriminator: (ban.user.discriminator ?? '').padStart(4, '0')}),
+		(ban: GuildBan) => ban.user.tag ?? `${ban.user.username}#${(ban.user.discriminator ?? '').padStart(4, '0')}`,
 		[],
 	);
 	const formatTag = useCallback((ban: GuildBan) => NicknameUtils.formatTagForStreamerMode(getRawTag(ban)), [getRawTag]);
@@ -70,13 +67,10 @@ const GuildBansTab: React.FC<{guildId: string}> = observer(({guildId}) => {
 			setBans(fetchedBans);
 		} catch (error) {
 			logger.error('Failed to fetch bans', error);
-			showGenericErrorModal({
-				...{
-					title: i18n._(COULDN_T_LOAD_BANS_DESCRIPTOR),
-					message: i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR),
-					dataFlx: 'guild.guild-tabs.guild-bans-tab.load-bans-error-modal',
-				},
-				defer: true,
+			showGuildErrorModal({
+				title: i18n._(COULDN_T_LOAD_BANS_DESCRIPTOR),
+				message: i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR),
+				dataFlx: 'guild.guild-tabs.guild-bans-tab.load-bans-error-modal',
 			});
 		} finally {
 			setIsLoading(false);
@@ -126,13 +120,10 @@ const GuildBansTab: React.FC<{guildId: string}> = observer(({guildId}) => {
 								await fetchBans();
 							} catch (error) {
 								logger.error('Failed to unban member', error);
-								showGenericErrorModal({
-									...{
-										title: i18n._(COULDN_T_REVOKE_BAN_DESCRIPTOR),
-										message: i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR),
-										dataFlx: 'guild.guild-tabs.guild-bans-tab.revoke-ban-error-modal',
-									},
-									defer: true,
+								showGuildErrorModal({
+									title: i18n._(COULDN_T_REVOKE_BAN_DESCRIPTOR),
+									message: i18n._(TRY_AGAIN_IN_A_MOMENT_DESCRIPTOR),
+									dataFlx: 'guild.guild-tabs.guild-bans-tab.revoke-ban-error-modal',
 								});
 							}
 						}}

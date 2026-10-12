@@ -20,7 +20,7 @@ export function getDmRouteChannelId(pathname: string): string | null {
 	return channelId ?? null;
 }
 
-function canInviteInChannel(channel?: Channel | null): channel is Channel {
+export function canInviteInChannel(channel?: Channel | null): channel is Channel {
 	if (!channel?.guildId) {
 		return false;
 	}

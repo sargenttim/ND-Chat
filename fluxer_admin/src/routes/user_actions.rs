@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::utils::plural::count_noun;
 use crate::{
     admin_flags,
     api::client::{AdminApiClient, ApiError},
@@ -92,6 +91,16 @@ pub async fn dispatch(
                 "Failed to update user flags",
             )
         }
+        "update_badges" => DispatchOutcome::from_result(
+            client
+                .update_user_badges(
+                    user_id,
+                    &form.list_values_any(&["badge_ids[]", "badge_ids"]),
+                )
+                .await,
+            "User badges updated successfully",
+            "Failed to update user badges",
+        ),
         "update_premium_flags" => {
             if has_legacy_flag_delta_fields(form) {
                 let Ok(add) = form.parse_list_values::<i32>(&["add_flags[]", "add_flags"]) else {
@@ -135,6 +144,19 @@ pub async fn dispatch(
                 "Failed to update premium flags",
             )
         }
+        "update_suspicious_flags" => {
+            let Ok(submitted) =
+                form.parse_list_values::<i32>(&["suspicious_flags[]", "suspicious_flags"])
+            else {
+                return DispatchOutcome::error("Invalid suspicious activity flag value");
+            };
+            let flags = submitted.into_iter().fold(0, |acc, flag| acc | flag);
+            DispatchOutcome::from_result(
+                client.update_suspicious_flags(user_id, flags).await,
+                "Suspicious activity flags updated successfully",
+                "Failed to update suspicious activity flags",
+            )
+        }
         "update_acls" => {
             let acls = form.list_values_any(&["acls[]", "acls"]);
             DispatchOutcome::from_result(
@@ -166,6 +188,14 @@ pub async fn dispatch(
             "Email verified successfully",
             "Failed to verify email",
         ),
+        "update_has_verified_phone" => {
+            let val = form.bool_value("has_verified_phone");
+            DispatchOutcome::from_result(
+                client.update_has_verified_phone(user_id, val).await,
+                "Phone verification status updated successfully",
+                "Failed to update phone verification status",
+            )
+        }
         "terminate_sessions" => DispatchOutcome::from_result(
             client.terminate_user_sessions(user_id).await,
             "User sessions terminated successfully",
@@ -260,11 +290,8 @@ pub async fn dispatch(
             let Some(ip) = get("ip") else {
                 return DispatchOutcome::error("IP address is required");
             };
-            let Ok(duration) = form.parse_value::<u32>("duration_hours") else {
-                return DispatchOutcome::error("Invalid ban duration");
-            };
             DispatchOutcome::from_result(
-                client.ban_ip(&ip, duration.unwrap_or(0), None).await,
+                client.ban_ip(&ip, None).await,
                 "IP banned successfully",
                 "Failed to ban IP",
             )
@@ -312,7 +339,7 @@ pub async fn dispatch(
             };
             if !form.bool_value("confirm") {
                 return DispatchOutcome::error(
-                    "Confirm whose deletion you are canceling before submitting",
+                    "Confirm whose deletion you are cancelling before submitting",
                 );
             }
             let Some(private_reason) = get("private_reason") else {
@@ -323,7 +350,7 @@ pub async fn dispatch(
                 .cancel_deletion(user_id, &expected, notify_user, Some(&private_reason))
                 .await
             {
-                Ok(_) => DispatchOutcome::success("User deletion canceled successfully"),
+                Ok(_) => DispatchOutcome::success("User deletion cancelled successfully"),
                 Err(ApiError::Http { status: 409, .. }) => DispatchOutcome::error(
                     "The pending deletion changed since this page loaded. Reload and review.",
                 ),
@@ -384,11 +411,6 @@ pub async fn dispatch(
             "Password reset sent successfully",
             "Failed to send password reset",
         ),
-        "revoke_recovery_kit" => DispatchOutcome::from_result(
-            client.revoke_recovery_kit(user_id).await,
-            "Recovery kit revoked",
-            "Failed to revoke recovery kit",
-        ),
         "remove_relationship" => {
             let Some(target_id) = get("target_user_id").or_else(|| get("target_id")) else {
                 return DispatchOutcome::error("Target user ID is required");
@@ -436,9 +458,8 @@ pub async fn dispatch(
             match client.delete_all_user_messages(user_id, dry_run).await {
                 Ok(response) if dry_run => DispatchOutcome {
                     flash: FlashData::success(format!(
-                        "Dry run found {} across {}. Confirm to delete them permanently.",
-                        count_noun(response.message_count, "message", "messages"),
-                        count_noun(response.channel_count, "channel", "channels")
+                        "Dry run found {} messages across {} channels. Confirm to delete them permanently.",
+                        response.message_count, response.channel_count
                     )),
                     redirect_params: vec![
                         ("delete_all_messages_dry_run".to_owned(), "true".to_owned()),
@@ -472,7 +493,7 @@ pub async fn dispatch(
         }
         "cancel_bulk_message_deletion" => DispatchOutcome::from_result(
             client.cancel_bulk_message_deletion(user_id).await,
-            "Bulk message deletion canceled successfully",
+            "Bulk message deletion cancelled successfully",
             "Failed to cancel bulk message deletion",
         ),
         "message_shred" => {

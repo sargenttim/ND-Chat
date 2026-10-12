@@ -3,8 +3,6 @@
 import {
 	clampVoiceChannelBitrate,
 	GuildFeatures,
-	GuildVerificationLevel,
-	getEffectiveGuildVerificationLevel,
 	getMaxVoiceChannelBitrate,
 	resolveVoiceChannelBitrate,
 } from '@fluxer/constants/src/GuildConstants';
@@ -59,22 +57,5 @@ describe('resolveVoiceChannelBitrate', () => {
 	it('clamps a stored bitrate to what the guild currently holds', () => {
 		expect(resolveVoiceChannelBitrate(384000, [])).toBe(96000);
 		expect(resolveVoiceChannelBitrate(384000, [GuildFeatures.AUDIO_BITRATE_256_KBPS])).toBe(256000);
-	});
-});
-
-describe('getEffectiveGuildVerificationLevel', () => {
-	it('returns the stored level for a guild outside discovery', () => {
-		expect(getEffectiveGuildVerificationLevel(GuildVerificationLevel.NONE, false)).toBe(GuildVerificationLevel.NONE);
-		expect(getEffectiveGuildVerificationLevel(GuildVerificationLevel.MEDIUM, false)).toBe(
-			GuildVerificationLevel.MEDIUM,
-		);
-		expect(getEffectiveGuildVerificationLevel(GuildVerificationLevel.HIGH, false)).toBe(GuildVerificationLevel.HIGH);
-	});
-	it('clamps a retired stored level to high', () => {
-		expect(getEffectiveGuildVerificationLevel(4, false)).toBe(GuildVerificationLevel.HIGH);
-		expect(getEffectiveGuildVerificationLevel(4, true)).toBe(GuildVerificationLevel.HIGH);
-	});
-	it('raises a discoverable guild to at least low', () => {
-		expect(getEffectiveGuildVerificationLevel(GuildVerificationLevel.NONE, true)).toBe(GuildVerificationLevel.LOW);
 	});
 });

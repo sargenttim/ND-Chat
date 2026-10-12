@@ -3,7 +3,6 @@
 import styles from '@app/features/auth/flow/AuthPageStyles.module.css';
 import {GuildBadge} from '@app/features/guild/components/GuildBadge';
 import {GuildIcon} from '@app/features/guild/components/popouts/GuildIcon';
-import {formatNumber} from '@app/features/i18n/utils/IntlCache';
 import {isGroupDmInvite, isGuildInvite} from '@app/features/invite/types/InviteTypes';
 import {BaseAvatar} from '@app/features/ui/components/BaseAvatar';
 import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
@@ -11,6 +10,7 @@ import {getCurrentLocale} from '@app/features/user/utils/LocaleUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
 import type {GroupDmInvite, GuildInvite, Invite} from '@fluxer/schema/src/domains/invite/InviteSchemas';
 import {Plural, Trans} from '@lingui/react/macro';
+import {formatNumber} from '@pkgs/number_utils/src/NumberFormatting';
 import {observer} from 'mobx-react-lite';
 import {useEffect, useState} from 'react';
 
@@ -75,7 +75,11 @@ export const GuildInviteHeader = observer(function GuildInviteHeader({invite}: G
 					<h2 className={styles.entityTitle} data-flx="auth.flow.invite-header.guild-invite-header.entity-title">
 						{guild.name}
 					</h2>
-					<GuildBadge features={features} data-flx="auth.flow.invite-header.guild-invite-header.guild-badge" />
+					<GuildBadge
+						features={features}
+						badges={guild.badges}
+						data-flx="auth.flow.invite-header.guild-invite-header.guild-badge"
+					/>
 				</div>
 				<div className={styles.entityStats} data-flx="auth.flow.invite-header.guild-invite-header.entity-stats">
 					<div className={styles.entityStat} data-flx="auth.flow.invite-header.guild-invite-header.entity-stat">
@@ -103,7 +107,7 @@ export const GuildInviteHeader = observer(function GuildInviteHeader({invite}: G
 		</div>
 	);
 });
-const GroupDMInviteHeader = observer(function GroupDMInviteHeader({invite}: GroupDMInviteHeaderProps) {
+export const GroupDMInviteHeader = observer(function GroupDMInviteHeader({invite}: GroupDMInviteHeaderProps) {
 	const inviter = invite.inviter;
 	const inviterDisplayName = inviter ? NicknameUtils.getDisplayName(inviter) : null;
 	const avatarUrl = inviter ? AvatarUtils.getUserAvatarURL(inviter, false) : null;

@@ -2,11 +2,10 @@
 
 import {Config} from '@app/api/Config';
 import {getContentMessage} from '@app/api/content_i18n/ContentI18n';
-import type {DonationRepository} from '@app/api/donation/DonationRepository';
-import type {EmailDnsValidationService} from '@app/api/infrastructure/EmailDnsValidationService';
-import {getInstanceProductName} from '@app/api/instance/ProductName';
+import type {IDonationRepository} from '@app/api/donation/IDonationRepository';
+import type {IEmailDnsValidationService} from '@app/api/infrastructure/IEmailDnsValidationService';
 import {Logger} from '@app/api/Logger';
-import {shouldDisableAdaptivePricing} from '@app/api/utils/CurrencyUtils';
+import {getBillingRepository} from '@app/api/middleware/ServiceRegistry';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import {DonationAmountInvalidError} from '@fluxer/errors/src/domains/donation/DonationAmountInvalidError';
@@ -20,6 +19,8 @@ type CheckoutSessionCreateParams = Stripe.Checkout.SessionCreateParams;
 type CheckoutSessionMode = CheckoutSessionCreateParams['mode'];
 type CheckoutSessionLineItem = NonNullable<CheckoutSessionCreateParams['line_items']>[number];
 type CheckoutSessionLocale = NonNullable<CheckoutSessionCreateParams['locale']>;
+
+const PRODUCT_NAME = 'Fluxer';
 
 const STRIPE_CHECKOUT_LOCALES: Record<string, CheckoutSessionLocale> = {
 	bg: 'bg',
@@ -74,30 +75,29 @@ function isMissingCustomerError(error: unknown): boolean {
 }
 
 function getDonationProductData(interval: 'month' | 'year' | null, locale: string | null) {
-	const variables = {product_name: getInstanceProductName()};
 	if (interval === 'month') {
 		return {
-			name: getContentMessage('billing.donation_name_recurring', locale, variables),
-			description: getContentMessage('billing.donation_description_monthly', locale, variables),
+			name: getContentMessage('billing.donation_name_recurring', locale, {product_name: PRODUCT_NAME}),
+			description: getContentMessage('billing.donation_description_monthly', locale, {product_name: PRODUCT_NAME}),
 		};
 	}
 	if (interval === 'year') {
 		return {
-			name: getContentMessage('billing.donation_name_recurring', locale, variables),
-			description: getContentMessage('billing.donation_description_yearly', locale, variables),
+			name: getContentMessage('billing.donation_name_recurring', locale, {product_name: PRODUCT_NAME}),
+			description: getContentMessage('billing.donation_description_yearly', locale, {product_name: PRODUCT_NAME}),
 		};
 	}
 	return {
-		name: getContentMessage('billing.donation_name_one_time', locale, variables),
-		description: getContentMessage('billing.donation_description_one_time', locale, variables),
+		name: getContentMessage('billing.donation_name_one_time', locale, {product_name: PRODUCT_NAME}),
+		description: getContentMessage('billing.donation_description_one_time', locale, {product_name: PRODUCT_NAME}),
 	};
 }
 
 export class DonationCheckoutService {
 	constructor(
 		private stripe: Stripe | null,
-		private donationRepository: DonationRepository,
-		private emailDnsValidationService: EmailDnsValidationService,
+		private donationRepository: IDonationRepository,
+		private emailDnsValidationService: IEmailDnsValidationService,
 	) {}
 
 	async createCheckout(params: {
@@ -173,7 +173,6 @@ export class DonationCheckoutService {
 					enabled: true,
 				},
 				...(isBusiness ? {billing_address_collection: 'required' as const} : {}),
-				...(shouldDisableAdaptivePricing(params.currency) ? {adaptive_pricing: {enabled: false}} : {}),
 				...(mode === 'payment'
 					? {
 							customer_creation: 'always' as const,
@@ -201,6 +200,14 @@ export class DonationCheckoutService {
 				delete sessionParams.customer;
 				sessionParams.customer_email = params.email;
 				session = await this.stripe.checkout.sessions.create(sessionParams);
+			}
+			try {
+				await getBillingRepository().checkoutSessions.upsertFromStripe(session);
+			} catch (mirrorErr) {
+				Logger.error(
+					{mirrorErr, sessionId: session.id},
+					'Mirror upsert failed after Stripe write; reconciler will heal',
+				);
 			}
 			if (!session.url) {
 				throw new StripeError('Failed to create checkout session');

@@ -1,9 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::api::generated::{guild_features, user_flags};
-
-use reqwest::Method;
-
 use crate::api::generated::{snowflake, types as generated_types};
 
 use super::client::{AdminApiClient, ApiError, ApiResult};
@@ -22,13 +18,24 @@ impl AdminApiClient {
             remove_flags: user_flags(remove_flags)?,
             user_ids: snowflakes(user_ids),
         };
-        self.send(
-            Method::POST,
-            "/admin/bulk-jobs",
-            Some(&body),
-            audit_log_reason,
-        )
-        .await
+        self.post_typed_with_reason("/admin/bulk-jobs", &body, audit_log_reason)
+            .await
+    }
+
+    pub async fn bulk_update_suspicious_activity_flags(
+        &self,
+        user_ids: &[String],
+        add_flags: &[String],
+        remove_flags: &[String],
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<BulkJobResponse> {
+        let body = generated_types::AdminBulkJobCreateRequest::UpdateSuspiciousActivityFlags {
+            add_flags: add_flags.to_vec(),
+            remove_flags: remove_flags.to_vec(),
+            user_ids: snowflakes(user_ids),
+        };
+        self.post_typed_with_reason("/admin/bulk-jobs", &body, audit_log_reason)
+            .await
     }
 
     pub async fn bulk_update_guild_features(
@@ -43,13 +50,8 @@ impl AdminApiClient {
             guild_ids: snowflakes(guild_ids),
             remove_features: guild_features(remove_features),
         };
-        self.send(
-            Method::POST,
-            "/admin/bulk-jobs",
-            Some(&body),
-            audit_log_reason,
-        )
-        .await
+        self.post_typed_with_reason("/admin/bulk-jobs", &body, audit_log_reason)
+            .await
     }
 
     pub async fn bulk_add_guild_members(
@@ -62,13 +64,8 @@ impl AdminApiClient {
             guild_id: snowflake(guild_id),
             user_ids: snowflakes(user_ids),
         };
-        self.send(
-            Method::POST,
-            "/admin/bulk-jobs",
-            Some(&body),
-            audit_log_reason,
-        )
-        .await
+        self.post_typed_with_reason("/admin/bulk-jobs", &body, audit_log_reason)
+            .await
     }
 
     pub async fn bulk_delete_user_messages(
@@ -79,13 +76,8 @@ impl AdminApiClient {
         let body = generated_types::AdminBulkJobCreateRequest::DeleteUserMessages {
             user_ids: snowflakes(user_ids),
         };
-        self.send(
-            Method::POST,
-            "/admin/bulk-jobs",
-            Some(&body),
-            audit_log_reason,
-        )
-        .await
+        self.post_typed_with_reason("/admin/bulk-jobs", &body, audit_log_reason)
+            .await
     }
 
     pub async fn bulk_schedule_user_deletion(
@@ -113,16 +105,29 @@ impl AdminApiClient {
             .map_err(ApiError::Parse)?,
             user_ids: snowflakes(user_ids),
         };
-        self.send(
-            Method::POST,
-            "/admin/bulk-jobs",
-            Some(&body),
-            audit_log_reason,
-        )
-        .await
+        self.post_typed_with_reason("/admin/bulk-jobs", &body, audit_log_reason)
+            .await
     }
 }
 
 fn snowflakes(values: &[String]) -> Vec<generated_types::SnowflakeType> {
     values.iter().map(|value| snowflake(value)).collect()
+}
+
+fn user_flags(values: &[String]) -> ApiResult<Vec<generated_types::UserFlags>> {
+    values
+        .iter()
+        .map(|value| {
+            generated_types::UserFlags::try_from(value.as_str())
+                .map_err(|error| ApiError::Parse(error.to_string()))
+        })
+        .collect()
+}
+
+fn guild_features(values: &[String]) -> Vec<generated_types::GuildFeatureSchema> {
+    values
+        .iter()
+        .cloned()
+        .map(generated_types::GuildFeatureSchema::from)
+        .collect()
 }

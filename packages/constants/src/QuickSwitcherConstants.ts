@@ -11,6 +11,7 @@ export const QuickSwitcherResultTypes = {
 	GUILD: 'guild',
 	VIRTUAL_GUILD: 'virtual_guild',
 	SETTINGS: 'settings',
+	QUICK_ACTION: 'quick_action',
 	LINK: 'link',
 } as const;
 

@@ -11,6 +11,7 @@ export interface FocusRingWrapperProps<T extends HTMLElement>
 	children: React.ReactElement;
 	focusRingOffset?: number;
 	focusRingEnabled?: boolean;
+	focusRingWithin?: boolean;
 	focusRingClassName?: string;
 	focusClassName?: string;
 	focusWithinClassName?: string;
@@ -23,6 +24,7 @@ export const FocusRingWrapper = React.forwardRef<HTMLElement, FocusRingWrapperPr
 			children,
 			focusRingOffset = -2,
 			focusRingEnabled = true,
+			focusRingWithin = false,
 			focusRingClassName,
 			focusClassName,
 			focusWithinClassName,
@@ -66,7 +68,7 @@ export const FocusRingWrapper = React.forwardRef<HTMLElement, FocusRingWrapperPr
 			<FocusRing
 				offset={focusRingOffset}
 				enabled={focusRingEnabled}
-				within={false}
+				within={focusRingWithin}
 				ringClassName={focusRingClassName}
 				focusClassName={focusClassName}
 				focusWithinClassName={focusWithinClassName}

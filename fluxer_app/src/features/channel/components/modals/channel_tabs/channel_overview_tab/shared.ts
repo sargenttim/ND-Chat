@@ -10,7 +10,6 @@ export interface FormInputs {
 	topic?: string;
 	url?: string;
 	slowmode?: number;
-	announcement?: boolean;
 	nsfw_override: boolean | null;
 	content_warning_level: number;
 	content_warning_text: string;
@@ -18,9 +17,6 @@ export interface FormInputs {
 	user_limit?: number;
 	voice_connection_limit?: number;
 	rtc_region: string | null;
-	default_auto_archive_duration?: number;
-	default_thread_rate_limit_per_user?: number;
-	rtc_p2p: boolean;
 }
 
 export const CHANNEL_OVERVIEW_TAB_ID = 'overview';

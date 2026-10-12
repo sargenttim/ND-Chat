@@ -3,7 +3,6 @@
 import {Platform} from '@app/features/platform/types/Platform';
 import {deferUntilModulesLoaded} from '@app/features/platform/utils/DeferUntilModulesLoaded';
 import {makePersistent} from '@app/features/platform/utils/MobXPersistence';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import Window from '@app/features/window/state/Window';
 import {makeAutoObservable, reaction} from 'mobx';
 
@@ -24,7 +23,7 @@ class MobileLayout {
 
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
-		initializeStore(this, () => this.initPersistence());
+		this.initPersistence();
 		this.initWindowSync();
 	}
 
@@ -89,6 +88,14 @@ class MobileLayout {
 
 	get platformMobileDetected(): boolean {
 		return shouldForceMobileLayout();
+	}
+
+	isNavExpanded(): boolean {
+		return this.navExpanded;
+	}
+
+	isChatExpanded(): boolean {
+		return this.chatExpanded;
 	}
 }
 

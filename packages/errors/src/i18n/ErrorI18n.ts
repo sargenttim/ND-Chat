@@ -3,10 +3,13 @@
 import {ErrorCodeToI18nKey} from '@fluxer/errors/src/i18n/ErrorCodeMappings';
 import {ERROR_I18N_LOCALE_MESSAGES} from '@fluxer/errors/src/i18n/ErrorI18nLocales';
 import {ERROR_I18N_MESSAGES, type ErrorI18nCatalog, type ErrorI18nKey} from '@fluxer/errors/src/i18n/ErrorI18nMessages';
-import {compileMessage} from '@fluxer/i18n/src/runtime/CompileMessage';
+import {identityLocale} from '@fluxer/i18n/src/normalization/IdentityLocale';
 import {createStaticI18n} from '@fluxer/i18n/src/runtime/CreateStaticI18n';
 import type {I18nResult} from '@fluxer/i18n/src/runtime/I18nTypes';
-import type {MessageArgsForTemplate} from '@fluxer/i18n/src/runtime/MessageCatalogTypes';
+import type {
+	MessageArgsForTemplate,
+	MessageArgsWithFallbackForTemplate,
+} from '@fluxer/i18n/src/runtime/MessageCatalogTypes';
 import {validateMessageTemplateVariables} from '@fluxer/i18n/src/runtime/MessageCatalogTypes';
 
 const DEFAULT_LOCALE = 'en-US';
@@ -15,19 +18,23 @@ type ErrorI18nRuntimeVariables = Record<string, unknown>;
 type ErrorI18nResultArgs<TKey extends ErrorI18nKey> = TKey extends ErrorI18nKey
 	? MessageArgsForTemplate<ErrorI18nCatalog[TKey]>
 	: never;
+type ErrorI18nMessageArgs<TKey extends ErrorI18nKey> = TKey extends ErrorI18nKey
+	? MessageArgsWithFallbackForTemplate<ErrorI18nCatalog[TKey]>
+	: never;
 
 const errorI18n = createStaticI18n<ErrorI18nKey, string, ErrorI18nRuntimeVariables>(
 	{
 		defaultLocale: DEFAULT_LOCALE,
 		defaultMessages: ERROR_I18N_MESSAGES,
 		localeMessages: ERROR_I18N_LOCALE_MESSAGES,
+		normalizeLocale: (locale) => identityLocale(locale),
 		onWarning: (message) => {
 			console.warn(message);
 		},
 		validateVariables: (_key, template, variables) => validateMessageTemplateVariables(template, variables),
 	},
 	(template, variables, mf) => {
-		return String(compileMessage(mf, template)(variables));
+		return String(mf.compile(template)(variables));
 	},
 );
 
@@ -82,6 +89,15 @@ function getResolvedErrorMessage(
 	return fallbackMessage ?? key;
 }
 
+export function getErrorMessage<TKey extends ErrorI18nKey>(
+	key: TKey,
+	locale: string | null | undefined,
+	...args: ErrorI18nMessageArgs<TKey>
+): string {
+	const [variables, fallbackMessage] = args;
+	return getResolvedErrorMessage(key, locale, variables as ErrorI18nRuntimeVariables | undefined, fallbackMessage);
+}
+
 export function getErrorMessageUnsafe(
 	key: string,
 	locale: string | null | undefined,
@@ -94,4 +110,8 @@ export function getErrorMessageUnsafe(
 		return fallbackMessage ?? key;
 	}
 	return getResolvedErrorMessage(resolvedKey, locale, variables, fallbackMessage);
+}
+
+export function hasErrorLocale(locale: string): boolean {
+	return errorI18n.hasLocale(locale);
 }

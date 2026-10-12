@@ -27,4 +27,8 @@ export class OAuth2RefreshToken {
 			created_at: this.createdAt,
 		};
 	}
+
+	hasScope(scope: string): boolean {
+		return this.scope.has(scope);
+	}
 }

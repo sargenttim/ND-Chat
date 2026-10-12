@@ -113,6 +113,7 @@ export function useScrollerViewport(scrollerRef: React.RefObject<ScrollerHandle 
 	return {
 		viewportSize,
 		scrollTop,
+		setScrollTop,
 		handleScroll,
 		handleResize,
 		jumpToStartEdge,

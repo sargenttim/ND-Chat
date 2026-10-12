@@ -258,14 +258,11 @@ function createNamedUnion<T extends string | number>(pairs: NamedLiteralPairs<T>
 	});
 }
 
-export function createNamedLiteralUnion<const T extends number>(pairs: NamedLiteralPairs<T>, description?: string) {
+export function createNamedLiteralUnion<T extends number>(pairs: NamedLiteralPairs<T>, description?: string) {
 	return createNamedUnion(pairs, description);
 }
 
-export function createNamedStringLiteralUnion<const T extends string>(
-	pairs: NamedLiteralPairs<T>,
-	description?: string,
-) {
+export function createNamedStringLiteralUnion<T extends string>(pairs: NamedLiteralPairs<T>, description?: string) {
 	return createNamedUnion(pairs, description);
 }
 
@@ -289,7 +286,7 @@ export function createFlexibleStringLiteralUnion<T extends string>(pairs: NamedL
 	);
 }
 
-export function createInt32EnumType<const T extends number>(
+export function createInt32EnumType<T extends number>(
 	pairs: NamedLiteralPairs<T>,
 	description?: string,
 	typeName?: string,

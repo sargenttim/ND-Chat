@@ -7,19 +7,19 @@ use axum::{
     body::{Body, to_bytes},
     http::{HeaderMap, Method, Request, StatusCode, Uri, header},
     response::{IntoResponse, Response},
-    routing,
 };
 use fluxer_admin::{
+    api::{generated::types as generated_types, types::LookupGuildResponse},
     build_router,
-    config::{AdminConfig, ProxyConfig},
+    config::{AdminConfig, ProxyConfig, RuntimeEnv},
     session,
 };
 use serde_json::{Value, json};
-use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use tower::ServiceExt;
 
 const SECRET_KEY: &str = "htmx-acceptance-test-secret";
+const ADMIN_API_KEY_SECRET: &str = "fa_1900000000000000001_OneTimeSecretForAcceptance";
 
 struct TestApp {
     router: Router,
@@ -27,259 +27,686 @@ struct TestApp {
 }
 
 #[tokio::test]
-async fn report_legal_hold_form_places_and_clears_the_hold() {
-    let received = Arc::new(Mutex::new(Vec::<Value>::new()));
-    let sink = received.clone();
-    let api = Router::new()
-        .route(
-            "/admin/reports/1800000000000000001/legal-hold",
-            routing::post(move |Json(body): Json<Value>| {
-                let sink = sink.clone();
-                async move {
-                    sink.lock().unwrap().push(body.clone());
-                    if body["legal_hold_reason"] == "rejected" {
-                        return (
-                            StatusCode::BAD_REQUEST,
-                            Json(json!({"code": "INVALID_FORM_BODY", "message": "Invalid"})),
-                        )
-                            .into_response();
-                    }
-                    json_response(json!({
-                        "report_id": "1800000000000000001",
-                        "legal_hold_until": body["legal_hold_until"],
-                        "legal_hold_reason": body["legal_hold_reason"]
-                    }))
-                }
-            }),
-        )
-        .fallback(mock_api);
-    let app = setup_with_api(api).await;
-    let (headers, page) = get_with_headers(&app, "/reports/1800000000000000001", &[]).await;
+async fn admin_api_key_create_form_renders_the_one_time_secret() {
+    let app = setup().await;
+    let (headers, page) = get_with_headers(&app, "/admin-api-keys", &[]).await;
     let csrf_token = csrf_cookie(&headers)
-        .unwrap_or_else(|| panic!("report page did not set csrf_token cookie\n{page}"));
-    assert_form_has_csrf(
-        &page,
-        "/reports/1800000000000000001/legal-hold",
-        &csrf_token,
-    );
-    let cookie = format!("{}; csrf_token={}", app.session_cookie, csrf_token);
-    let post = |body: String| {
-        let app = &app;
-        let cookie = cookie.clone();
-        async move {
-            let (status, headers, text) = post_form_with_headers(
-                app,
-                "/reports/1800000000000000001/legal-hold",
-                &[
-                    ("HX-Request", "true"),
-                    ("HX-Target", "flash-container"),
-                    ("Cookie", &cookie),
-                ],
-                &body,
-            )
-            .await;
-            assert_eq!(status, StatusCode::NO_CONTENT, "{text}");
-            headers
-                .get("X-Fluxer-Admin-Toast")
-                .and_then(|value| value.to_str().ok())
-                .unwrap_or_else(|| panic!("missing toast header\n{text}"))
-                .to_owned()
-        }
-    };
+        .unwrap_or_else(|| panic!("Admin API keys page did not set csrf_token cookie\n{page}"));
+    assert!(page.contains(r#"data-admin-result-form="true""#), "{page}");
 
-    let toast = post(format!(
-        "_csrf={csrf_token}&legal_hold_until=2027-01-31&legal_hold_reason=Court+order+42"
-    ))
+    let (status, _, response_body) = post_form_with_headers(
+        &app,
+        "/admin-api-keys?action=create",
+        &[
+            ("HX-Request", "true"),
+            ("HX-Boosted", "true"),
+            ("HX-Target", "body"),
+            (
+                "Cookie",
+                &format!("{}; csrf_token={}", app.session_cookie, csrf_token),
+            ),
+        ],
+        &format!("_csrf={csrf_token}&name=Acceptance+Key&acls=*"),
+    )
     .await;
-    assert!(toast.contains("success"), "{toast}");
-    assert!(
-        toast.contains("Legal hold placed until Jan 31, 2027, 11:59 PM UTC"),
-        "{toast}"
-    );
-    let toast = post(format!(
-        "_csrf={csrf_token}&clear=1&legal_hold_reason=ignored"
-    ))
-    .await;
-    assert!(toast.contains("Legal hold cleared"), "{toast}");
-    let toast = post(format!(
-        "_csrf={csrf_token}&legal_hold_until=2027-01-31&legal_hold_reason=rejected"
-    ))
-    .await;
-    assert!(toast.contains("error"), "{toast}");
-    assert!(toast.contains("The hold must end in the future"), "{toast}");
-    assert!(!toast.contains("needs a reason"), "{toast}");
-    let toast = post(format!(
-        "_csrf={csrf_token}&legal_hold_until=2020-01-01&legal_hold_reason=Past+date"
-    ))
-    .await;
-    assert!(toast.contains("error"), "{toast}");
-    assert!(toast.contains("The hold must end in the future"), "{toast}");
-    {
-        let received = received.lock().unwrap();
-        assert_eq!(
-            *received,
-            vec![
-                json!({"legal_hold_until": "2027-01-31T23:59:59.999Z", "legal_hold_reason": "Court order 42"}),
-                json!({"legal_hold_until": null, "legal_hold_reason": null}),
-                json!({"legal_hold_until": "2027-01-31T23:59:59.999Z", "legal_hold_reason": "rejected"}),
-            ]
-        );
-    }
 
-    let toast = post(format!(
-        "_csrf={csrf_token}&legal_hold_until=2027-01-31&legal_hold_reason=+"
-    ))
-    .await;
-    assert!(toast.contains("Give a reason for the hold"), "{toast}");
-    let toast = post(format!(
-        "_csrf={csrf_token}&legal_hold_until=soon&legal_hold_reason=x"
-    ))
-    .await;
-    assert!(toast.contains("Choose the date the hold ends"), "{toast}");
-    assert_eq!(received.lock().unwrap().len(), 3);
+    assert_eq!(status, StatusCode::OK, "{response_body}");
+    assert_full_layout(&response_body);
+    assert!(response_body.contains(r#"hx-history="false""#));
+    assert!(response_body.contains(ADMIN_API_KEY_SECRET));
 }
 
 #[tokio::test]
-async fn report_delete_form_confirms_sends_the_reason_and_toasts_a_held_report() {
-    let received = Arc::new(Mutex::new(Vec::<Option<String>>::new()));
-    let sink = received.clone();
-    let api = Router::new()
-        .route(
-            "/admin/reports/1800000000000000001",
-            routing::delete(move |headers: HeaderMap| {
-                let sink = sink.clone();
-                async move {
-                    let reason = headers
-                        .get("X-Audit-Log-Reason")
-                        .and_then(|value| value.to_str().ok())
-                        .map(str::to_owned);
-                    sink.lock().unwrap().push(reason.clone());
-                    if reason.as_deref() == Some("held") {
-                        return (
-                            StatusCode::CONFLICT,
-                            Json(json!({
-                                "code": "REPORT_UNDER_LEGAL_HOLD",
-                                "message": "This report is under a legal hold and can't be deleted."
-                            })),
-                        )
-                            .into_response();
-                    }
-                    StatusCode::NO_CONTENT.into_response()
-                }
-            })
-            .get(|| async { json_response(searched_report()) }),
+async fn search_routes_return_layout_or_fragments_by_hx_target() {
+    let app = setup().await;
+    let cases = [
+        SearchCase {
+            path: "/users?ids=1500000000000000001",
+            result_target: "users-results",
+            mismatch_target: "guilds-results",
+            result_text: "SearchedUser",
+        },
+        SearchCase {
+            path: "/guilds?ids=1600000000000000001",
+            result_target: "guilds-results",
+            mismatch_target: "users-results",
+            result_text: "Searched Guild",
+        },
+        SearchCase {
+            path: "/applications?owner_id=1500000000000000001",
+            result_target: "applications-results",
+            mismatch_target: "users-results",
+            result_text: "Mock Application",
+        },
+    ];
+    for case in cases {
+        let full = get(&app, case.path, &[]).await;
+        assert_full_layout(&full);
+        assert!(
+            full.contains(case.result_text),
+            "full response for {}",
+            case.path
+        );
+        let boosted = get(
+            &app,
+            case.path,
+            &[
+                ("HX-Request", "true"),
+                ("HX-Boosted", "true"),
+                ("HX-Target", "body"),
+            ],
         )
-        .fallback(mock_api);
-    let app = setup_with_api(api).await;
-    let (headers, page) = get_with_headers(&app, "/reports/1800000000000000001", &[]).await;
-    let csrf_token = csrf_cookie(&headers)
-        .unwrap_or_else(|| panic!("report page did not set csrf_token cookie\n{page}"));
-    assert_form_has_csrf(&page, "/reports/1800000000000000001/delete", &csrf_token);
-    let cookie = format!("{}; csrf_token={}", app.session_cookie, csrf_token);
-    let post = |body: String| {
-        let app = &app;
-        let cookie = cookie.clone();
-        async move {
-            post_form_with_headers(
-                app,
-                "/reports/1800000000000000001/delete",
-                &[
-                    ("HX-Request", "true"),
-                    ("HX-Target", "flash-container"),
-                    ("Cookie", &cookie),
-                ],
-                &body,
-            )
-            .await
-        }
-    };
-    let toast = |headers: &HeaderMap| {
-        headers
-            .get("X-Fluxer-Admin-Toast")
-            .and_then(|value| value.to_str().ok())
-            .unwrap_or_else(|| panic!("missing toast header {headers:?}"))
-            .to_owned()
-    };
+        .await;
+        assert_full_layout(&boosted);
+        assert!(
+            boosted.contains(case.result_text),
+            "boosted response for {}",
+            case.path
+        );
+        let fragment = get(
+            &app,
+            case.path,
+            &[("HX-Request", "true"), ("HX-Target", case.result_target)],
+        )
+        .await;
+        assert_fragment(&fragment);
+        assert!(
+            fragment.contains(case.result_text),
+            "fragment response for {}",
+            case.path
+        );
+        let mismatch = get(
+            &app,
+            case.path,
+            &[("HX-Request", "true"), ("HX-Target", case.mismatch_target)],
+        )
+        .await;
+        assert_full_layout(&mismatch);
+        assert!(
+            mismatch.contains(case.result_text),
+            "mismatched target response for {}",
+            case.path
+        );
+    }
+}
 
-    let (status, headers, text) = post(format!(
-        "_csrf={csrf_token}&audit_log_reason=Erasure+request"
-    ))
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "{text}");
-    let message = toast(&headers);
-    assert!(message.contains("error"), "{message}");
+#[tokio::test]
+async fn detail_tab_routes_return_layout_or_fragments_by_route_shape() {
+    let app = setup().await;
+    let cases = [
+        TabCase {
+            full_path: "/users/1500000000000000001?tab=applications",
+            fragment_path: "/users/1500000000000000001/tabs/applications",
+            detail_text: "SearchedUser",
+            tab_text: "Mock Application",
+        },
+        TabCase {
+            full_path: "/guilds/1600000000000000001?tab=applications",
+            fragment_path: "/guilds/1600000000000000001/tabs/applications",
+            detail_text: "Searched Guild",
+            tab_text: "Mock Application",
+        },
+    ];
+    for case in cases {
+        let full = get(&app, case.full_path, &[]).await;
+        assert_full_layout(&full);
+        assert!(
+            full.contains(case.detail_text),
+            "full tab URL for {}",
+            case.full_path
+        );
+        assert!(
+            full.contains(case.tab_text),
+            "full tab URL for {}",
+            case.full_path
+        );
+        let fragment = get(&app, case.fragment_path, &[]).await;
+        assert_fragment(&fragment);
+        assert!(
+            fragment.contains(case.tab_text),
+            "tab endpoint fragment for {}",
+            case.fragment_path
+        );
+    }
+}
+
+#[tokio::test]
+async fn target_audit_log_tabs_request_write_entries_only() {
+    let app = setup().await;
+    for path in [
+        "/users/1500000000000000001/tabs/audit_logs",
+        "/guilds/1600000000000000001/tabs/audit_logs",
+    ] {
+        let fragment = get(&app, path, &[]).await;
+        assert!(fragment.contains("Temp ban"), "{path}\n{fragment}");
+        assert!(!fragment.contains("Get user"), "{path}\n{fragment}");
+    }
+}
+
+#[tokio::test]
+async fn audit_log_page_forwards_the_access_filter() {
+    let app = setup().await;
+    let all = get(&app, "/audit-logs", &[]).await;
+    assert!(all.contains("Temp ban"), "{all}");
+    assert!(all.contains("Get user"), "{all}");
     assert!(
-        message.contains("Confirm that the report should be deleted"),
-        "{message}"
+        all.contains(r#"<option value="" selected>All entries</option>"#),
+        "{all}"
     );
-    assert!(headers.get("HX-Redirect").is_none(), "{headers:?}");
 
-    let (status, headers, text) = post(format!(
-        "_csrf={csrf_token}&confirm=true&audit_log_reason=Erasure+request"
-    ))
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "{text}");
-    assert_eq!(
-        headers.get("HX-Redirect").and_then(|v| v.to_str().ok()),
-        Some("/reports"),
-        "{headers:?}"
-    );
-    let message = toast(&headers);
-    assert!(message.contains("success"), "{message}");
-    assert!(message.contains("Report deleted"), "{message}");
+    let reads = get(&app, "/audit-logs?access=read", &[]).await;
+    assert!(reads.contains("Get user"), "{reads}");
+    assert!(!reads.contains("Temp ban"), "{reads}");
     assert!(
-        headers
-            .get_all(header::SET_COOKIE)
-            .iter()
-            .any(|value| value.to_str().is_ok_and(|v| v.starts_with("flash="))),
-        "{headers:?}"
-    );
-
-    let (status, headers, text) = post(format!(
-        "_csrf={csrf_token}&confirm=true&audit_log_reason=held"
-    ))
-    .await;
-    assert_eq!(status, StatusCode::NO_CONTENT, "{text}");
-    assert!(headers.get("HX-Redirect").is_none(), "{headers:?}");
-    let message = toast(&headers);
-    assert!(message.contains("error"), "{message}");
-    assert!(
-        message.contains("The report is under a legal hold. Clear the hold before deleting it."),
-        "{message}"
-    );
-
-    let (status, headers, text) = post_form_with_headers(
-        &app,
-        "/reports/1800000000000000001/delete",
-        &[("Cookie", &cookie)],
-        &format!("_csrf={csrf_token}&confirm=true&audit_log_reason=+"),
-    )
-    .await;
-    assert!(status.is_redirection(), "{status} {text}");
-    assert_eq!(
-        headers.get(header::LOCATION).and_then(|v| v.to_str().ok()),
-        Some("/reports"),
-        "{headers:?}"
-    );
-
-    assert_eq!(
-        *received.lock().unwrap(),
-        vec![
-            Some("Erasure request".to_owned()),
-            Some("held".to_owned()),
-            None
-        ]
+        reads.contains(r#"<option value="read" selected>Reads only</option>"#),
+        "{reads}"
     );
 }
 
-async fn setup_with_api(api: Router) -> TestApp {
-    let api_endpoint = spawn_mock_api(api).await;
+#[tokio::test]
+async fn report_routes_keep_layout_and_fragment_contract() {
+    let app = setup().await;
+    let reports = get(&app, "/reports?q=mock", &[]).await;
+    assert_full_layout(&reports);
+    assert!(reports.contains("1800000000000000001"), "{reports}");
+    assert!(
+        !reports.contains(r#"hx-post="/reports/bulk-resolve""#),
+        "{reports}"
+    );
+    assert!(!reports.contains(r#"name="report_ids[]""#), "{reports}");
+    let boosted = get(
+        &app,
+        "/reports?q=mock",
+        &[
+            ("HX-Request", "true"),
+            ("HX-Boosted", "true"),
+            ("HX-Target", "body"),
+        ],
+    )
+    .await;
+    assert_full_layout(&boosted);
+    assert!(boosted.contains("1800000000000000001"), "{boosted}");
+    let detail = get(&app, "/reports/1800000000000000001", &[]).await;
+    assert_full_layout(&detail);
+    assert!(detail.contains("Mock report details"), "{detail}");
+    let fragment = get(&app, "/reports/1800000000000000001/fragment", &[]).await;
+    assert_fragment(&fragment);
+    assert!(fragment.contains("Mock report details"), "{fragment}");
+
+    let message_fragment = get(&app, "/reports/1800000000000000002/fragment", &[]).await;
+    assert_fragment(&message_fragment);
+    assert!(
+        message_fragment.contains("Message Context"),
+        "{message_fragment}"
+    );
+    assert!(
+        message_fragment.contains("Reported message in drawer"),
+        "{message_fragment}"
+    );
+}
+
+#[tokio::test]
+async fn user_fragment_alias_returns_drawer_fragment() {
+    let app = setup().await;
+    let fragment = get(&app, "/users/1500000000000000001/fragment", &[]).await;
+
+    assert_fragment(&fragment);
+    assert!(fragment.contains("SearchedUser"), "{fragment}");
+}
+
+#[tokio::test]
+async fn user_peek_alias_is_gone() {
+    let app = setup().await;
+
+    assert_eq!(
+        get_status(&app, "/users/1500000000000000001/peek").await,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn drawer_triggers_use_htmx_and_native_popover() {
+    let app = setup().await;
+    let body = get(&app, "/users?ids=1500000000000000001", &[]).await;
+
+    assert!(body.contains(r#"popovertarget="user-peek""#), "{body}");
+    assert!(body.contains(r##"hx-target="#user-peek-body""##), "{body}");
+    assert!(!body.contains("__fluxerDrawerInit"), "{body}");
+}
+
+#[tokio::test]
+async fn jobs_poll_with_htmx_fragment_instead_of_fetch_loop() {
+    let app = setup().await;
+    let body = get(&app, "/jobs?status=running", &[]).await;
+
+    assert_full_layout(&body);
+    assert!(body.contains(r#"id="jobs-results""#), "{body}");
+    assert!(body.contains(r#"hx-trigger="every 3s""#), "{body}");
+    assert!(body.contains("mockJobSync"), "{body}");
+    assert!(body.contains(r##"hx-target="#main-content""##), "{body}");
+    assert!(body.contains(r#"hx-swap="innerHTML""#), "{body}");
+    assert!(body.contains(r#"hx-push-url="true""#), "{body}");
+    assert!(!body.contains("/jobs/active.json"), "{body}");
+
+    let fragment = get(
+        &app,
+        "/jobs?status=running",
+        &[("HX-Request", "true"), ("HX-Target", "jobs-results")],
+    )
+    .await;
+    assert_fragment(&fragment);
+    assert!(fragment.contains(r#"id="jobs-results""#), "{fragment}");
+    assert!(fragment.contains("mockJobSync"), "{fragment}");
+}
+
+#[tokio::test]
+async fn detail_pages_return_fragment_for_main_content_htmx_target() {
+    let app = setup().await;
+
+    let guild_full = get(&app, "/guilds/1600000000000000001", &[]).await;
+    assert_full_layout(&guild_full);
+    assert!(
+        guild_full.contains("Searched Guild"),
+        "guild detail full: {guild_full}"
+    );
+
+    let guild_htmx = get(
+        &app,
+        "/guilds/1600000000000000001",
+        &[("HX-Request", "true"), ("HX-Target", "main-content")],
+    )
+    .await;
+    assert_fragment(&guild_htmx);
+    assert!(
+        guild_htmx.contains("Searched Guild"),
+        "guild detail htmx fragment: {guild_htmx}"
+    );
+
+    let report_full = get(&app, "/reports/1800000000000000001", &[]).await;
+    assert_full_layout(&report_full);
+
+    let report_htmx = get(
+        &app,
+        "/reports/1800000000000000001",
+        &[("HX-Request", "true"), ("HX-Target", "main-content")],
+    )
+    .await;
+    assert_fragment(&report_htmx);
+
+    let job_full = get(&app, "/jobs/1900000000000000001", &[]).await;
+    assert_full_layout(&job_full);
+    assert!(
+        job_full.contains("mockJobSync"),
+        "job detail full: {job_full}"
+    );
+
+    let job_htmx = get(
+        &app,
+        "/jobs/1900000000000000001",
+        &[("HX-Request", "true"), ("HX-Target", "main-content")],
+    )
+    .await;
+    assert_fragment(&job_htmx);
+    assert!(
+        job_htmx.contains("mockJobSync"),
+        "job detail htmx fragment: {job_htmx}"
+    );
+}
+
+#[tokio::test]
+async fn user_account_actions_use_no_swap_htmx_toasts() {
+    let app = setup().await;
+    let account_path = "/users/1500000000000000001?tab=account";
+    let (headers, body) = get_with_headers(&app, account_path, &[]).await;
+    let native_confirm = format!("{}{}", "confirm", "(");
+    assert_full_layout(&body);
+    assert!(body.contains("__fluxerAdminActionForms"), "{body}");
+    assert!(!body.contains(&native_confirm), "{body}");
+    assert!(
+        body.contains(r#"hx-post="/users/1500000000000000001?action=update_has_verified_phone&amp;tab=account""#),
+        "{body}"
+    );
+    assert!(body.contains(r##"hx-target="#flash-container""##), "{body}");
+    assert!(body.contains(r#"hx-swap="none""#), "{body}");
+    assert!(body.contains(r#"hx-push-url="false""#), "{body}");
+
+    let csrf_token = csrf_cookie(&headers)
+        .unwrap_or_else(|| panic!("account page did not set csrf_token cookie\n{body}"));
+    let (status, response_headers, response_body) = post_form_with_headers(
+        &app,
+        "/users/1500000000000000001?action=update_has_verified_phone&tab=account",
+        &[
+            ("HX-Request", "true"),
+            ("HX-Target", "flash-container"),
+            (
+                "Cookie",
+                &format!("{}; csrf_token={}", app.session_cookie, csrf_token),
+            ),
+        ],
+        &format!("_csrf={csrf_token}&has_verified_phone=true"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{response_body}");
+    assert_eq!(
+        response_headers
+            .get("HX-Reswap")
+            .and_then(|value| value.to_str().ok()),
+        Some("none")
+    );
+    let toast = response_headers
+        .get("X-Fluxer-Admin-Toast")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_else(|| panic!("missing toast header\n{response_body}"));
+    assert!(toast.contains("success"), "{toast}");
+    assert!(
+        toast.contains("Phone verification status updated successfully"),
+        "{toast}"
+    );
+}
+
+#[tokio::test]
+async fn redirect_flash_actions_convert_to_htmx_toasts() {
+    let app = setup().await;
+    let report_path = "/reports/1800000000000000001";
+    let (headers, body) = get_with_headers(&app, report_path, &[]).await;
+    let native_confirm = format!("{}{}", "confirm", "(");
+    assert_full_layout(&body);
+    assert!(!body.contains(&native_confirm), "{body}");
+    let csrf_token = csrf_cookie(&headers)
+        .unwrap_or_else(|| panic!("report page did not set csrf_token cookie\n{body}"));
+
+    let (status, response_headers, response_body) = post_form_with_headers(
+        &app,
+        "/reports/1800000000000000001/resolve",
+        &[
+            ("HX-Request", "true"),
+            ("HX-Target", "flash-container"),
+            (
+                "Cookie",
+                &format!("{}; csrf_token={}", app.session_cookie, csrf_token),
+            ),
+        ],
+        &format!("_csrf={csrf_token}&resolution=done"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{response_body}");
+    assert_eq!(
+        response_headers
+            .get("HX-Reswap")
+            .and_then(|value| value.to_str().ok()),
+        Some("none")
+    );
+    let toast = response_headers
+        .get("X-Fluxer-Admin-Toast")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_else(|| panic!("missing toast header\n{response_body}"));
+    assert!(toast.contains("success"), "{toast}");
+    assert!(toast.contains("Report resolved"), "{toast}");
+}
+
+#[tokio::test]
+async fn mutating_admin_pages_render_usable_csrf_tokens() {
+    let app = setup().await;
+    let cases = [
+        ("/system-dms", &["/system-dms"][..]),
+        (
+            "/messages",
+            &[
+                "/messages?action=browse",
+                "/messages?action=lookup",
+                "/messages?action=lookup-by-attachment",
+                "/messages?action=delete",
+            ][..],
+        ),
+        ("/gift-codes", &["/gift-codes"][..]),
+        ("/search-index", &["/search-index?action=reindex"][..]),
+        ("/gateway", &["/gateway?action=reload_all"][..]),
+        (
+            "/instance-config",
+            &[
+                "/instance-config?action=update_gateway_rollout",
+                "/instance-config?action=update_sso",
+                "/instance-config?action=update_domain_migration",
+                "/instance-config?action=update_experiment_delivery",
+            ][..],
+        ),
+    ];
+
+    for (path, form_actions) in cases {
+        let (headers, body) = get_with_headers(&app, path, &[]).await;
+        let csrf_token = csrf_cookie(&headers)
+            .unwrap_or_else(|| panic!("{path}: response did not set csrf_token cookie\n{body}"));
+        for form_action in form_actions {
+            assert_form_has_csrf(&body, form_action, &csrf_token);
+        }
+    }
+}
+
+#[tokio::test]
+async fn instance_config_registration_tables_show_copyable_urls_and_compact_pending_actions() {
+    let app = setup().await;
+    let body = get(&app, "/instance-config", &[]).await;
+
+    assert_full_layout(&body);
+    assert!(body.contains(r#"id="registration-url-list""#), "{body}");
+    assert!(
+        body.contains(
+            r#"value="https://app.example.test/register?registration_url=11111111-1111-4111-8111-111111111111""#
+        ),
+        "{body}"
+    );
+    assert!(
+        body.contains(
+            r#"data-copy-value="https://app.example.test/register?registration_url=11111111-1111-4111-8111-111111111111""#
+        ),
+        "{body}"
+    );
+    assert!(body.contains(r#"id="pending-registration-list""#), "{body}");
+    assert!(body.contains(">Applicant<"), "{body}");
+    assert!(!body.contains(">User ID<"), "{body}");
+    assert!(!body.contains(">Link ID<"), "{body}");
+    assert!(
+        body.contains(r##"hx-target="#pending-registration-list""##),
+        "{body}"
+    );
+    assert!(body.contains(r#"hx-swap="outerHTML""#), "{body}");
+}
+
+#[tokio::test]
+async fn pending_registration_actions_swap_pending_list_fragment() {
+    let app = setup().await;
+    let (headers, body) = get_with_headers(&app, "/instance-config", &[]).await;
+    let csrf_token = csrf_cookie(&headers)
+        .unwrap_or_else(|| panic!("instance config did not set csrf_token cookie\n{body}"));
+
+    let (status, response_headers, response_body) = post_form_with_headers(
+        &app,
+        "/instance-config?action=approve_pending_registration",
+        &[
+            ("HX-Request", "true"),
+            ("HX-Target", "pending-registration-list"),
+            (
+                "Cookie",
+                &format!("{}; csrf_token={}", app.session_cookie, csrf_token),
+            ),
+        ],
+        &format!("_csrf={csrf_token}&user_id=1500000000000000002"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{response_body}");
+    assert_fragment(&response_body);
+    assert!(response_body.contains(r#"id="pending-registration-list""#));
+    assert!(response_body.contains("No pending registrations."));
+    assert!(!response_body.contains("PendingUser"), "{response_body}");
+    let toast = response_headers
+        .get("X-Fluxer-Admin-Toast")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_else(|| panic!("missing toast header\n{response_body}"));
+    assert!(toast.contains("success"), "{toast}");
+    assert!(toast.contains("Registration approved"), "{toast}");
+}
+
+#[tokio::test]
+async fn creating_registration_url_swaps_copyable_url_list_fragment() {
+    let app = setup().await;
+    let (headers, body) = get_with_headers(&app, "/instance-config", &[]).await;
+    let csrf_token = csrf_cookie(&headers)
+        .unwrap_or_else(|| panic!("instance config did not set csrf_token cookie\n{body}"));
+
+    let (status, response_headers, response_body) = post_form_with_headers(
+        &app,
+        "/instance-config?action=create_registration_url",
+        &[
+            ("HX-Request", "true"),
+            ("HX-Target", "registration-url-list"),
+            (
+                "Cookie",
+                &format!("{}; csrf_token={}", app.session_cookie, csrf_token),
+            ),
+        ],
+        &format!("_csrf={csrf_token}&registration_url_label=Support&registration_url_max_uses=1"),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{response_body}");
+    assert_fragment(&response_body);
+    assert!(response_body.contains(r#"id="registration-url-list""#));
+    assert!(
+        response_body.contains(
+            "https://app.example.test/register?registration_url=11111111-1111-4111-8111-111111111111"
+        ),
+        "{response_body}"
+    );
+    let toast = response_headers
+        .get("X-Fluxer-Admin-Toast")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_else(|| panic!("missing toast header\n{response_body}"));
+    assert!(toast.contains("success"), "{toast}");
+    assert!(toast.contains("Registration URL created"), "{toast}");
+}
+
+#[tokio::test]
+async fn fonts_are_served_locally_content_hashed_and_immutable() {
+    let app = setup().await;
+
+    let stylesheet_path = format!(
+        "/static/fonts/{}",
+        fluxer_admin::fonts::STYLESHEET_FILE_NAME
+    );
+    let (headers, css) = get_with_headers(&app, &stylesheet_path, &[]).await;
+    assert_eq!(
+        headers.get(header::CACHE_CONTROL).unwrap(),
+        "public, max-age=31536000, immutable"
+    );
+
+    for fragment in css.split("url('").skip(1) {
+        let file_name = fragment.split('\'').next().unwrap();
+        let response = app
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/static/fonts/{file_name}"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::OK,
+            "missing font {file_name}"
+        );
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE).unwrap(),
+            "font/woff2"
+        );
+        assert_eq!(
+            response.headers().get(header::CACHE_CONTROL).unwrap(),
+            "public, max-age=31536000, immutable"
+        );
+    }
+
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/static/fonts/does-not-exist.woff2")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn rendered_heads_never_reference_the_static_cdn_for_fonts() {
+    let app = setup().await;
+
+    let (headers, page) = get_with_headers(&app, "/users", &[]).await;
+    assert!(
+        !page.contains("/fonts/ibm-plex.css"),
+        "the admin layout still links the CDN font stylesheets"
+    );
+    assert!(page.contains("/static/fonts/"), "{page}");
+
+    let csp = headers
+        .get(header::CONTENT_SECURITY_POLICY)
+        .and_then(|value| value.to_str().ok())
+        .expect("missing CSP");
+    assert!(csp.contains("font-src 'self';"), "font-src was {csp}");
+    assert!(
+        csp.contains("style-src 'self' 'unsafe-inline';"),
+        "style-src was {csp}"
+    );
+}
+
+struct SearchCase {
+    path: &'static str,
+    result_target: &'static str,
+    mismatch_target: &'static str,
+    result_text: &'static str,
+}
+
+struct TabCase {
+    full_path: &'static str,
+    fragment_path: &'static str,
+    detail_text: &'static str,
+    tab_text: &'static str,
+}
+
+async fn setup() -> TestApp {
+    let api_endpoint = spawn_mock_api().await;
     let router = build_router(test_config(api_endpoint));
     let session_value = session::create_session("1500000000000000000", "test-token", SECRET_KEY);
     TestApp {
         router,
         session_cookie: format!("{}={session_value}", session::SESSION_COOKIE_NAME),
     }
+}
+
+async fn get(app: &TestApp, uri: &str, headers: &[(&str, &str)]) -> String {
+    get_with_headers(app, uri, headers).await.1
+}
+
+async fn get_status(app: &TestApp, uri: &str) -> StatusCode {
+    let response = app
+        .router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::GET)
+                .uri(uri)
+                .header(header::COOKIE, &app.session_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    response.status()
 }
 
 async fn get_with_headers(
@@ -368,20 +795,112 @@ fn assert_form_has_csrf(body: &str, action: &str, csrf_token: &str) {
     );
 }
 
-async fn spawn_mock_api(api: Router) -> String {
+fn assert_full_layout(body: &str) {
+    assert!(body.contains(r#"id="admin-sidebar""#), "{body}");
+    assert!(body.contains(r#"id="main-content""#), "{body}");
+}
+
+fn assert_fragment(body: &str) {
+    assert!(!body.contains(r#"id="admin-sidebar""#), "{body}");
+    assert!(!body.contains(r#"id="main-content""#), "{body}");
+}
+
+async fn spawn_mock_api() -> String {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
-        axum::serve(listener, api).await.unwrap();
+        axum::serve(listener, Router::new().fallback(mock_api))
+            .await
+            .unwrap();
     });
     format!("http://{addr}")
 }
 
 async fn mock_api(method: Method, uri: Uri) -> Response {
-    match (method, uri.path()) {
+    let path = uri.path().to_owned();
+    if method == Method::PATCH && path == "/admin/instance/config" {
+        return json_response(instance_config());
+    }
+    match (method, path.as_str()) {
         (Method::GET, "/admin/users/@me") => json_response(json!({ "user": admin_user() })),
-        (Method::GET, "/admin/report-reasons") => json_response(report_reasons()),
+        (Method::GET, "/admin/api-keys") => json_response(json!([])),
+        (Method::POST, "/admin/api-keys") => json_response(json!({
+            "key_id": "1900000000000000001",
+            "key": ADMIN_API_KEY_SECRET,
+            "name": "Acceptance key",
+            "created_at": "2026-07-10T15:00:00.000Z",
+            "expires_at": null,
+            "acls": ["*"]
+        })),
+        (Method::GET, "/admin/users") => {
+            json_response(json!({ "users": [searched_user()], "total": 1 }))
+        }
+        (Method::GET, "/admin/users/1500000000000000001") => {
+            json_response(json!({ "users": [searched_user()] }))
+        }
+        (Method::PUT, "/admin/users/1500000000000000001/phone-verification") => {
+            json_response(json!({ "user": searched_user() }))
+        }
+        (Method::GET, "/admin/guilds") => {
+            json_response(json!({ "guilds": [searched_guild()], "total": 1 }))
+        }
+        (Method::GET, "/admin/guilds/1600000000000000001") => {
+            json_response(json!({ "guild": searched_guild_detail() }))
+        }
+        (Method::GET, "/admin/applications") => {
+            json_response(json!({ "applications": [searched_application()] }))
+        }
+        (Method::GET, "/admin/reports") => json_response(
+            json!({ "reports": [searched_report()], "total": 1, "offset": 0, "limit": 25 }),
+        ),
         (Method::GET, "/admin/reports/1800000000000000001") => json_response(searched_report()),
+        (Method::GET, "/admin/reports/1800000000000000002") => {
+            json_response(searched_message_report())
+        }
+        (Method::PATCH, "/admin/reports/1800000000000000001") => json_response(json!({
+            "report_id": "1800000000000000001",
+            "status": 1,
+            "resolved_at": "2026-05-26T12:03:00.000Z",
+            "public_comment": "done"
+        })),
+        (Method::GET, "/admin/jobs") => {
+            json_response(json!({ "jobs": [searched_job()], "next_cursor": null, "cursor": null }))
+        }
+        (Method::GET, "/admin/jobs/1900000000000000001") => {
+            json_response(json!({ "job": searched_job() }))
+        }
+        (Method::GET, "/admin/instance/config") => json_response(instance_config()),
+        (Method::POST, "/admin/instance/registration-urls") => json_response(json!({
+            "registration_url": registration_url_fixture(),
+            "code": "11111111-1111-4111-8111-111111111111",
+            "url": "https://app.example.test/register?registration_url=11111111-1111-4111-8111-111111111111"
+        })),
+        (Method::DELETE, path) if path.starts_with("/admin/instance/registration-urls/") => {
+            json_response(instance_config_without_registration_urls())
+        }
+        (Method::PATCH, path) if path.starts_with("/admin/instance/pending-registrations/") => {
+            json_response(instance_config_without_pending_registrations())
+        }
+        (Method::GET, "/admin/limit-config") => json_response(limit_config()),
+        (Method::GET, "/admin/audit-logs") => {
+            let access = uri.query().and_then(|query| {
+                url::form_urlencoded::parse(query.as_bytes())
+                    .find(|(key, _)| key == "access")
+                    .map(|(_, value)| value.into_owned())
+            });
+            let logs = [
+                audit_log_entry("1900000000000000101", "get_user", "read"),
+                audit_log_entry("1900000000000000102", "temp_ban", "write"),
+            ]
+            .into_iter()
+            .filter(|entry| {
+                access
+                    .as_deref()
+                    .is_none_or(|access| entry.access.to_string() == access)
+            })
+            .collect::<Vec<_>>();
+            json_response(json!({ "total": logs.len(), "logs": logs }))
+        }
         _ => (StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response(),
     }
 }
@@ -394,6 +913,10 @@ fn admin_user() -> Value {
     let mut user = user("1500000000000000000", "AdminUser");
     user["acls"] = json!(["*"]);
     user
+}
+
+fn searched_user() -> Value {
+    user("1500000000000000001", "SearchedUser")
 }
 
 fn user(id: &str, username: &str) -> Value {
@@ -414,6 +937,7 @@ fn user(id: &str, username: &str) -> Value {
         "locale": "en-US",
         "acls": [],
         "traits": [],
+        "badge_ids": [],
         "flags": "0",
         "premium_flags": 0,
         "bot": false,
@@ -423,8 +947,11 @@ fn user(id: &str, username: &str) -> Value {
         "premium_until": null,
         "premium_grace_ends_at": null,
         "premium_lifetime_sequence": null,
+        "suspicious_activity_flags": 0,
+        "phone_verification_deferred": false,
         "has_totp": false,
         "authenticator_types": [],
+        "has_verified_phone": false,
         "temp_banned_until": null,
         "pending_deletion_at": null,
         "pending_bulk_message_deletion_at": null,
@@ -437,6 +964,126 @@ fn user(id: &str, username: &str) -> Value {
         "last_active_ip": null,
         "last_active_ip_reverse": null,
         "last_active_location": null
+    })
+}
+
+fn searched_guild() -> generated_types::GuildAdminResponse {
+    serde_json::from_value(json!({
+        "id": "1600000000000000001",
+        "name": "Searched Guild",
+        "icon": null,
+        "banner": null,
+        "owner_id": "1500000000000000001",
+        "owner_username": "SearchedUser",
+        "owner_global_name": "SearchedUser",
+        "owner_discriminator": "0001",
+        "member_count": 12,
+        "features": ["COMMUNITY"],
+        "nsfw_level": 0,
+        "nsfw": false,
+        "content_warning_level": 0,
+        "content_warning_text": null
+    }))
+    .expect("guild search fixture must match the generated response contract")
+}
+
+fn searched_guild_detail() -> generated_types::LookupGuildResponseGuild {
+    serde_json::from_value(json!({
+        "id": "1600000000000000001",
+        "owner_id": "1500000000000000001",
+        "owner_username": "SearchedUser",
+        "owner_global_name": "SearchedUser",
+        "owner_discriminator": "0001",
+        "name": "Searched Guild",
+        "vanity_url_code": null,
+        "icon": null,
+        "banner": null,
+        "splash": null,
+        "embed_splash": null,
+        "features": ["COMMUNITY"],
+        "badge_ids": [],
+        "verification_level": 1,
+        "mfa_level": 0,
+        "nsfw_level": 0,
+        "nsfw": false,
+        "content_warning_level": 0,
+        "content_warning_text": null,
+        "explicit_content_filter": 0,
+        "default_message_notifications": 0,
+        "afk_channel_id": null,
+        "afk_timeout": 0,
+        "system_channel_id": null,
+        "system_channel_flags": 0,
+        "rules_channel_id": null,
+        "disabled_operations": 0,
+        "member_count": 12,
+        "channels": [],
+        "roles": []
+    }))
+    .expect("guild detail fixture must match the generated response contract")
+}
+
+#[test]
+fn guild_fixtures_match_generated_response_contracts() {
+    let search = searched_guild();
+    assert_eq!(search.name, "Searched Guild");
+    assert_eq!(*search.member_count, 12);
+
+    let response: LookupGuildResponse =
+        serde_json::from_value(json!({"guild": searched_guild_detail()})).unwrap();
+    let detail = response.guild.unwrap();
+    assert_eq!(detail.name, "Searched Guild");
+    assert_eq!(detail.id, "1600000000000000001");
+    assert_eq!(detail.member_count, 12);
+}
+
+fn audit_log_entry(
+    log_id: &str,
+    action: &str,
+    access: &str,
+) -> generated_types::AdminAuditLogResponseSchema {
+    serde_json::from_value(json!({
+        "log_id": log_id,
+        "admin_user_id": "1500000000000000000",
+        "admin_user": null,
+        "target_type": "user",
+        "target_id": "1500000000000000001",
+        "target_user": null,
+        "target_guild": null,
+        "target_channel": null,
+        "related_users": {},
+        "related_guilds": {},
+        "related_channels": {},
+        "action": action,
+        "access": access,
+        "audit_log_reason": null,
+        "metadata": {},
+        "created_at": "2026-09-16T12:00:00.000Z"
+    }))
+    .expect("audit log fixture must match the generated response contract")
+}
+
+fn searched_application() -> Value {
+    json!({
+        "id": "1700000000000000001",
+        "name": "Mock Application",
+        "owner_user_id": "1500000000000000001",
+        "owner_username": "SearchedUser",
+        "owner_global_name": "SearchedUser",
+        "owner_discriminator": "0001",
+        "bot_user_id": null,
+        "bot_username": null,
+        "bot_global_name": null,
+        "bot_discriminator": null,
+        "bot_is_public": true,
+        "bot_require_code_grant": false,
+        "oauth2_redirect_uris": [],
+        "has_client_secret": false,
+        "has_bot_token": false,
+        "bot_token_preview": null,
+        "bot_token_created_at": null,
+        "client_secret_created_at": null,
+        "version": 1
     })
 }
 
@@ -455,31 +1102,195 @@ fn searched_report() -> Value {
     })
 }
 
-fn report_reasons() -> Value {
+fn searched_message_report() -> Value {
     json!({
-        "reasons": [
-            {
-                "key": "csam",
-                "label": "Child sexual abuse material",
-                "highest_priority": true,
-                "legacy_category_message": "child_safety",
-                "legacy_category_user": "child_safety",
-                "legacy_category_guild": "child_safety"
-            },
-            {
-                "key": "harassment",
-                "label": "Harassment or bullying",
-                "highest_priority": false,
-                "legacy_category_message": "harassment",
-                "legacy_category_user": "harassment",
-                "legacy_category_guild": "harassment"
+        "report_id": "1800000000000000002",
+        "reporter_id": "1500000000000000000",
+        "reporter_tag": "AdminUser#0001",
+        "reported_at": "2026-05-26T12:00:00.000Z",
+        "status": 0,
+        "report_type": 0,
+        "category": "spam",
+        "additional_info": "Mock message report details",
+        "reported_user_id": "1500000000000000001",
+        "reported_user_tag": "SearchedUser#0001",
+        "reported_message_id": "1800000000000001001",
+        "reported_channel_id": "1600000000000000101",
+        "reported_channel_name": "general",
+        "message_context": [{
+            "id": "1800000000000001001",
+            "content": "Reported message in drawer",
+            "timestamp": "2026-05-26T12:01:00.000Z",
+            "author_id": "1500000000000000001",
+            "author_username": "SearchedUser",
+            "author_global_name": "SearchedUser",
+            "author_discriminator": "0001",
+            "author_avatar": null,
+            "channel_id": "1600000000000000101",
+            "attachments": []
+        }]
+    })
+}
+
+fn searched_job() -> Value {
+    json!({
+        "job_id": "1900000000000000001",
+        "task_type": "mockJobSync",
+        "status": "running",
+        "created_at": "2026-05-26T12:00:00.000Z",
+        "progress_current": 4,
+        "progress_total": 10,
+        "progress_message": null,
+        "error_message": null,
+        "started_at": "2026-05-26T12:00:05.000Z",
+        "completed_at": null,
+        "attempts": 1,
+        "max_attempts": 3,
+        "requested_by_user_id": "1500000000000000000",
+        "audit_log_reason": null,
+        "jet_stream_lane": null,
+        "jet_stream_seq": null,
+        "run_at": null,
+        "cancel_requested": false,
+        "context_link": null,
+        "payload": null,
+        "result": null
+    })
+}
+
+fn instance_config() -> Value {
+    json!({
+        "sso": {
+            "enabled": false,
+            "enforced": false,
+            "display_name": null,
+            "issuer": null,
+            "authorization_url": null,
+            "token_url": null,
+            "userinfo_url": null,
+            "jwks_url": null,
+            "client_id": null,
+            "client_secret_set": false,
+            "scope": null,
+            "allowed_domains": [],
+            "auto_provision": false,
+            "redirect_uri": "https://admin.example.test/oauth2_callback"
+        },
+        "gateway_rollout": {
+            "session_rollout_percentage": 100,
+            "session_rollout_mode": "modulo",
+            "guild_rollout_percentage": 100,
+            "rpc_request_timeout_ms": 5000,
+            "max_concurrent_session_starts": 16,
+            "max_concurrent_guild_starts": 16,
+            "voice_e2ee_scope": "guild_feature_only"
+        },
+        "domain_migration": {
+            "enabled": false,
+            "config_version": 0,
+            "rollout_basis_points": 0,
+            "rollout_salt": "domain-migration-v1",
+            "included_user_ids": [],
+            "excluded_user_ids": [],
+            "anonymous_rollout_basis_points": 0,
+            "standalone_forwarding": false
+        },
+        "experiment_delivery": {
+            "poll_interval_seconds": 300,
+            "poll_jitter_percent": 15
+        },
+        "registration": registration_config(),
+        "self_hosted": false
+    })
+}
+
+fn registration_config() -> Value {
+    json!({
+        "mode": "approval",
+        "admin_registration_urls_enabled": true,
+        "urls": [registration_url_fixture()],
+        "pending_registrations": [pending_registration_fixture()]
+    })
+}
+
+fn registration_url_fixture() -> Value {
+    json!({
+        "id": "11111111-1111-4111-8111-111111111111",
+        "label": "Support batch",
+        "created_by_user_id": "1500000000000000000",
+        "created_at": "2026-05-26T12:00:00.000Z",
+        "expires_at": null,
+        "max_uses": 5,
+        "use_count": 0,
+        "revoked_at": null,
+        "approval_required": true,
+        "last_used_at": null,
+        "last_used_by_user_id": null
+    })
+}
+
+fn pending_registration_fixture() -> Value {
+    json!({
+        "user_id": "1500000000000000002",
+        "username": "PendingUser",
+        "discriminator": 0,
+        "global_name": "Pending User",
+        "email": "pending.user.with.a.long.address@example.test",
+        "requested_at": "2026-05-26T12:10:00.000Z",
+        "registration_url_id": "11111111-1111-4111-8111-111111111111",
+        "client_ip": "203.0.113.24"
+    })
+}
+
+fn instance_config_without_pending_registrations() -> Value {
+    let mut config = instance_config();
+    config["registration"]["pending_registrations"] = json!([]);
+    config
+}
+
+fn instance_config_without_registration_urls() -> Value {
+    let mut config = instance_config();
+    config["registration"]["urls"] = json!([]);
+    config
+}
+
+fn limit_config() -> Value {
+    json!({
+        "limit_config": {
+            "traitDefinitions": [],
+            "rules": [{
+                "id": "default",
+                "filters": null,
+                "limits": { "maxGuilds": 100 }
+            }]
+        },
+        "limit_config_json": "{\"traitDefinitions\":[],\"rules\":[]}",
+        "self_hosted": false,
+        "defaults": {
+            "default": { "maxGuilds": 100 }
+        },
+        "metadata": {
+            "maxGuilds": {
+                "key": "maxGuilds",
+                "label": "Max Guilds",
+                "description": "Maximum guild memberships.",
+                "category": "account",
+                "scope": "user",
+                "isToggle": false,
+                "unit": null,
+                "min": 0,
+                "max": 1000
             }
-        ]
+        },
+        "categories": { "account": "Account" },
+        "limit_keys": ["maxGuilds"],
+        "bounds": null
     })
 }
 
 fn test_config(api_endpoint: String) -> AdminConfig {
     AdminConfig {
+        env: RuntimeEnv::Test,
         host: "127.0.0.1".to_owned(),
         port: 0,
         secret_key_base: SECRET_KEY.to_owned(),
@@ -487,7 +1298,6 @@ fn test_config(api_endpoint: String) -> AdminConfig {
         api_endpoint,
         media_endpoint: "https://media.example.test".to_owned(),
         static_cdn_endpoint: "https://static.example.test".to_owned(),
-        reports_bucket_origin: "https://reports.example.test".to_owned(),
         admin_endpoint: "https://admin.example.test".to_owned(),
         web_app_endpoint: "https://app.example.test".to_owned(),
         oauth_client_id: "admin-client".to_owned(),

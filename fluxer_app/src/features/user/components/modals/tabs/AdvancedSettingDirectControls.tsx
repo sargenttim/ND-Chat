@@ -15,7 +15,6 @@ import {
 	KeepNekoStillControl,
 	ShowNekoControl,
 	VoiceChannelJoinBehaviorControl,
-	WindowsFluxerSansControl,
 } from '@app/features/user/components/modals/tabs/advanced_settings_tab/AdvancedAppearanceControls';
 import {
 	AutoSendGifsControl,
@@ -41,7 +40,6 @@ import {DeveloperModeControl} from '@app/features/user/components/modals/tabs/ad
 import {
 	HardwareAccelerationControl,
 	NativeTitleBarControl,
-	SourceMapsControl,
 } from '@app/features/user/components/modals/tabs/advanced_settings_tab/AdvancedDesktopControls';
 import {
 	ExpressionCloneShortcutsControl,
@@ -62,7 +60,6 @@ import type {SearchableSettingItem} from '@app/features/user/components/settings
 import {observer} from 'mobx-react-lite';
 
 export const DIRECT_CONTROL_ITEM_IDS = new Set([
-	'advanced-windows-fluxer-sans',
 	'accessibility-text-selection',
 	'accessibility-video-seek-thumbnails',
 	'accessibility-smooth-scrolling',
@@ -105,7 +102,6 @@ export const DIRECT_CONTROL_ITEM_IDS = new Set([
 	'accessibility-stay-interactive-unfocused',
 	'advanced-native-title-bar',
 	'advanced-hardware-acceleration',
-	'desktop-source-maps',
 ]);
 
 export const FULL_WIDTH_CONTROL_ITEM_IDS = new Set([
@@ -114,7 +110,6 @@ export const FULL_WIDTH_CONTROL_ITEM_IDS = new Set([
 ]);
 
 export const COMPACT_SWITCH_CONTROL_ITEM_IDS = new Set([
-	'advanced-windows-fluxer-sans',
 	'accessibility-text-selection',
 	'accessibility-video-seek-thumbnails',
 	'accessibility-smooth-scrolling',
@@ -146,15 +141,10 @@ export const COMPACT_SWITCH_CONTROL_ITEM_IDS = new Set([
 	'accessibility-stay-interactive-unfocused',
 	'advanced-native-title-bar',
 	'advanced-hardware-acceleration',
-	'desktop-source-maps',
 ]);
 
 export const AdvancedSettingControl = observer(({item}: {item: SearchableSettingItem}) => {
 	switch (item.id) {
-		case 'advanced-windows-fluxer-sans':
-			return (
-				<WindowsFluxerSansControl data-flx="user.advanced-setting-direct-controls.advanced-setting-control.windows-fluxer-sans-control" />
-			);
 		case 'accessibility-text-selection':
 			return (
 				<TextSelectionControl data-flx="user.advanced-setting-direct-controls.advanced-setting-control.text-selection-control" />
@@ -338,10 +328,6 @@ export const AdvancedSettingControl = observer(({item}: {item: SearchableSetting
 		case 'accessibility-stay-interactive-unfocused':
 			return (
 				<StayInteractiveUnfocusedControl data-flx="user.advanced-setting-direct-controls.advanced-setting-control.stay-interactive-unfocused-control" />
-			);
-		case 'desktop-source-maps':
-			return (
-				<SourceMapsControl data-flx="user.advanced-setting-direct-controls.advanced-setting-control.source-maps-control" />
 			);
 		case 'advanced-native-title-bar':
 			return (

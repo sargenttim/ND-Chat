@@ -3,12 +3,12 @@
 import {VoiceTrackSource} from '@app/features/voice/engine/VoiceTrackSource';
 import type {TrackPublishOptions} from 'livekit-client';
 
-const OPUS_MAX_AUDIO_BITRATE_BPS = 510000;
-const VOICE_CHANNEL_MIN_AUDIO_BITRATE_BPS = 8000;
-const STEREO_VOICE_MIN_AUDIO_BITRATE_BPS = 64000;
-const SCREEN_SHARE_AUDIO_BITRATE_BPS = 128000;
+export const OPUS_MAX_AUDIO_BITRATE_BPS = 510000;
+export const VOICE_CHANNEL_MIN_AUDIO_BITRATE_BPS = 8000;
+export const STEREO_VOICE_MIN_AUDIO_BITRATE_BPS = 128000;
+export const SCREEN_SHARE_AUDIO_BITRATE_BPS = 128000;
 
-function normaliseAudioBitrateBps(value: number | null | undefined): number | undefined {
+export function normaliseAudioBitrateBps(value: number | null | undefined): number | undefined {
 	if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) return undefined;
 	const rounded = Math.round(value);
 	const bitsPerSecond = rounded >= 8 && rounded <= 512 ? rounded * 1000 : rounded;
@@ -33,7 +33,7 @@ export function buildMicrophonePublishOptions(
 		},
 		dtx: false,
 		red: true,
-		forceStereo: sendsStereoMicrophone(maxBitrate, stereoCapture),
+		forceStereo: sendsStereoMicrophone(maxBitrate, stereoCapture) ? undefined : false,
 	};
 }
 

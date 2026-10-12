@@ -92,7 +92,6 @@ const VoicePopoutWindowRenderer = observer(function VoicePopoutWindowRenderer({
 			onRestore={handleRestore}
 			onClosed={handleClosed}
 			onWindowOpened={handleWindowOpened}
-			existingWindow={PopoutWindowManager.getChildWindow(key)}
 			data-flx="voice.voice-popout-host.popout-window"
 		>
 			<VoicePopoutScopeContext.Provider value={descriptor.kind}>

@@ -21,14 +21,14 @@ import {
 	type ScreenSharePublicationTarget,
 } from '@app/features/voice/utils/ScreenShareSubscriptionPolicy';
 
-type ScreenShareVideoSubscriptionRecoveryMode = 'refresh' | 'resubscribe';
+export type ScreenShareVideoSubscriptionRecoveryMode = 'refresh' | 'resubscribe';
 
-interface ScreenShareVideoSubscriptionRecoveryPublication extends ScreenSharePublicationTarget {
+export interface ScreenShareVideoSubscriptionRecoveryPublication extends ScreenSharePublicationTarget {
 	track?: unknown;
 	trackSid?: string | null;
 }
 
-interface ScreenShareVideoSubscriptionRecoveryRetryInfo {
+export interface ScreenShareVideoSubscriptionRecoveryRetryInfo {
 	participantIdentity?: string | null;
 	trackSid: string | null;
 	attempt: number;
@@ -36,7 +36,7 @@ interface ScreenShareVideoSubscriptionRecoveryRetryInfo {
 	mode: ScreenShareVideoSubscriptionRecoveryMode;
 }
 
-interface ScreenShareVideoSubscriptionRecoveryLeaseOptions {
+export interface ScreenShareVideoSubscriptionRecoveryLeaseOptions {
 	key: string;
 	publication: ScreenShareVideoSubscriptionRecoveryPublication;
 	streamKey?: string | null;
@@ -47,12 +47,12 @@ interface ScreenShareVideoSubscriptionRecoveryLeaseOptions {
 	recover?: (mode: ScreenShareVideoSubscriptionRecoveryMode) => void;
 }
 
-interface ScreenShareVideoSubscriptionRecoveryScheduler {
+export interface ScreenShareVideoSubscriptionRecoveryScheduler {
 	setTimeout(callback: () => void, delayMs: number): number;
 	clearTimeout(timeoutId: number): void;
 }
 
-interface ScreenShareVideoSubscriptionRecoveryGraph {
+export interface ScreenShareVideoSubscriptionRecoveryGraph {
 	getGraphSnapshot(): VoiceMediaGraphSnapshot;
 	nowMs(): number;
 	transition(event: VoiceMediaGraphEvent): unknown;
@@ -143,7 +143,7 @@ export function getScreenShareVideoSubscriptionRecoveryKey({
 	return trackSid ?? streamKey ?? participantIdentity ?? null;
 }
 
-function getScreenShareVideoSubscriptionRetryDelayMs(attempt: number): number {
+export function getScreenShareVideoSubscriptionRetryDelayMs(attempt: number): number {
 	const retryIndex = Math.max(0, attempt - 1);
 	return Math.min(
 		SCREEN_SHARE_VIDEO_SUBSCRIPTION_RETRY_INITIAL_DELAY_MS * 2 ** retryIndex,
@@ -151,11 +151,13 @@ function getScreenShareVideoSubscriptionRetryDelayMs(attempt: number): number {
 	);
 }
 
-function selectScreenShareVideoSubscriptionRecoveryMode(attempt: number): ScreenShareVideoSubscriptionRecoveryMode {
+export function selectScreenShareVideoSubscriptionRecoveryMode(
+	attempt: number,
+): ScreenShareVideoSubscriptionRecoveryMode {
 	return attempt <= SCREEN_SHARE_VIDEO_SUBSCRIPTION_REFRESH_ATTEMPTS ? 'refresh' : 'resubscribe';
 }
 
-class ScreenShareVideoSubscriptionRecoveryCoordinator {
+export class ScreenShareVideoSubscriptionRecoveryCoordinator {
 	private readonly sessions = new Map<string, ScreenShareVideoSubscriptionRecoverySession>();
 	private readonly firstFrameRecoveriesByWatch = new Map<string, number>();
 	private readonly scheduler: ScreenShareVideoSubscriptionRecoveryScheduler;
@@ -192,6 +194,17 @@ class ScreenShareVideoSubscriptionRecoveryCoordinator {
 			released = true;
 			this.release(options.key);
 		};
+	}
+
+	dispose(): void {
+		for (const session of this.sessions.values()) {
+			this.clearTimer(session);
+		}
+		this.sessions.clear();
+	}
+
+	getActiveSessionCount(): number {
+		return this.sessions.size;
 	}
 
 	getFirstFrameRecoveryCount(streamKey: string | null | undefined, generation: number): number {

@@ -10,15 +10,12 @@ import {isBillingActive} from '@app/api/stripe/BillingConfigCache';
 import {canProvisionPremiumFromSubscriptionStatus} from '@app/api/stripe/StripeSubscriptionAccessPolicy';
 import {
 	getInvoiceLatestLinePeriodEnd,
-	getSubscriptionBillingCycle,
-	getSubscriptionCurrentPeriodStart,
+	getPrimarySubscriptionItem,
 	getSubscriptionPremiumPeriodEnd,
 	getSubscriptionStartDate,
 } from '@app/api/stripe/StripeSubscriptionPeriod';
-import {extractId} from '@app/api/stripe/StripeUtils';
-import {shiftGiftExtensionPastPremiumUntil} from '@app/api/user/GiftExtensionShift';
 import {clearPerksSanitizedFlag, createPremiumClearPatch, getEffectivePremiumUntil} from '@app/api/user/UserHelpers';
-import {dispatchUserUpdate} from '@app/api/user/UserMappers';
+import {mapUserToPrivateResponse} from '@app/api/user/UserMappers';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
 import {PremiumFlags, UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import type {WorkerTaskHandler} from '@pkgs/worker/src/contracts/WorkerTask';
@@ -40,11 +37,30 @@ const MAX_USERS_PER_RUN = 250;
 const RETRY_DELAY_MS = 5 * 60 * 1000;
 const CLAIM_LEASE_MS = 10 * 60 * 1000;
 
+function getStripeSubscriptionCustomerId(subscription: Stripe.Subscription): string | null {
+	if (!subscription.customer) {
+		return null;
+	}
+	return typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+}
+
+function getStripeSubscriptionBillingCycle(subscription: Stripe.Subscription): string | null {
+	const item = getPrimarySubscriptionItem(subscription);
+	const interval = item?.price?.recurring?.interval;
+	if (interval === 'month') {
+		return 'monthly';
+	}
+	if (interval === 'year') {
+		return 'yearly';
+	}
+	return null;
+}
+
 function buildStripePremiumRepairPatch(user: User, subscription: Stripe.Subscription): Partial<UserRow> {
 	const premiumUntil = getSubscriptionPremiumPeriodEnd(subscription);
-	const subscriptionCustomerId = extractId(subscription.customer);
+	const subscriptionCustomerId = getStripeSubscriptionCustomerId(subscription);
 	const premiumWillCancel = Boolean(subscription.cancel_at_period_end || subscription.cancel_at != null);
-	const premiumBillingCycle = getSubscriptionBillingCycle(subscription);
+	const premiumBillingCycle = getStripeSubscriptionBillingCycle(subscription);
 	const patch: Partial<UserRow> = {};
 	if (user.premiumType !== UserPremiumTypes.SUBSCRIPTION) {
 		patch.premium_type = UserPremiumTypes.SUBSCRIPTION;
@@ -55,15 +71,6 @@ function buildStripePremiumRepairPatch(user: User, subscription: Stripe.Subscrip
 	}
 	if (premiumUntil && user.premiumUntil?.getTime() !== premiumUntil.getTime()) {
 		patch.premium_until = premiumUntil;
-		const giftEnd = shiftGiftExtensionPastPremiumUntil(
-			{premiumUntil: user.premiumUntil, giftEnd: user.premiumGiftExtensionEndsAt},
-			premiumUntil,
-			new Date(),
-			getSubscriptionCurrentPeriodStart(subscription),
-		);
-		if (giftEnd !== user.premiumGiftExtensionEndsAt) {
-			patch.premium_gift_extension_ends_at = giftEnd;
-		}
 	}
 	if (user.premiumWillCancel !== premiumWillCancel) {
 		patch.premium_will_cancel = premiumWillCancel;
@@ -98,7 +105,11 @@ async function patchUserAndDispatch(
 	const patchedFields = Object.keys(patch);
 	const updatedUser = await userRepository.patchUpsert(user.id, patch, user.toRow());
 	userCacheService.setUserPartialResponseFromUserInBackground(updatedUser);
-	await dispatchUserUpdate(gatewayService, updatedUser);
+	await gatewayService.dispatchPresence({
+		userId: updatedUser.id,
+		event: 'USER_UPDATE',
+		data: mapUserToPrivateResponse(updatedUser),
+	});
 	return {updatedUser, patchedFields};
 }
 

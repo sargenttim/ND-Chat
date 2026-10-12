@@ -23,11 +23,7 @@ function getSensitiveFilterLevel(channelId: string | undefined): number {
 	if (!channelId) {
 		return SensitiveMediaFilterLevel.SHOW;
 	}
-	const requestedChannel = Channels.getChannel(channelId);
-	const channel =
-		requestedChannel?.isThread() && requestedChannel.parentId
-			? Channels.getChannel(requestedChannel.parentId)
-			: requestedChannel;
+	const channel = Channels.getChannel(channelId);
 	if (!channel) {
 		return SensitiveMediaFilterLevel.SHOW;
 	}

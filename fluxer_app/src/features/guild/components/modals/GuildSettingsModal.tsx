@@ -5,7 +5,7 @@ import {DesktopGuildSettingsView} from '@app/features/app/components/dialogs/com
 import {MobileGuildSettingsView} from '@app/features/app/components/dialogs/components/MobileGuildSettingsView';
 import * as Modal from '@app/features/app/components/dialogs/Modal';
 import {SettingsModalContainer} from '@app/features/app/components/dialogs/shared/SettingsModalLayout';
-import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import GatewayConnection from '@app/features/gateway/transport/GatewayConnection';
 import GuildSettingsModalState from '@app/features/guild/state/GuildSettingsModal';
 import Guilds from '@app/features/guild/state/Guilds';
 import * as RouterUtils from '@app/features/navigation/utils/RouterUtils';
@@ -14,6 +14,7 @@ import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import * as UnsavedChangesCommands from '@app/features/ui/commands/UnsavedChangesCommands';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import UnsavedChanges from '@app/features/ui/state/UnsavedChanges';
+import {isMobileExperienceEnabled} from '@app/features/ui/utils/MobileExperience';
 import {
 	GUILD_SETTINGS_LABEL_DESCRIPTOR,
 	type GuildSettingsTabType,
@@ -28,10 +29,11 @@ import {useCallback, useEffect, useMemo, useState} from 'react';
 interface GuildSettingsModalProps {
 	guildId: string;
 	initialTab?: GuildSettingsTabType;
+	initialMobileTab?: GuildSettingsTabType;
 }
 
 export const GuildSettingsModal: React.FC<GuildSettingsModalProps> = observer(
-	({guildId, initialTab: initialTabProp}) => {
+	({guildId, initialTab: initialTabProp, initialMobileTab}) => {
 		const {i18n} = useLingui();
 		const guild = Guilds.getGuild(guildId);
 		const [selectedTab, setSelectedTab] = useState<GuildSettingsTabType>(initialTabProp ?? 'overview');
@@ -51,8 +53,14 @@ export const GuildSettingsModal: React.FC<GuildSettingsModalProps> = observer(
 				return true;
 			});
 		}, [guild, guildId, i18n.locale]);
-
-		const mobileNav = useMobileNavigation<GuildSettingsTabType>();
+		const isMobileExperience = isMobileExperienceEnabled();
+		const initialMobileTabObject = useMemo(() => {
+			if (!isMobileExperience || !initialMobileTab) return;
+			const targetTab = availableTabs.find((tab) => tab.type === initialMobileTab);
+			if (!targetTab) return;
+			return {tab: initialMobileTab, title: targetTab.label};
+		}, [initialMobileTab, availableTabs, isMobileExperience]);
+		const mobileNav = useMobileNavigation<GuildSettingsTabType>(initialMobileTabObject);
 		const mobileNavigateTo = mobileNav.navigateTo;
 		const mobileResetToRoot = mobileNav.resetToRoot;
 		const mobileIsRootView = mobileNav.isRootView;
@@ -60,11 +68,11 @@ export const GuildSettingsModal: React.FC<GuildSettingsModalProps> = observer(
 		const unsavedChangesState = UnsavedChanges;
 		const currentMobileTab = mobileNav.currentView?.tab;
 		useEffect(() => {
-			GatewaySessions.foregroundConnection.syncGuildIfNeeded(guildId, 'guild-settings-modal');
+			GatewayConnection.syncGuildIfNeeded(guildId, 'guild-settings-modal');
 		}, [guildId]);
 		useEffect(() => {
 			if (!guild) {
-				ModalCommands.popByModalType('guild-settings');
+				ModalCommands.popByType(GuildSettingsModal);
 			}
 		}, [guild]);
 		useEffect(() => {

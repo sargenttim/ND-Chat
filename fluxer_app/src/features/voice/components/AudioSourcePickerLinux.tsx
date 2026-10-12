@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {CheckboxItem, MenuGroupLabel, SubMenu as MenuItemSubmenu} from '@app/features/ui/action_menu/ContextMenu';
+import {CheckboxItem, MenuGroupLabel} from '@app/features/ui/action_menu/ContextMenu';
 import {MenuGroup} from '@app/features/ui/action_menu/MenuGroup';
 import {MenuItem} from '@app/features/ui/action_menu/MenuItem';
 import {MenuItemRadio} from '@app/features/ui/action_menu/MenuItemRadio';
+import {MenuItemSubmenu} from '@app/features/ui/action_menu/MenuItemSubmenu';
 import {getElectronAPI} from '@app/features/ui/utils/NativeUtils';
 import * as VoiceSettingsCommands from '@app/features/voice/commands/VoiceSettingsCommands';
 import MediaEngine from '@app/features/voice/engine/MediaEngineFacade';
@@ -14,13 +15,12 @@ import {
 	type LinuxAudioSourceFilterOptions,
 	type LinuxAudioSourceItem,
 	linuxAudioSourceItemKey,
-	linuxAudioSourcePatternsEqual,
 	mapLinuxAudioNodeToItems,
 	uniqueLinuxAudioSourceItems,
-	withSelectedLinuxAudioSources,
 } from '@app/features/voice/utils/LinuxAudioSourceRules';
 import {
 	formatScreenShareAudioSummary,
+	MICROPHONE_DESCRIPTOR,
 	MICROPHONE_WITH_DEVICE_DESCRIPTOR,
 	resolveDeviceShareAudioPairing,
 } from '@app/features/voice/utils/ScreenShareAudioSummary';
@@ -31,7 +31,6 @@ import {
 	supportsWindowShareAudioScope,
 	type WindowShareAudioScope,
 } from '@app/features/voice/utils/StreamSettingsUpdatePolicy';
-import {MICROPHONE_DESCRIPTOR} from '@app/features/voice/utils/VoiceSharedMessageDescriptors';
 import type {VirtmicNode} from '@app/types/electron.d';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
@@ -79,8 +78,15 @@ const EMPTY_SNAPSHOT: AudioSourceSnapshot = {
 	error: null,
 };
 
+function nodesEqual(a: VirtmicNode, b: VirtmicNode): boolean {
+	const keysA = Object.keys(a);
+	const keysB = Object.keys(b);
+	if (keysA.length !== keysB.length) return false;
+	return keysA.every((key) => a[key] === b[key]);
+}
+
 function isItemSelected(value: VirtmicNode, sources: Array<VirtmicNode>): boolean {
-	return sources.some((source) => linuxAudioSourcePatternsEqual(source, value));
+	return sources.some((source) => nodesEqual(source, value));
 }
 
 async function fetchAudioSources(options: LinuxAudioSourceFilterOptions): Promise<AudioSourceSnapshot> {
@@ -182,7 +188,7 @@ export const AudioSourcePickerLinuxSubmenu = observer((props: AudioSourcePickerL
 		(item: LinuxAudioSourceItem) => {
 			const isSelected = isItemSelected(item.value, includeSources);
 			const nextSources = isSelected
-				? includeSources.filter((source) => !linuxAudioSourcePatternsEqual(source, item.value))
+				? includeSources.filter((source) => !nodesEqual(source, item.value))
 				: [...includeSources, item.value];
 			VoiceSettingsCommands.update({
 				screenShareAudioSourceMode: nextSources.length > 0 ? 'specific' : 'system',
@@ -197,7 +203,7 @@ export const AudioSourcePickerLinuxSubmenu = observer((props: AudioSourcePickerL
 		(item: LinuxAudioSourceItem) => {
 			const isSelected = isItemSelected(item.value, excludeSources);
 			const nextSources = isSelected
-				? excludeSources.filter((source) => !linuxAudioSourcePatternsEqual(source, item.value))
+				? excludeSources.filter((source) => !nodesEqual(source, item.value))
 				: [...excludeSources, item.value];
 			VoiceSettingsCommands.update({
 				screenShareAudioExcludeSources: nextSources,
@@ -224,8 +230,6 @@ export const AudioSourcePickerLinuxSubmenu = observer((props: AudioSourcePickerL
 		usesDeviceMicrophone,
 	});
 	const showsWideSourceLists = !offersWindowScope || resolvedScope === 'system';
-	const includeItems = withSelectedLinuxAudioSources(snapshot.items, includeSources);
-	const excludeItems = withSelectedLinuxAudioSources(snapshot.items, excludeSources);
 	const wideSourceIsSelected = isDeviceShare ? usesDeviceMicrophone : sourceMode === 'system';
 	if (!snapshot.available && !snapshot.loading) {
 		return null;
@@ -265,12 +269,12 @@ export const AudioSourcePickerLinuxSubmenu = observer((props: AudioSourcePickerL
 							</MenuItemRadio>
 						)}
 					</MenuGroup>
-					{showsWideSourceLists && includeItems.length > 0 && (
+					{showsWideSourceLists && snapshot.items.length > 0 && (
 						<MenuGroup data-flx="voice.audio-source-picker-linux.audio-source-picker-linux-submenu.menu-group--2">
 							<MenuGroupLabel data-flx="voice.audio-source-picker-linux.audio-source-picker-linux-submenu.group-label.include-apps">
 								{i18n._(INCLUDE_APPS_DESCRIPTOR)}
 							</MenuGroupLabel>
-							{includeItems.map((item) => (
+							{snapshot.items.map((item) => (
 								<CheckboxItem
 									key={linuxAudioSourceItemKey(item)}
 									checked={isItemSelected(item.value, includeSources)}
@@ -282,12 +286,12 @@ export const AudioSourcePickerLinuxSubmenu = observer((props: AudioSourcePickerL
 							))}
 						</MenuGroup>
 					)}
-					{!isDeviceShare && showsWideSourceLists && sourceMode === 'system' && excludeItems.length > 0 && (
+					{!isDeviceShare && showsWideSourceLists && sourceMode === 'system' && snapshot.items.length > 0 && (
 						<MenuGroup data-flx="voice.audio-source-picker-linux.audio-source-picker-linux-submenu.menu-group--3">
 							<MenuGroupLabel data-flx="voice.audio-source-picker-linux.audio-source-picker-linux-submenu.group-label.exclude-from-system">
 								{i18n._(EXCLUDE_FROM_SYSTEM_DESCRIPTOR)}
 							</MenuGroupLabel>
-							{excludeItems.map((item) => (
+							{snapshot.items.map((item) => (
 								<CheckboxItem
 									key={`exclude-${linuxAudioSourceItemKey(item)}`}
 									checked={isItemSelected(item.value, excludeSources)}

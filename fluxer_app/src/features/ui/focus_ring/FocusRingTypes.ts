@@ -28,6 +28,13 @@ export interface FocusRingStyleProperties extends React.CSSProperties {
 	[FOCUS_RING_RADIUS_CSS_PROPERTY]?: string;
 }
 
+export interface ThemeOptions {
+	focusColor?: string;
+	lightColor?: string;
+	darkColor?: string;
+	threshold?: number;
+}
+
 export interface FocusRingProps {
 	within?: boolean;
 	enabled?: boolean;

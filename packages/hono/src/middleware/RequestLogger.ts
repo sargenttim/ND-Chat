@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {resolveRoutePattern} from '@fluxer/errors/src/error_handling/RoutePattern';
 import {matchesAnyPathPattern} from '@fluxer/hono/src/middleware/utils/PathMatchers';
 import type {MiddlewareHandler} from 'hono';
 
@@ -39,7 +38,8 @@ export function createInfoRequestLogger(logger: RequestInfoLogger): LogFunction 
 export function requestLogger(options: RequestLoggerOptions): MiddlewareHandler {
 	const {log, skip = []} = options;
 	return async (c, next) => {
-		if (matchesAnyPathPattern(c.req.path, skip)) {
+		const path = c.req.path;
+		if (matchesAnyPathPattern(path, skip)) {
 			return next();
 		}
 		const startTime = Date.now();
@@ -47,6 +47,6 @@ export function requestLogger(options: RequestLoggerOptions): MiddlewareHandler 
 		await next();
 		const durationMs = Date.now() - startTime;
 		const status = c.res.status;
-		log({method, path: resolveRoutePattern(c), status, durationMs});
+		log({method, path, status, durationMs});
 	};
 }

@@ -123,6 +123,7 @@ export async function createTestAccount(
 	if (!params?.skipEmailVerification) {
 		const securityFlagsBuilder = createBuilder(harness, '').post(`/test/users/${reg.user_id}/security-flags`).body({
 			email_verified: true,
+			suspicious_activity_flags: 0,
 		});
 		if (ipAddress) {
 			securityFlagsBuilder.header('x-forwarded-for', ipAddress);
@@ -258,22 +259,6 @@ export function generateTotpCode(secret: string, time = Date.now()): string {
 
 export function totpCodeNow(secret: string): string {
 	return generateTotpCode(secret, Date.now());
-}
-
-export async function loginWithTotp(
-	harness: ApiTestHarness,
-	account: TestAccount,
-	secret: string,
-): Promise<TestAccount> {
-	const login = await loginUser(harness, {email: account.email, password: account.password});
-	if (!('mfa' in login)) {
-		throw new Error('Expected MFA login');
-	}
-	const mfaLogin = await createBuilder<{token: string}>(harness, '')
-		.post('/auth/login/mfa/totp')
-		.body({ticket: login.ticket, code: totpCodeNow(secret)})
-		.execute();
-	return {...account, token: mfaLogin.token};
 }
 
 export async function seedMfaTicket(

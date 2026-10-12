@@ -11,13 +11,11 @@ import {
 	getGuildSearchService,
 	getMessageSearchService,
 	getReportSearchService,
-	getThreadSearchService,
 	getUserSearchService,
 } from '@app/api/SearchFactory';
 import type {IGuildMemberSearchService} from '@app/api/search/IGuildMemberSearchService';
 import type {IMessageSearchService} from '@app/api/search/IMessageSearchService';
 import {deleteChannelMessageSearchDocuments} from '@app/api/search/MessageSearchIndexCleanup';
-import {backfillThreadSearch} from '@app/api/search/thread/ThreadSearchService';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
 import {DiscoveryApplicationStatus} from '@fluxer/constants/src/DiscoveryConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
@@ -34,7 +32,6 @@ const INDEX_TYPES = [
 	'channel_messages',
 	'guild_members',
 	'discovery',
-	'threads',
 ] as const;
 
 type IndexType = (typeof INDEX_TYPES)[number];
@@ -49,11 +46,7 @@ const PayloadSchema = z
 	})
 	.refine(
 		(data) => {
-			if (
-				data.index_type === 'channel_messages' ||
-				data.index_type === 'guild_members' ||
-				data.index_type === 'threads'
-			) {
+			if (data.index_type === 'channel_messages' || data.index_type === 'guild_members') {
 				return data.guild_id !== undefined;
 			}
 			return true;
@@ -204,14 +197,11 @@ const refreshChannelMessages: IndexHandler = async (payload, helpers, kvClient, 
 	const {channelRepository} = getWorkerDependencies();
 	const guildId = createGuildID(BigInt(payload.guild_id!));
 	const searchService = requireSearchService<IMessageSearchService>(getMessageSearchService());
-	const guildChannels = await channelRepository.channelData.listGuildChannels(guildId, 'complete');
-	const threadIds = await channelRepository.threads.listGuildThreadIds(guildId, {parents: guildChannels});
-	const channels = [...guildChannels.map((channel) => ({id: channel.id})), ...threadIds.map((id) => ({id}))];
+	const channels = await channelRepository.listGuildChannels(guildId);
 	if (channels.length === 0) {
 		return 0;
 	}
-	const indexedChannels = channels;
-	for (const channel of indexedChannels) {
+	for (const channel of channels) {
 		await deleteChannelMessageSearchDocuments(channel.id, {
 			searchService,
 			context: {source: 'bulk_reindex', guildId: guildId.toString()},
@@ -219,14 +209,14 @@ const refreshChannelMessages: IndexHandler = async (payload, helpers, kvClient, 
 	}
 	const completionKey = `bulk_reindex:${payload.job_id}:remaining`;
 	await kvClient.del(completionKey);
-	for (const channel of indexedChannels) {
+	for (const channel of channels) {
 		Logger.debug({channelId: channel.id.toString()}, 'Queuing bulk channel indexing');
 		await helpers.addJob(
 			'indexChannelMessages',
 			{
 				channelId: channel.id.toString(),
 				completionKey,
-				channelCount: indexedChannels.length,
+				channelCount: channels.length,
 			},
 			{
 				jobKey: `index-channel-${channel.id}-bulk`,
@@ -234,11 +224,8 @@ const refreshChannelMessages: IndexHandler = async (payload, helpers, kvClient, 
 			},
 		);
 	}
-	Logger.info(
-		{channels: indexedChannels.length, guildId: guildId.toString()},
-		'Queued bulk channel message indexing jobs',
-	);
-	return indexedChannels.length;
+	Logger.info({channels: channels.length, guildId: guildId.toString()}, 'Queued bulk channel message indexing jobs');
+	return channels.length;
 };
 const refreshGuildMembers: IndexHandler = async (payload, _helpers, kvClient, progressKey) => {
 	const {guildRepository, userRepository} = getWorkerDependencies();
@@ -318,13 +305,6 @@ const refreshDiscovery: IndexHandler = async (_payload, _helpers, kvClient, prog
 	}
 	return synced;
 };
-const refreshThreads: IndexHandler = async (payload) => {
-	const {channelRepository} = getWorkerDependencies();
-	const guildId = createGuildID(BigInt(payload.guild_id!));
-	requireSearchService(getThreadSearchService());
-	await channelRepository.threads.clearGuildSearchBackfilled(guildId);
-	return backfillThreadSearch(channelRepository, guildId);
-};
 const INDEX_HANDLERS: Record<IndexType, IndexHandler> = {
 	guilds: refreshGuilds,
 	users: refreshUsers,
@@ -333,7 +313,6 @@ const INDEX_HANDLERS: Record<IndexType, IndexHandler> = {
 	channel_messages: refreshChannelMessages,
 	guild_members: refreshGuildMembers,
 	discovery: refreshDiscovery,
-	threads: refreshThreads,
 };
 const refreshSearchIndex: WorkerTaskHandler = async (payload, helpers) => {
 	const validated = PayloadSchema.parse(payload);

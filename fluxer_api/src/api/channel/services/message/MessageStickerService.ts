@@ -2,10 +2,11 @@
 
 import type {GuildID, StickerID, UserID} from '@app/api/BrandedTypes';
 import type {MessageStickerItem} from '@app/api/database/types/MessageTypes';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {checkUserGlobalExpressions} from '@app/api/utils/EmojiUtils';
+import {resolveLimitSafe} from '@app/api/limits/LimitConfigUtils';
+import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
@@ -13,8 +14,8 @@ import {MissingPermissionsError} from '@fluxer/errors/src/domains/core/MissingPe
 
 export class MessageStickerService {
 	constructor(
-		private userRepository: UserRepository,
-		private guildRepository: GuildRepository,
+		private userRepository: IUserRepository,
+		private guildRepository: IGuildRepositoryAggregate,
 		private readonly limitConfigService: LimitConfigService,
 	) {}
 
@@ -25,9 +26,17 @@ export class MessageStickerService {
 		hasPermission?: (permission: bigint) => Promise<boolean>;
 	}): Promise<Array<MessageStickerItem>> {
 		const {stickerIds, userId, guildId, hasPermission} = params;
-		const hasGlobalExpressions = userId
-			? await checkUserGlobalExpressions(userId, this.userRepository, this.limitConfigService)
-			: 0;
+		let hasGlobalExpressions = 0;
+		if (userId) {
+			const user = await this.userRepository.findUnique(userId);
+			const ctx = createLimitMatchContext({user});
+			hasGlobalExpressions = resolveLimitSafe(
+				this.limitConfigService.getConfigSnapshot(),
+				ctx,
+				'feature_global_expressions',
+				0,
+			);
+		}
 		return Promise.all(
 			stickerIds.map(async (stickerId) => {
 				if (!guildId) {

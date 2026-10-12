@@ -26,7 +26,7 @@ export async function prepareAttachmentsForNonce(
 	return {attachments, files};
 }
 
-function mapMessageUploadAttachments(attachments: Array<CloudAttachment>): Array<ApiAttachmentMetadata> {
+export function mapMessageUploadAttachments(attachments: Array<CloudAttachment>): Array<ApiAttachmentMetadata> {
 	return attachments.map((att, index) => ({
 		id: String(index),
 		filename: att.filename,

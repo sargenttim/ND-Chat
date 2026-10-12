@@ -3,17 +3,13 @@
 import type {ApiContext} from '@app/api/ApiContext';
 import * as AuthPassword from '@app/api/auth/AuthPassword';
 import * as AuthSession from '@app/api/auth/AuthSession';
-import {revokeAllAuthSessions} from '@app/api/auth/AuthSessionRevocation';
 import * as AuthUtility from '@app/api/auth/AuthUtility';
 import {createEmailRevertToken} from '@app/api/BrandedTypes';
 import type {User} from '@app/api/models/User';
-import {enqueueStripeCustomerEmailSync} from '@app/api/stripe/StripeCustomer';
-import {dispatchUserUpdate} from '@app/api/user/UserMappers';
-import {hashPassword} from '@app/api/utils/PasswordUtils';
-import * as RandomUtils from '@app/api/utils/RandomUtils';
-import {requireConfiguredClientIp} from '@app/api/utils/RequestClientIp';
+import {mapUserToPrivateResponse} from '@app/api/user/UserMappers';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
+import {requireClientIp} from '@fluxer/ip_utils/src/ClientIp';
 
 interface IssueEmailRevertTokenParams {
 	user: User;
@@ -32,7 +28,7 @@ export async function issueEmailRevertToken(ctx: ApiContext, params: IssueEmailR
 	const {user, previousEmail, newEmail} = params;
 	const trimmed = previousEmail.trim();
 	if (!trimmed) return;
-	const token = createEmailRevertToken(await RandomUtils.randomString(64));
+	const token = createEmailRevertToken(await AuthUtility.generateSecureToken(ctx));
 	await users.createEmailRevertToken({
 		token_: token,
 		user_id: user.id,
@@ -48,7 +44,7 @@ export async function revertEmailChange(
 	user_id: string;
 	token: string;
 }> {
-	const {users, gateway, contactChangeLog, config, worker} = ctx.services;
+	const {users, gateway, contactChangeLog, config} = ctx.services;
 	const {token, password, request} = params;
 	const tokenData = await users.getEmailRevertToken(token);
 	if (!tokenData) {
@@ -63,7 +59,7 @@ export async function revertEmailChange(
 	if (await AuthPassword.isPasswordPwned(ctx, password)) {
 		throw InputValidationError.fromCode('password', ValidationErrorCodes.PASSWORD_IS_TOO_COMMON);
 	}
-	const passwordHash = await hashPassword(password);
+	const passwordHash = await AuthPassword.hashPassword(ctx, password);
 	const now = new Date();
 	const updatedUser = await users.patchUpsert(
 		user.id,
@@ -82,9 +78,19 @@ export async function revertEmailChange(
 	await users.deleteAllMfaBackupCodes(user.id);
 	await users.deleteAllWebAuthnCredentials(user.id);
 	await users.deleteAllAuthorizedIps(user.id);
-	await revokeAllAuthSessions(ctx.services, user.id);
-	await users.createAuthorizedIp(user.id, requireConfiguredClientIp(request, config.proxy));
-	await dispatchUserUpdate(gateway, updatedUser);
+	await AuthSession.terminateAllUserSessions(ctx, user.id);
+	await users.createAuthorizedIp(
+		user.id,
+		requireClientIp(request, {
+			trustClientIpHeader: config.proxy.trust_client_ip_header,
+			clientIpHeaderName: config.proxy.client_ip_header,
+		}),
+	);
+	await gateway.dispatchPresence({
+		userId: updatedUser.id,
+		event: 'USER_UPDATE',
+		data: mapUserToPrivateResponse(updatedUser),
+	});
 	const [authToken] = await AuthSession.createAuthSession(ctx, {
 		user: updatedUser,
 		origin: AuthSession.resolveSessionOrigin(ctx, request),
@@ -95,6 +101,5 @@ export async function revertEmailChange(
 		reason: 'user_requested',
 		actorUserId: user.id,
 	});
-	await enqueueStripeCustomerEmailSync(worker, user, updatedUser);
 	return {user_id: updatedUser.id.toString(), token: authToken};
 }

@@ -9,7 +9,7 @@ export interface EmojiDisplayData {
 	url: string | undefined;
 }
 
-function getSkinTonedEmoji(emoji: FlatEmoji, skinTone: string): UnicodeEmoji | null {
+export function getSkinTonedEmoji(emoji: FlatEmoji, skinTone: string): UnicodeEmoji | null {
 	if (!emoji.hasSkinTones || !skinTone || !emoji.uniqueName) {
 		return null;
 	}

@@ -4,13 +4,13 @@ import {mapGuildToAdminResponse} from '@app/api/admin/models/GuildTypes';
 import type {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
 import type {AdminGuildUpdatePropagator} from '@app/api/admin/services/guild/AdminGuildUpdatePropagator';
 import {createGuildID, createUserID, type GuildID, type UserID} from '@app/api/BrandedTypes';
+import {resolveBadgeIds} from '@app/api/badge/BadgeUtils';
 import type {GuildRow} from '@app/api/database/types/GuildTypes';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
-import {staffEditTouchesInvitePause} from '@app/api/guild/services/GuildInvitePauseApplier';
-import type {GuildService} from '@app/api/guild/services/GuildService';
-import {emitGuildFeaturesChanged} from '@app/api/infrastructure/activity/GuildEvents';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {EntityAssetService, PreparedAssetUpload} from '@app/api/infrastructure/EntityAssetService';
+import type {InstanceConfigRepository} from '@app/api/instance/InstanceConfigRepository';
 import {Logger} from '@app/api/Logger';
+import {BadgeTypes} from '@fluxer/constants/src/BadgeConstants';
 import {UnknownGuildError} from '@fluxer/errors/src/domains/guild/UnknownGuildError';
 import type {
 	ClearGuildFieldsRequest,
@@ -20,11 +20,11 @@ import type {
 } from '@fluxer/schema/src/domains/admin/AdminGuildSchemas';
 
 interface AdminGuildUpdateServiceDeps {
-	guildRepository: GuildRepository;
+	guildRepository: IGuildRepositoryAggregate;
 	entityAssetService: EntityAssetService;
 	auditService: AdminAuditService;
 	updatePropagator: AdminGuildUpdatePropagator;
-	guildService: Pick<GuildService, 'withUpdateLock'>;
+	instanceConfigRepository: InstanceConfigRepository;
 }
 
 export class AdminGuildUpdateService {
@@ -43,35 +43,22 @@ export class AdminGuildUpdateService {
 		adminUserId: UserID;
 		auditLogReason: string | null;
 	}) {
-		const {guildRepository, auditService, updatePropagator, guildService} = this.deps;
-		const {guild, newFeatures, updatedGuild} = await guildService.withUpdateLock(guildId, async () => {
-			const guild = await guildRepository.findUnique(guildId);
-			if (!guild) {
-				throw new UnknownGuildError();
-			}
-			const newFeatures = new Set(guild.features);
-			for (const feature of addFeatures) {
-				newFeatures.add(feature);
-			}
-			for (const feature of removeFeatures) {
-				newFeatures.delete(feature);
-			}
-			const patch: Partial<GuildRow> = {features: newFeatures};
-			if (staffEditTouchesInvitePause(guild, [...addFeatures, ...removeFeatures])) {
-				patch.invites_paused_until = null;
-			}
-			const updatedGuild = await guildRepository.upsertPartial(guildId, patch, guild.toRow());
-			return {guild, newFeatures, updatedGuild};
-		});
+		const {guildRepository, auditService, updatePropagator} = this.deps;
+		const guild = await guildRepository.findUnique(guildId);
+		if (!guild) {
+			throw new UnknownGuildError();
+		}
+		const newFeatures = new Set(guild.features);
+		for (const feature of addFeatures) {
+			newFeatures.add(feature);
+		}
+		for (const feature of removeFeatures) {
+			newFeatures.delete(feature);
+		}
+		const updatedGuild = await guildRepository.upsertPartial(guildId, {features: newFeatures}, guild.toRow());
 		await updatePropagator.dispatchGuildUpdate(guildId, updatedGuild, {
 			adminUserId,
 			reconcileDiscoveryFeature: true,
-		});
-		await emitGuildFeaturesChanged({
-			previous: guild,
-			updated: updatedGuild,
-			actorId: adminUserId,
-			source: 'staff',
 		});
 		await auditService.createAuditLog({
 			adminUserId,
@@ -84,6 +71,42 @@ export class AdminGuildUpdateService {
 				['remove_features', removeFeatures.join(',')],
 				['new_features', Array.from(newFeatures).join(',')],
 			]),
+		});
+		return {
+			guild: mapGuildToAdminResponse(updatedGuild),
+		};
+	}
+
+	async updateGuildBadges({
+		guildId,
+		badgeIds,
+		adminUserId,
+		auditLogReason,
+	}: {
+		guildId: GuildID;
+		badgeIds: Array<bigint>;
+		adminUserId: UserID;
+		auditLogReason: string | null;
+	}) {
+		const {guildRepository, auditService, updatePropagator, instanceConfigRepository} = this.deps;
+		const guild = await guildRepository.findUnique(guildId);
+		if (!guild) {
+			throw new UnknownGuildError();
+		}
+		const newBadgeIds = await resolveBadgeIds(instanceConfigRepository, BadgeTypes.GUILD, badgeIds);
+		const updatedGuild = await guildRepository.upsertPartial(
+			guildId,
+			{badge_ids: newBadgeIds.size > 0 ? newBadgeIds : null},
+			guild.toRow(),
+		);
+		await updatePropagator.dispatchGuildUpdate(guildId, updatedGuild);
+		await auditService.createAuditLog({
+			adminUserId,
+			targetType: 'guild',
+			targetId: BigInt(guildId),
+			action: 'update_badges',
+			auditLogReason,
+			metadata: new Map([['badge_ids', Array.from(newBadgeIds).join(',')]]),
 		});
 		return {
 			guild: mapGuildToAdminResponse(updatedGuild),

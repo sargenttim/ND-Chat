@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {GuildSticker} from '@app/features/expressions/models/GuildSticker';
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import {makeAutoObservable, observable} from 'mobx';
 
 class ChannelSticker {
@@ -34,14 +33,6 @@ class ChannelSticker {
 	getPendingSticker(channelId: string): GuildSticker | null {
 		return this.pendingStickers.get(channelId) ?? null;
 	}
-
-	reset(): void {
-		this.pendingStickers.clear();
-	}
 }
 
-const channelSticker = new ChannelSticker();
-
-AccountScopedWork.registerCancellation(() => channelSticker.reset());
-
-export default channelSticker;
+export default new ChannelSticker();

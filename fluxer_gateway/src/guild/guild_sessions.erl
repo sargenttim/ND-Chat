@@ -4,16 +4,29 @@
 -typing([eqwalizer]).
 
 -export([
+    handle_session_connect/3,
     handle_session_down/2,
+    remove_session/2,
     filter_sessions_for_channel/4,
     filter_sessions_for_message/5,
     filter_sessions_for_manage_channels/4,
     filter_sessions_exclude_session/2,
+    handle_user_offline/2,
+    set_session_active_guild/3,
+    set_session_passive_guild/3,
+    build_initial_last_message_ids/1,
+    is_session_active/2,
+    subscribe_connected_user_presence/2,
+    subscribe_to_user_presence/2,
+    unsubscribe_from_user_presence/2,
     set_session_viewable_channels/3,
     refresh_user_session_cache/2,
     refresh_all_viewable_channels/1,
+    handle_set_typing_override/3,
     set_session_push_hold/3,
     released_push_holds/2,
+    handle_send_guild_sync/2,
+    handle_send_members_chunk/3,
     build_viewable_channel_map/1
 ]).
 
@@ -29,8 +42,7 @@
 -type session_pair() :: {session_id(), session_data()}.
 -type perm_memo() :: #{user_id() => non_neg_integer()}.
 -type view_memo() :: #{user_id() => boolean()}.
--type message_ctx() ::
-    {channel_id(), binary(), session_id() | undefined, boolean(), guild_state()}.
+-type message_ctx() :: {channel_id(), binary(), session_id() | undefined, guild_state()}.
 -export_type([
     guild_state/0,
     session_id/0,
@@ -40,6 +52,16 @@
     sessions_map/0,
     session_pair/0
 ]).
+
+-spec handle_session_connect(map(), pid(), guild_state()) ->
+    {reply,
+        {ok, map()}
+        | {ok, unavailable, map()}
+        | {error, too_many_sessions}
+        | {error, not_member},
+        guild_state()}.
+handle_session_connect(Request, Pid, State) ->
+    guild_sessions_connect:handle_session_connect(Request, Pid, State).
 
 -spec handle_session_down(reference(), guild_state()) ->
     {noreply, guild_state()} | {stop, normal, guild_state()}.
@@ -55,12 +77,43 @@ handle_session_down(Ref, State) ->
     session_id(), session_data(), reference(), {session_id(), session_data()}, guild_state()
 ) -> {noreply, guild_state()} | {stop, normal, guild_state()}.
 handle_pending_ref_down(SessionId, Session, Ref, Found, State) ->
-    case guild_sessions_connect:counts_as_connected(Session) of
-        true ->
-            guild_sessions_connect:handle_session_down(Ref, Found, State);
-        false ->
-            handle_pending_session_down(SessionId, Ref, maps:get(sessions, State, #{}), State)
+    Sessions = maps:get(sessions, State, #{}),
+    case pending_session_owns_connected_tracking(Session, Sessions, State) of
+        true -> guild_sessions_connect:handle_session_down(Ref, Found, State);
+        false -> handle_pending_session_down(SessionId, Ref, Sessions, State)
     end.
+
+-spec pending_session_owns_connected_tracking(session_data(), sessions_map(), guild_state()) ->
+    boolean().
+pending_session_owns_connected_tracking(Session, Sessions, State) ->
+    UserId = maps:get(user_id, Session, undefined),
+    Counts = maps:get(user_session_counts, State, #{}),
+    TrackedCount = non_negative_count(maps:get(UserId, Counts, 0)),
+    TrackedCount > active_session_count(UserId, Sessions).
+
+-spec non_negative_count(term()) -> non_neg_integer().
+non_negative_count(Count) when is_integer(Count), Count >= 0 -> Count;
+non_negative_count(_) -> 0.
+
+-spec active_session_count(user_id() | undefined, sessions_map()) -> non_neg_integer().
+active_session_count(UserId, Sessions) ->
+    maps:fold(
+        fun(_SessionId, Session, Count) ->
+            count_active_session(UserId, Session, Count)
+        end,
+        0,
+        Sessions
+    ).
+
+-spec count_active_session(user_id() | undefined, session_data(), non_neg_integer()) ->
+    non_neg_integer().
+count_active_session(UserId, #{user_id := UserId} = Session, Count) ->
+    case maps:get(pending_connect, Session, false) of
+        true -> Count;
+        false -> Count + 1
+    end;
+count_active_session(_UserId, _Session, Count) ->
+    Count.
 
 -spec handle_pending_session_down(session_id(), reference(), sessions_map(), guild_state()) ->
     {noreply, guild_state()}.
@@ -81,6 +134,46 @@ finish_pending_session_down(NewSessions, State) ->
             {noreply, guild_sessions_connect_cleanup:clear_auto_stop_pending(State)}
     end.
 
+-spec remove_session(session_id(), guild_state()) -> guild_state().
+remove_session(SessionId, State) ->
+    guild_sessions_connect:remove_session(SessionId, State).
+
+-spec build_initial_last_message_ids(map()) -> #{binary() => binary()}.
+build_initial_last_message_ids(GuildState) ->
+    guild_sessions_connect:build_initial_last_message_ids(GuildState).
+
+-spec subscribe_connected_user_presence(user_id(), guild_state()) -> guild_state().
+subscribe_connected_user_presence(UserId, State) ->
+    guild_sessions_presence:subscribe_connected_user_presence(UserId, State).
+
+-spec subscribe_to_user_presence(user_id(), guild_state()) -> guild_state().
+subscribe_to_user_presence(UserId, State) ->
+    guild_sessions_presence:subscribe_to_user_presence(UserId, State).
+
+-spec unsubscribe_from_user_presence(user_id(), guild_state()) -> guild_state().
+unsubscribe_from_user_presence(UserId, State) ->
+    guild_sessions_presence:unsubscribe_from_user_presence(UserId, State).
+
+-spec handle_user_offline(user_id(), guild_state()) -> guild_state().
+handle_user_offline(UserId, State) ->
+    guild_sessions_presence:handle_user_offline(UserId, State).
+
+-spec set_session_active_guild(session_id(), guild_id(), guild_state()) -> guild_state().
+set_session_active_guild(SessionId, GuildId, State) ->
+    guild_sessions_passive:set_session_active_guild(SessionId, GuildId, State).
+
+-spec set_session_passive_guild(session_id(), guild_id(), guild_state()) -> guild_state().
+set_session_passive_guild(SessionId, GuildId, State) ->
+    guild_sessions_passive:set_session_passive_guild(SessionId, GuildId, State).
+
+-spec is_session_active(session_id(), guild_state()) -> boolean().
+is_session_active(SessionId, State) ->
+    guild_sessions_passive:is_session_active(SessionId, State).
+
+-spec handle_set_typing_override(session_id(), boolean(), guild_state()) -> guild_state().
+handle_set_typing_override(SessionId, TypingFlag, State) ->
+    guild_sessions_passive:handle_set_typing_override(SessionId, TypingFlag, State).
+
 -spec set_session_push_hold(session_id(), boolean(), guild_state()) -> guild_state().
 set_session_push_hold(SessionId, Hold, State) ->
     Sessions = maps:get(sessions, State, #{}),
@@ -100,14 +193,21 @@ released_push_holds(SessionIds, State) ->
         maps:get(push_hold, maps:get(SessionId, Sessions, #{}), undefined) =:= false
     ].
 
+-spec handle_send_guild_sync(session_id(), guild_state()) -> guild_state().
+handle_send_guild_sync(SessionId, State) ->
+    guild_sessions_passive:handle_send_guild_sync(SessionId, State).
+
+-spec handle_send_members_chunk(session_id(), map(), guild_state()) -> ok.
+handle_send_members_chunk(SessionId, ChunkData, State) ->
+    guild_sessions_passive:handle_send_members_chunk(SessionId, ChunkData, State).
+
 -spec filter_sessions_for_channel(
     sessions_map(), channel_id(), session_id() | undefined, guild_state()
 ) -> [session_pair()].
 filter_sessions_for_channel(Sessions, ChannelId, SessionIdOpt, State) ->
-    Gated = guild_thread_gate:needs_variant(State),
     {Acc, _Memo} = maps:fold(
         fun(Sid, S, In) ->
-            collect_channel_session(Sid, S, ChannelId, SessionIdOpt, Gated, State, In)
+            collect_channel_session(Sid, S, ChannelId, SessionIdOpt, State, In)
         end,
         {[], #{}},
         Sessions
@@ -119,16 +219,15 @@ filter_sessions_for_channel(Sessions, ChannelId, SessionIdOpt, State) ->
     session_data(),
     channel_id(),
     session_id() | undefined,
-    boolean(),
     guild_state(),
     {[session_pair()], view_memo()}
 ) -> {[session_pair()], view_memo()}.
-collect_channel_session(Sid, S, ChannelId, SessionIdOpt, Gated, State, {Acc, Memo}) ->
+collect_channel_session(Sid, S, ChannelId, SessionIdOpt, State, {Acc, Memo}) ->
     case is_pending_or_excluded(Sid, S, SessionIdOpt) of
         true ->
             {Acc, Memo};
         false ->
-            {Visible, Memo1} = memo_session_can_view_channel(Gated, S, ChannelId, State, Memo),
+            {Visible, Memo1} = memo_session_can_view_channel(S, ChannelId, State, Memo),
             {prepend_session(Visible, Sid, S, Acc), Memo1}
     end.
 
@@ -142,7 +241,7 @@ filter_sessions_for_message(Sessions, ChannelId, MessageId, SessionIdOpt, State)
     sessions_map(), channel_id(), binary(), session_id() | undefined, guild_state()
 ) -> [session_pair()].
 filter_message_memo(Sessions, ChannelId, MessageId, SessionIdOpt, State) ->
-    Ctx = {ChannelId, MessageId, SessionIdOpt, guild_thread_gate:needs_variant(State), State},
+    Ctx = {ChannelId, MessageId, SessionIdOpt, State},
     {Acc, _ViewMemo, _PermMemo} = maps:fold(
         fun(Sid, S, In) -> collect_message_session(Sid, S, Ctx, In) end,
         {[], #{}, #{}},
@@ -154,7 +253,7 @@ filter_message_memo(Sessions, ChannelId, MessageId, SessionIdOpt, State) ->
     session_id(), session_data(), message_ctx(), {[session_pair()], view_memo(), perm_memo()}
 ) -> {[session_pair()], view_memo(), perm_memo()}.
 collect_message_session(Sid, S, Ctx, {Acc, ViewMemo, PermMemo}) ->
-    {ChannelId, _MessageId, SessionIdOpt, Gated, State} = Ctx,
+    {ChannelId, _MessageId, SessionIdOpt, State} = Ctx,
     case is_pending_or_excluded(Sid, S, SessionIdOpt) of
         true ->
             {Acc, ViewMemo, PermMemo};
@@ -164,7 +263,7 @@ collect_message_session(Sid, S, Ctx, {Acc, ViewMemo, PermMemo}) ->
                 S,
                 Ctx,
                 Acc,
-                memo_session_can_view_channel(Gated, S, ChannelId, State, ViewMemo),
+                memo_session_can_view_channel(S, ChannelId, State, ViewMemo),
                 PermMemo
             )
     end.
@@ -186,13 +285,11 @@ collect_visible_message_session(_Sid, _S, _Ctx, Acc, {false, ViewMemo}, PermMemo
 -spec memo_message_session(
     session_id(), session_data(), message_ctx(), [session_pair()], perm_memo()
 ) -> {[session_pair()], perm_memo()}.
-memo_message_session(Sid, S, {ChannelId, MessageId, _SessionIdOpt, _Gated, State}, Acc, Memo) ->
+memo_message_session(Sid, S, {ChannelId, MessageId, _SessionIdOpt, State}, Acc, Memo) ->
     case maps:get(user_id, S, undefined) of
         UserId when is_integer(UserId) ->
             {Perms, Memo1} = memo_member_permissions(UserId, ChannelId, State, Memo),
-            Ok = guild_permissions_check:can_access_message_by_permissions(
-                Perms, MessageId, State
-            ),
+            Ok = guild_permissions:can_access_message_by_permissions(Perms, MessageId, State),
             {prepend_session(Ok, Sid, S, Acc), Memo1};
         _ ->
             {Acc, Memo}
@@ -226,7 +323,7 @@ prepend_session(false, _Sid, _S, Acc) -> Acc.
 filter_sessions_for_manage_channels(Sessions, ChannelId, SessionIdOpt, State) ->
     filter_active_sessions(Sessions, SessionIdOpt, fun(S, _Sid) ->
         UserId = maps:get(user_id, S),
-        guild_permissions_check:can_manage_channel(UserId, ChannelId, State)
+        guild_permissions:can_manage_channel(UserId, ChannelId, State)
     end).
 
 -spec filter_active_sessions(
@@ -304,7 +401,7 @@ refresh_user_session_cache(UserId, State) when is_integer(UserId), UserId > 0 ->
     Sessions = maps:get(sessions, State, #{}),
     UserRoles = session_passive:get_user_roles_for_guild(UserId, State),
     ViewableChannels = build_viewable_channel_map(
-        guild_visibility_channels:get_user_viewable_channels(UserId, State)
+        guild_visibility:get_user_viewable_channels(UserId, State)
     ),
     NewSessions = maps:map(
         fun(_SessionId, SessionData) ->
@@ -345,32 +442,16 @@ refresh_session_viewable(SessionId, SessionData, AccState) ->
     case is_integer(UserId) of
         true ->
             ViewableChannels = build_viewable_channel_map(
-                guild_visibility_channels:get_user_viewable_channels(UserId, AccState)
+                guild_visibility:get_user_viewable_channels(UserId, AccState)
             ),
             set_session_viewable_channels(SessionId, ViewableChannels, AccState);
         false ->
             AccState
     end.
 
--spec memo_session_can_view_channel(
-    boolean(), session_data(), channel_id(), guild_state(), view_memo()
-) ->
+-spec memo_session_can_view_channel(session_data(), channel_id(), guild_state(), view_memo()) ->
     {boolean(), view_memo()}.
-memo_session_can_view_channel(false, SessionData, ChannelId, State, Memo) ->
-    memo_session_can_view_channel_by_permissions(SessionData, ChannelId, State, Memo);
-memo_session_can_view_channel(true, SessionData, ChannelId, State, Memo) ->
-    case guild_thread_gate:channel_visible(SessionData, ChannelId, State) of
-        true ->
-            memo_session_can_view_channel_by_permissions(SessionData, ChannelId, State, Memo);
-        false ->
-            {false, Memo}
-    end.
-
--spec memo_session_can_view_channel_by_permissions(
-    session_data(), channel_id(), guild_state(), view_memo()
-) ->
-    {boolean(), view_memo()}.
-memo_session_can_view_channel_by_permissions(SessionData, ChannelId, State, Memo) ->
+memo_session_can_view_channel(SessionData, ChannelId, State, Memo) ->
     UserId = maps:get(user_id, SessionData, undefined),
     case {UserId, maps:get(viewable_channels, SessionData, undefined)} of
         {Uid, ViewableChannels} when is_integer(Uid), is_map(ViewableChannels) ->
@@ -397,10 +478,10 @@ memo_member_channel_access(UserId, ChannelId, State, Memo) ->
 
 -spec check_member_channel_access(user_id(), channel_id(), guild_state()) -> boolean().
 check_member_channel_access(UserId, ChannelId, State) ->
-    Member = guild_permissions_check:find_member_by_user_id(UserId, State),
+    Member = guild_permissions:find_member_by_user_id(UserId, State),
     case Member of
         undefined -> false;
-        _ -> guild_permissions_check:can_view_channel(UserId, ChannelId, Member, State)
+        _ -> guild_permissions:can_view_channel(UserId, ChannelId, Member, State)
     end.
 
 -spec build_viewable_channel_map([channel_id()]) -> #{channel_id() => true}.
@@ -413,6 +494,28 @@ build_viewable_channel_map(ChannelIds) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+should_exclude_session_test() ->
+    ?assertEqual(false, should_exclude_session(<<"s1">>, undefined)),
+    ?assertEqual(true, should_exclude_session(<<"s1">>, <<"s1">>)),
+    ?assertEqual(false, should_exclude_session(<<"s1">>, <<"s2">>)).
+
+is_pending_or_excluded_pending_test() ->
+    S = #{pending_connect => true},
+    ?assertEqual(true, is_pending_or_excluded(<<"s1">>, S, undefined)).
+
+is_pending_or_excluded_excluded_test() ->
+    S = #{},
+    ?assertEqual(true, is_pending_or_excluded(<<"s1">>, S, <<"s1">>)).
+
+is_pending_or_excluded_neither_test() ->
+    S = #{},
+    ?assertEqual(false, is_pending_or_excluded(<<"s1">>, S, <<"s2">>)),
+    ?assertEqual(false, is_pending_or_excluded(<<"s1">>, S, undefined)).
+
+is_pending_or_excluded_pending_false_test() ->
+    S = #{pending_connect => false},
+    ?assertEqual(false, is_pending_or_excluded(<<"s1">>, S, undefined)).
 
 filter_active_sessions_test() ->
     S1 = #{user_id => 1, pending_connect => false},
@@ -433,10 +536,21 @@ filter_active_sessions_with_predicate_test() ->
     ?assertEqual(1, length(Result)),
     [{<<"b">>, _}] = Result.
 
+store_memo_test() ->
+    ?assertEqual(#{7 => 42}, store_memo(7, 42, #{})),
+    ?assertEqual(#{7 => 42}, store_memo(7, 42, #{7 => 42})).
+
 store_memo_bound_test() ->
     Full = maps:from_list([{I, 0} || I <- lists:seq(1, ?MAX_MEMO_ENTRIES)]),
     ?assertEqual(Full, store_memo(0, 1, Full)),
     ?assertEqual(?MAX_MEMO_ENTRIES, map_size(store_memo(0, 1, Full))).
+
+memo_member_permissions_hit_test() ->
+    Memo = #{9 => 123},
+    ?assertEqual({123, Memo}, memo_member_permissions(9, 5, #{}, Memo)).
+
+memo_member_permissions_miss_test() ->
+    ?assertEqual({0, #{9 => 0}}, memo_member_permissions(9, 5, #{}, #{})).
 
 -spec reference_session_can_access_message(map(), channel_id(), binary(), guild_state()) ->
     boolean().
@@ -444,7 +558,7 @@ reference_session_can_access_message(SessionData, ChannelId, MessageId, State) -
     case maps:get(user_id, SessionData, undefined) of
         UserId when is_integer(UserId) ->
             Perms = guild_permissions:get_member_permissions(UserId, ChannelId, State),
-            guild_permissions_check:can_access_message_by_permissions(Perms, MessageId, State);
+            guild_permissions:can_access_message_by_permissions(Perms, MessageId, State);
         _ ->
             false
     end.
@@ -452,14 +566,6 @@ reference_session_can_access_message(SessionData, ChannelId, MessageId, State) -
 -spec reference_session_can_view_channel(session_data(), channel_id(), guild_state()) ->
     boolean().
 reference_session_can_view_channel(SessionData, ChannelId, State) ->
-    guild_thread_gate:channel_visible(SessionData, ChannelId, State) andalso
-        reference_session_can_view_channel_by_permissions(SessionData, ChannelId, State).
-
--spec reference_session_can_view_channel_by_permissions(
-    session_data(), channel_id(), guild_state()
-) ->
-    boolean().
-reference_session_can_view_channel_by_permissions(SessionData, ChannelId, State) ->
     UserId = maps:get(user_id, SessionData, undefined),
     case {UserId, maps:get(viewable_channels, SessionData, undefined)} of
         {Uid, ViewableChannels} when is_integer(Uid), is_map(ViewableChannels) ->
@@ -488,13 +594,20 @@ reference_filter_message_direct(Sessions, ChannelId, MessageId, SessionIdOpt, St
             reference_session_can_access_message(S, ChannelId, MessageId, State)
     end).
 
+memo_member_channel_access_hit_test() ->
+    Memo = #{1001 => true},
+    ?assertEqual({true, Memo}, memo_member_channel_access(1001, 10, #{}, Memo)).
+
+memo_member_channel_access_miss_test() ->
+    ?assertEqual({false, #{1001 => false}}, memo_member_channel_access(1001, 10, #{}, #{})).
+
 memo_session_can_view_channel_listed_skips_memo_test() ->
     Session = #{user_id => 1001, viewable_channels => #{10 => true}},
-    ?assertEqual({true, #{}}, memo_session_can_view_channel(false, Session, 10, #{}, #{})).
+    ?assertEqual({true, #{}}, memo_session_can_view_channel(Session, 10, #{}, #{})).
 
 memo_session_can_view_channel_without_user_test() ->
     Session = #{viewable_channels => #{10 => true}},
-    ?assertEqual({false, #{}}, memo_session_can_view_channel(false, Session, 10, #{}, #{})).
+    ?assertEqual({false, #{}}, memo_session_can_view_channel(Session, 10, #{}, #{})).
 
 channel_filters_match_per_session_reference_test() ->
     State = visibility_fixture_state(),
@@ -643,6 +756,41 @@ filter_sessions_for_message_test() ->
         [{<<"a">>, maps:get(<<"a">>, Sessions)}],
         filter_sessions_for_message(Sessions, 5, <<"1">>, undefined, State)
     ).
+
+non_negative_count_test() ->
+    ?assertEqual(3, non_negative_count(3)),
+    ?assertEqual(0, non_negative_count(0)),
+    ?assertEqual(0, non_negative_count(-1)),
+    ?assertEqual(0, non_negative_count(undefined)).
+
+active_session_count_test() ->
+    Sessions = #{
+        <<"a">> => #{user_id => 1, pending_connect => true},
+        <<"b">> => #{user_id => 1, pending_connect => false},
+        <<"c">> => #{user_id => 1},
+        <<"d">> => #{user_id => 2}
+    },
+    ?assertEqual(2, active_session_count(1, Sessions)),
+    ?assertEqual(1, active_session_count(2, Sessions)),
+    ?assertEqual(0, active_session_count(3, Sessions)).
+
+pending_session_owns_connected_tracking_untracked_test() ->
+    Session = #{user_id => 1, pending_connect => true},
+    Sessions = #{<<"a">> => Session},
+    ?assertEqual(false, pending_session_owns_connected_tracking(Session, Sessions, #{})).
+
+pending_session_owns_connected_tracking_other_session_owns_test() ->
+    Session = #{user_id => 1, pending_connect => true},
+    Active = #{user_id => 1, pending_connect => false},
+    Sessions = #{<<"a">> => Session, <<"b">> => Active},
+    State = #{user_session_counts => #{1 => 1}},
+    ?assertEqual(false, pending_session_owns_connected_tracking(Session, Sessions, State)).
+
+pending_session_owns_connected_tracking_true_test() ->
+    Session = #{user_id => 1, pending_connect => true},
+    Sessions = #{<<"a">> => Session},
+    State = #{user_session_counts => #{1 => 1}},
+    ?assertEqual(true, pending_session_owns_connected_tracking(Session, Sessions, State)).
 
 handle_pending_session_down_keeps_tracking_test() ->
     Ref = make_ref(),

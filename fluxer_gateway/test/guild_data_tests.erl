@@ -22,40 +22,13 @@ read_model_preserves_query_results_test() ->
                     fun guild_data:get_auth_context/2},
                 {get_guild_auth_context, #{user_id => 999, channel_id => null},
                     fun guild_data:get_auth_context/2},
-                {get_guild_member, #{user_id => 200},
-                    fun guild_data_members:get_guild_member/2},
-                {get_guild_member, #{user_id => 999},
-                    fun guild_data_members:get_guild_member/2},
-                {has_member, #{user_id => 200}, fun guild_data_members:has_member/2}
+                {get_guild_member, #{user_id => 200}, fun guild_data:get_guild_member/2},
+                {get_guild_member, #{user_id => 999}, fun guild_data:get_guild_member/2},
+                {has_member, #{user_id => 200}, fun guild_data:has_member/2}
             ]
         )
     after
         cleanup_read_model(State)
-    end.
-
-read_model_resolves_thread_channels_test() ->
-    State0 = read_model_state(),
-    Store = guild_thread_store:new(),
-    ok = guild_thread_store:put_thread(Store, #{
-        <<"id">> => <<"600">>, <<"parent_id">> => <<"500">>, <<"type">> => 11
-    }),
-    #{data := Data} = State0,
-    State = State0#{
-        data => Data#{thread_gate => #{active => true, version => 1}, thread_store => Store}
-    },
-    Request = #{user_id => 200, channel_id => 600},
-    try
-        ok = guild_read_model:put_state(State),
-        {reply, Expected, _} = guild_data:get_auth_context(Request, State),
-        ?assertMatch(
-            #{auth_context := #{<<"parent_channel">> := #{<<"id">> := 500}}}, Expected
-        ),
-        ?assertEqual(
-            {ok, Expected}, guild_read_model:query(100, {get_guild_auth_context, Request})
-        )
-    after
-        cleanup_read_model(State),
-        guild_thread_store:destroy(Store)
     end.
 
 read_model_uses_live_member_rows_without_copying_members_test() ->
@@ -108,35 +81,6 @@ read_model_observes_role_and_collection_changes_test() ->
         cleanup_read_model(State)
     end.
 
-read_model_observes_last_message_and_pin_advances_test() ->
-    State = read_model_state(),
-    try
-        ok = guild_read_model:put_state(State),
-        Data = maps:get(data, State),
-        Advanced = guild_state_channels:handle_message_create(
-            #{<<"channel_id">> => <<"500">>, <<"id">> => <<"900">>}, Data
-        ),
-        Pinned = guild_state_channels:handle_channel_pins_update(
-            #{
-                <<"channel_id">> => <<"500">>,
-                <<"last_pin_timestamp">> => <<"2026-10-02T00:00:00Z">>
-            },
-            Advanced
-        ),
-        Updated = State#{data => Pinned},
-        ok = guild_read_model:update(State, Updated),
-        {reply, Expected, _} = guild_data:get_guild_data(#{user_id => 200}, Updated),
-        ?assertEqual(
-            {ok, Expected}, guild_read_model:query(100, {get_guild_data, #{user_id => 200}})
-        ),
-        #{guild_data := #{<<"channels">> := Channels}} = Expected,
-        [Channel] = [C || C <- Channels, maps:get(<<"id">>, C) =:= 500],
-        ?assertEqual(900, maps:get(<<"last_message_id">>, Channel)),
-        ?assertEqual(<<"2026-10-02T00:00:00Z">>, maps:get(<<"last_pin_timestamp">>, Channel))
-    after
-        cleanup_read_model(State)
-    end.
-
 read_model_survives_blocked_owner_and_rejects_dead_tables_test() ->
     State = read_model_state(),
     Self = self(),
@@ -169,7 +113,7 @@ read_model_survives_blocked_owner_and_rejects_dead_tables_test() ->
 read_model_state() ->
     State = test_state(),
     Data = guild_data_index:normalize_map(maps:get(data, State)),
-    Members = guild_data_index_members:member_map(Data),
+    Members = guild_data_index:member_map(Data),
     Tab = ets:new(read_model_members, [set, public]),
     ets:insert(Tab, maps:to_list(Members)),
     State#{member_count => map_size(Members), data => Data#{members_ets => Tab}}.
@@ -289,7 +233,7 @@ find_everyone_viewable_text_channel_test() ->
     State = test_state(),
     Data = guild_data_index:ensure_data_map(State),
     Channels = maps:get(<<"channels">>, Data),
-    ChannelId = guild_data_channels:find_everyone_viewable_text_channel(Channels, State),
+    ChannelId = guild_data:find_everyone_viewable_text_channel(Channels, State),
     ?assertEqual(500, ChannelId).
 
 find_everyone_viewable_text_channel_uses_category_order_test() ->
@@ -334,7 +278,7 @@ find_everyone_viewable_text_channel_uses_category_order_test() ->
             <<"permission_overwrites">> => []
         }
     ],
-    ChannelId = guild_data_channels:find_everyone_viewable_text_channel(Channels, State),
+    ChannelId = guild_data:find_everyone_viewable_text_channel(Channels, State),
     ?assertEqual(11, ChannelId).
 
 find_everyone_viewable_text_channel_prefers_root_before_categories_test() ->
@@ -372,7 +316,7 @@ find_everyone_viewable_text_channel_prefers_root_before_categories_test() ->
             <<"permission_overwrites">> => []
         }
     ],
-    ChannelId = guild_data_channels:find_everyone_viewable_text_channel(Channels, State),
+    ChannelId = guild_data:find_everyone_viewable_text_channel(Channels, State),
     ?assertEqual(9, ChannelId).
 
 find_everyone_viewable_text_channel_skips_invalid_channel_id_test() ->
@@ -403,7 +347,7 @@ find_everyone_viewable_text_channel_skips_invalid_channel_id_test() ->
             <<"permission_overwrites">> => []
         }
     ],
-    ChannelId = guild_data_channels:find_everyone_viewable_text_channel(Channels, State),
+    ChannelId = guild_data:find_everyone_viewable_text_channel(Channels, State),
     ?assertEqual(12, ChannelId).
 
 find_everyone_viewable_text_channel_ignores_user_overwrite_for_guild_id_test() ->
@@ -434,7 +378,7 @@ find_everyone_viewable_text_channel_ignores_user_overwrite_for_guild_id_test() -
             ]
         }
     ],
-    ChannelId = guild_data_channels:find_everyone_viewable_text_channel(Channels, State),
+    ChannelId = guild_data:find_everyone_viewable_text_channel(Channels, State),
     ?assertEqual(12, ChannelId).
 
 find_everyone_viewable_text_channel_accepts_voice_when_no_text_channel_test() ->
@@ -454,7 +398,7 @@ find_everyone_viewable_text_channel_accepts_voice_when_no_text_channel_test() ->
     Channels = [
         #{<<"id">> => <<"501">>, <<"type">> => 2, <<"permission_overwrites">> => []}
     ],
-    ChannelId = guild_data_channels:find_everyone_viewable_text_channel(Channels, State),
+    ChannelId = guild_data:find_everyone_viewable_text_channel(Channels, State),
     ?assertEqual(501, ChannelId).
 
 find_everyone_viewable_text_channel_skips_link_channel_test() ->
@@ -474,39 +418,37 @@ find_everyone_viewable_text_channel_skips_link_channel_test() ->
     Channels = [
         #{<<"id">> => <<"998">>, <<"type">> => 998, <<"permission_overwrites">> => []}
     ],
-    ChannelId = guild_data_channels:find_everyone_viewable_text_channel(Channels, State),
+    ChannelId = guild_data:find_everyone_viewable_text_channel(Channels, State),
     ?assertEqual(null, ChannelId).
 
-find_everyone_viewable_text_channel_accepts_announcement_channel_test() ->
-    GuildId = 100,
-    ViewPerm = constants:view_channel_permission(),
-    State = #{
-        id => GuildId,
-        data => #{
-            <<"roles">> => [
-                #{
-                    <<"id">> => integer_to_binary(GuildId),
-                    <<"permissions">> => integer_to_binary(ViewPerm)
-                }
-            ]
-        }
-    },
-    Channels = [
-        #{
-            <<"id">> => <<"501">>,
-            <<"type">> => 2,
-            <<"position">> => 0,
-            <<"permission_overwrites">> => []
-        },
-        #{
-            <<"id">> => <<"502">>,
-            <<"type">> => 5,
-            <<"position">> => 1,
-            <<"permission_overwrites">> => []
-        }
+voice_members_from_states_reads_embedded_member_test() ->
+    EmbeddedMember = #{<<"user">> => #{<<"id">> => <<"300">>}, <<"roles">> => []},
+    IndexedMember = #{<<"user">> => #{<<"id">> => <<"200">>}, <<"roles">> => []},
+    VoiceStates = [
+        #{<<"user_id">> => <<"300">>, <<"member">> => EmbeddedMember},
+        #{<<"user_id">> => <<"200">>}
     ],
-    ChannelId = guild_data_channels:find_everyone_viewable_text_channel(Channels, State),
-    ?assertEqual(502, ChannelId).
+    VoiceMembers = guild_data_channels:voice_members_from_states(VoiceStates, [IndexedMember]),
+    ?assertEqual([EmbeddedMember, IndexedMember], VoiceMembers).
+
+paginate_members_test() ->
+    Members = [#{<<"id">> => 1}, #{<<"id">> => 2}, #{<<"id">> => 3}],
+    ?assertEqual(
+        [#{<<"id">> => 1}, #{<<"id">> => 2}],
+        guild_data_members:paginate_members(Members, 2, 0)
+    ),
+    ?assertEqual(
+        [#{<<"id">> => 2}, #{<<"id">> => 3}],
+        guild_data_members:paginate_members(Members, 2, 1)
+    ),
+    ?assertEqual(
+        [#{<<"id">> => 3}],
+        guild_data_members:paginate_members(Members, 2, 2)
+    ),
+    ?assertEqual(
+        [],
+        guild_data_members:paginate_members(Members, 2, 5)
+    ).
 
 search_guild_members_limits_prefix_matches_without_paginating_all_test() ->
     State = #{
@@ -518,7 +460,7 @@ search_guild_members_limits_prefix_matches_without_paginating_all_test() ->
             ]
         }
     },
-    {reply, Reply, _State} = guild_data_members:search_guild_members(
+    {reply, Reply, _State} = guild_data:search_guild_members(
         #{query => <<"ali">>, limit => 1}, State
     ),
     Members = maps:get(members, Reply),
@@ -536,7 +478,7 @@ search_guild_members_limits_prefix_matches_without_paginating_all_test() ->
 search_guild_members_matches_username_of_nicknamed_member_test() ->
     Nicknamed = (member(1, <<"jiralite">>))#{<<"nick">> => <<"Specsaver engineer">>},
     State = #{data => #{<<"members">> => [Nicknamed, member(2, <<"Bob">>)]}},
-    {reply, Reply, _State} = guild_data_members:search_guild_members(
+    {reply, Reply, _State} = guild_data:search_guild_members(
         #{query => <<"jiralite">>, limit => 25}, State
     ),
     ?assertEqual(

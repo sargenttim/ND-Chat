@@ -2,14 +2,8 @@
 
 import type {ApiContext} from '@app/api/ApiContext';
 import type {AdminRepository} from '@app/api/admin/AdminRepository';
-import type {AdminArchiveService} from '@app/api/admin/services/AdminArchiveService';
-import {type ChannelID, createUserID, type MessageID, type UserID} from '@app/api/BrandedTypes';
+import {createUserID} from '@app/api/BrandedTypes';
 import {isIpBanExempt} from '@app/api/ban/IpBanExemptions';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
-import type {ChannelDataRepository} from '@app/api/channel/repositories/ChannelDataRepository';
-import type {MessageRepository} from '@app/api/channel/repositories/MessageRepository';
-import {dispatchChannelEvent} from '@app/api/channel/services/ChannelGatewayDispatch';
-import {SYSTEM_USER_ID} from '@app/api/constants/Core';
 import {IP_BAN_REFRESH_CHANNEL} from '@app/api/constants/IpBan';
 import {withAccountChangeSource} from '@app/api/infrastructure/activity/ActivityMeta';
 import type {
@@ -19,293 +13,163 @@ import type {
 	OutcomeStatus,
 } from '@app/api/infrastructure/activity/Contract.generated';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
-import type {KVBulkMessageDeletionQueueService} from '@app/api/infrastructure/KVBulkMessageDeletionQueueService';
 import type {User} from '@app/api/models/User';
-import {isAccountLimitExempt} from '@app/api/user/AccountLimit';
-import {clearNewConversationLimit, setNewConversationLimit} from '@app/api/user/NewConversationLimit';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {
-	type PartialUserChangePropagationDeps,
-	propagatePartialUserChange,
-} from '@app/api/user/services/PartialUserChangePropagation';
-import {dispatchUserUpdate} from '@app/api/user/UserMappers';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
+import type {UserContactChangeLogService} from '@app/api/user/services/UserContactChangeLogService';
+import {mapUserToPartialResponse, mapUserToPrivateResponse} from '@app/api/user/UserMappers';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {getSameIpDecisionKey, isPublicIpAddress, parseIpAddress} from '@fluxer/ip_utils/src/IpAddress';
-import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
 import type {ICacheService} from '@pkgs/cache/src/ICacheService';
-import {ms} from 'itty-time';
 
 export type ActionOf<T extends ActionEnvelope['type']> = Extract<ActionEnvelope, {type: T}>;
 
-interface AccountUpdateDispatch {
+export interface AccountUpdateDispatch {
 	userUpdated(user: User): Promise<void>;
-	profileChanged(user: User): Promise<void>;
-	contentVisibilityChanged(user: User): Promise<void>;
-	messagesRemoved(channelId: ChannelID, authorId: UserID, messageIds: Array<MessageID>): Promise<void>;
+	memberProfilesUpdated(user: User): Promise<void>;
 }
 
 export interface AccountStateDeps {
-	users: Pick<UserRepository, 'findUnique' | 'compareAndSetFlags' | 'patchUpsert'>;
+	users: Pick<IUserRepository, 'findUnique' | 'patchUpsert' | 'compareAndSetSuspiciousFlags'>;
 	dispatch: AccountUpdateDispatch;
+	contactChangeLog: Pick<UserContactChangeLogService, 'recordDiff'>;
 	ipBans: Pick<AdminRepository, 'isIpBanned' | 'banIpTemp'>;
-	cache: Pick<ICacheService, 'publish' | 'get' | 'set' | 'delete'>;
-	archives: Pick<AdminArchiveService, 'triggerUserArchive' | 'listArchives'>;
-	messageDeletionQueue: Pick<KVBulkMessageDeletionQueueService, 'scheduleDeletion' | 'removeFromQueue'>;
-	messageDeletionDelayMs: number;
-	authored: Pick<MessageRepository, 'listMessagesByAuthor'>;
+	cache: Pick<ICacheService, 'publish'>;
 	now?: () => number;
 }
 
-const FLAGS_WRITE_ATTEMPTS = 3;
-const AUTHORED_PAGE_SIZE = 200;
+const SUSPICIOUS_FLAGS_WRITE_ATTEMPTS = 3;
 const MIN_TEMP_BAN_SECONDS = 60;
-const RECENT_ARCHIVE_MS = ms('1 day');
-const RECENT_ARCHIVE_SCAN = 20;
-
-type ProfilePropagation = Omit<PartialUserChangePropagationDeps, 'gatewayService'>;
 
 function gatewayDispatch(
-	gateway: IGatewayService,
-	profile: ProfilePropagation,
-	channels: Pick<ChannelDataRepository, 'findUnique'>,
+	gateway: Pick<IGatewayService, 'dispatchPresence' | 'dispatchGuild' | 'getGuildMember'>,
+	users: Pick<IUserRepository, 'getUserGuildIds'>,
 ): AccountUpdateDispatch {
 	return {
 		async userUpdated(user) {
-			await dispatchUserUpdate(gateway, user);
+			await gateway.dispatchPresence({userId: user.id, event: 'USER_UPDATE', data: mapUserToPrivateResponse(user)});
 		},
-		async profileChanged(user) {
-			await propagatePartialUserChange({...profile, gatewayService: gateway}, user);
-		},
-		async contentVisibilityChanged(user) {
-			await profile.userCacheService.invalidateUserCache(user.id);
-		},
-		async messagesRemoved(channelId, authorId, messageIds) {
-			const channel = await channels.findUnique(channelId);
-			if (!channel) return;
-			for (const messageId of messageIds) {
-				await dispatchChannelEvent({
-					gatewayService: gateway,
-					channel,
-					event: 'MESSAGE_DELETE',
-					data: {channel_id: channelId.toString(), id: messageId.toString(), author_id: authorId.toString()},
+		async memberProfilesUpdated(user) {
+			const userPartial = mapUserToPartialResponse(user);
+			for (const guildId of await users.getUserGuildIds(user.id)) {
+				const member = await gateway.getGuildMember({guildId, userId: user.id});
+				if (!member.success || !member.memberData) continue;
+				await gateway.dispatchGuild({
+					guildId,
+					event: 'GUILD_MEMBER_UPDATE',
+					data: {...member.memberData, user: userPartial},
 				});
 			}
 		},
 	};
 }
 
-export function accountStateDepsFromContext(
-	ctx: ApiContext,
-	ipBans: AccountStateDeps['ipBans'],
-	profile: Omit<ProfilePropagation, 'userRepository'>,
-	messageDeletion: Pick<AccountStateDeps, 'archives' | 'messageDeletionQueue' | 'messageDeletionDelayMs'>,
-	channels: Pick<ChannelRepository, 'channelData' | 'messages'>,
-): AccountStateDeps {
+export function accountStateDepsFromContext(ctx: ApiContext, ipBans: AccountStateDeps['ipBans']): AccountStateDeps {
 	return {
 		users: ctx.services.users,
-		dispatch: gatewayDispatch(
-			ctx.services.gateway,
-			{...profile, userRepository: ctx.services.users},
-			channels.channelData,
-		),
+		dispatch: gatewayDispatch(ctx.services.gateway, ctx.services.users),
+		contactChangeLog: ctx.services.contactChangeLog,
 		ipBans,
 		cache: ctx.services.cache,
-		...messageDeletion,
-		authored: channels.messages,
 	};
 }
 
-function observedOf(user: User): Observed {
+export function observedOf(user: User): Observed {
 	return {
 		flags: user.flags.toString(),
+		suspicious_flags: user.suspiciousActivityFlags ?? 0,
+		has_verified_phone: user.hasVerifiedPhone,
 		deleted: (user.flags & UserFlags.DELETED) !== 0n,
 	};
 }
 
 export function outcomeOf(
-	env: Pick<ActionEnvelope, 'id'> & {type: string; user_id?: string; guild_id?: string},
+	env: Pick<ActionEnvelope, 'id'> & {type: string},
 	status: OutcomeStatus,
 	user: User | null = null,
 	detail: string | null = null,
 ): ActionOutcome {
-	const outcome: ActionOutcome = {
+	return {
 		action_id: env.id,
 		action_type: env.type,
 		status,
 		detail,
 		observed: user ? observedOf(user) : null,
 	};
-	if (env.user_id) outcome.user_id = env.user_id;
-	if (env.guild_id) outcome.guild_id = env.guild_id;
-	return outcome;
 }
 
 function isIneligible(user: User): boolean {
 	return user.isBot || (user.flags & UserFlags.DELETED) !== 0n;
 }
 
-function isDeletionComplete(user: User): boolean {
-	return (user.flags & UserFlags.DELETED) !== 0n && user.pendingDeletionAt === null;
-}
-
-export async function applySetAccountLimit(
+export async function applySuspiciousFlags(
 	deps: AccountStateDeps,
-	env: ActionOf<'set_account_limit'>,
+	env: ActionOf<'set_suspicious_flags'>,
 ): Promise<ActionOutcome> {
 	return withAccountChangeSource('action', async () => {
 		const userId = createUserID(BigInt(env.user_id));
 		let user = await deps.users.findUnique(userId);
-		for (let attempt = 0; attempt < FLAGS_WRITE_ATTEMPTS; attempt++) {
+		for (let attempt = 0; attempt < SUSPICIOUS_FLAGS_WRITE_ATTEMPTS; attempt++) {
 			if (!user) return outcomeOf(env, 'ineligible');
 			if (isIneligible(user)) return outcomeOf(env, 'ineligible', user);
-			if (env.on && isAccountLimitExempt(user)) return outcomeOf(env, 'exempt', user);
-			const limited = (user.flags & UserFlags.ACCOUNT_LIMITED) !== 0n;
-			if (limited === env.on) return outcomeOf(env, 'noop', user);
-			const target = env.on ? user.flags | UserFlags.ACCOUNT_LIMITED : user.flags & ~UserFlags.ACCOUNT_LIMITED;
-			const updated = await deps.users.compareAndSetFlags(user, target);
+			const current = user.suspiciousActivityFlags ?? 0;
+			const target = (current | env.set) & ~env.clear;
+			if (target === current) return outcomeOf(env, 'noop', user);
+			if (env.if_current !== null && env.if_current !== current) return outcomeOf(env, 'conflict', user);
+			const updated = await deps.users.compareAndSetSuspiciousFlags(user, target);
 			if (updated) {
 				await deps.dispatch.userUpdated(updated);
 				return outcomeOf(env, 'applied', updated);
 			}
 			user = await deps.users.findUnique(userId);
 		}
-		throw new Error('User flags kept changing during apply');
+		throw new Error('Suspicious activity flags kept changing during apply');
 	});
 }
 
-export async function applyHideProfile(deps: AccountStateDeps, env: ActionOf<'hide_profile'>): Promise<ActionOutcome> {
-	return withAccountChangeSource('action', async () => {
-		const userId = createUserID(BigInt(env.user_id));
-		let user = await deps.users.findUnique(userId);
-		for (let attempt = 0; attempt < FLAGS_WRITE_ATTEMPTS; attempt++) {
-			if (!user) return outcomeOf(env, 'ineligible');
-			if (isIneligible(user)) return outcomeOf(env, 'ineligible', user);
-			if (env.on && isAccountLimitExempt(user)) return outcomeOf(env, 'exempt', user);
-			const hidden = (user.flags & UserFlags.PROFILE_HIDDEN) !== 0n;
-			if (hidden === env.on) return outcomeOf(env, 'noop', user);
-			const target = env.on ? user.flags | UserFlags.PROFILE_HIDDEN : user.flags & ~UserFlags.PROFILE_HIDDEN;
-			const updated = await deps.users.compareAndSetFlags(user, target);
-			if (updated) {
-				await deps.dispatch.userUpdated(updated);
-				await deps.dispatch.profileChanged(updated);
-				return outcomeOf(env, 'applied', updated);
-			}
-			user = await deps.users.findUnique(userId);
-		}
-		throw new Error('User flags kept changing during apply');
-	});
-}
-
-export async function applyHideRecentMessages(
-	deps: AccountStateDeps,
-	env: ActionOf<'hide_recent_messages'>,
-): Promise<ActionOutcome> {
+export async function applySpammer(deps: AccountStateDeps, env: ActionOf<'set_spammer'>): Promise<ActionOutcome> {
 	return withAccountChangeSource('action', async () => {
 		const user = await deps.users.findUnique(createUserID(BigInt(env.user_id)));
 		if (!user) return outcomeOf(env, 'ineligible');
-		if (user.isBot || isDeletionComplete(user)) return outcomeOf(env, 'ineligible', user);
-		const current = user.contentHiddenSince?.getTime() ?? null;
-		if (!env.on) {
-			if (current === null) return outcomeOf(env, 'noop', user);
-			const shown = await deps.users.patchUpsert(user.id, {content_hidden_since: null}, user.toRow());
-			await deps.dispatch.contentVisibilityChanged(shown);
-			return outcomeOf(env, 'applied', shown);
-		}
-		if (isAccountLimitExempt(user)) return outcomeOf(env, 'exempt', user);
-		const since = current === null ? env.since_ms : Math.min(current, env.since_ms);
-		let hidden = user;
-		if (since !== current) {
-			hidden = await deps.users.patchUpsert(user.id, {content_hidden_since: new Date(since)}, user.toRow());
-			await deps.dispatch.contentVisibilityChanged(hidden);
-		}
-		const removed = await removeAuthoredMessagesSince(deps, user.id, since);
-		return outcomeOf(env, since === current ? 'noop' : 'applied', hidden, `messages=${removed}`);
+		if (isIneligible(user)) return outcomeOf(env, 'ineligible', user);
+		const has = (user.flags & UserFlags.SPAMMER) !== 0n;
+		if (has === env.on) return outcomeOf(env, 'noop', user);
+		const flags = env.on ? user.flags | UserFlags.SPAMMER : user.flags & ~UserFlags.SPAMMER;
+		const updated = await deps.users.patchUpsert(user.id, {flags}, user.toRow());
+		await deps.dispatch.userUpdated(updated);
+		await deps.dispatch.memberProfilesUpdated(updated);
+		return outcomeOf(env, 'applied', updated);
 	});
 }
 
-async function removeAuthoredMessagesSince(deps: AccountStateDeps, authorId: UserID, sinceMs: number): Promise<number> {
-	let cursor: MessageID | undefined;
-	let removed = 0;
-	while (true) {
-		const refs = await deps.authored.listMessagesByAuthor(authorId, AUTHORED_PAGE_SIZE, cursor);
-		const inWindow = refs.filter(({messageId}) => snowflakeToDate(messageId).getTime() >= sinceMs);
-		const byChannel = new Map<ChannelID, Array<MessageID>>();
-		for (const {channelId, messageId} of inWindow) {
-			const ids = byChannel.get(channelId);
-			if (ids) ids.push(messageId);
-			else byChannel.set(channelId, [messageId]);
-		}
-		for (const [channelId, messageIds] of byChannel) {
-			await deps.dispatch.messagesRemoved(channelId, authorId, messageIds);
-		}
-		removed += inWindow.length;
-		if (inWindow.length < refs.length || refs.length < AUTHORED_PAGE_SIZE) return removed;
-		cursor = refs[refs.length - 1].messageId;
-	}
-}
-
-export async function applyDeleteUserMessages(
+export async function applyPhoneVerified(
 	deps: AccountStateDeps,
-	env: ActionOf<'delete_user_messages'>,
+	env: ActionOf<'phone_verified'>,
 ): Promise<ActionOutcome> {
-	const user = await deps.users.findUnique(createUserID(BigInt(env.user_id)));
-	if (!user) return outcomeOf(env, 'ineligible');
-	if (!env.on) return cancelScheduledMessageDeletion(deps, env, user);
-	if (user.isBot || isDeletionComplete(user)) return outcomeOf(env, 'ineligible', user);
-	if (isAccountLimitExempt(user)) return outcomeOf(env, 'exempt', user);
-	const now = deps.now?.() ?? Date.now();
-	const archive = await archiveBeforeDeletion(deps, user.id, now);
-	const target = now + deps.messageDeletionDelayMs;
-	const current = user.pendingBulkMessageDeletionAt?.getTime() ?? null;
-	const scheduledAt = current === null ? target : Math.min(current, target);
-	await deps.messageDeletionQueue.scheduleDeletion(user.id, new Date(scheduledAt));
-	const detail = `${archive} scheduled_at=${new Date(scheduledAt).toISOString()}`;
-	if (scheduledAt === current) return outcomeOf(env, 'noop', user, detail);
-	const scheduled = await deps.users.patchUpsert(
-		user.id,
-		{
-			pending_bulk_message_deletion_at: new Date(scheduledAt),
-			pending_bulk_message_deletion_channel_count: null,
-			pending_bulk_message_deletion_message_count: null,
-		},
-		user.toRow(),
-	);
-	await deps.dispatch.userUpdated(scheduled);
-	return outcomeOf(env, 'applied', scheduled, detail);
-}
-
-async function archiveBeforeDeletion(deps: AccountStateDeps, userId: UserID, now: number): Promise<string> {
-	const archives = await deps.archives.listArchives({
-		subjectType: 'user',
-		subjectId: userId,
-		limit: RECENT_ARCHIVE_SCAN,
+	return withAccountChangeSource('phone_verify', async () => {
+		const user = await deps.users.findUnique(createUserID(BigInt(env.user_id)));
+		if (!user) return outcomeOf(env, 'ineligible');
+		if (isIneligible(user)) return outcomeOf(env, 'ineligible', user);
+		const suspicious = user.suspiciousActivityFlags ?? 0;
+		const nextSuspicious = suspicious & ~env.clear_suspicious;
+		if (user.hasVerifiedPhone && nextSuspicious === suspicious) {
+			return outcomeOf(env, 'noop', user);
+		}
+		const updates: {has_verified_phone: boolean; suspicious_activity_flags?: number} = {
+			has_verified_phone: true,
+		};
+		if (nextSuspicious !== suspicious) updates.suspicious_activity_flags = nextSuspicious;
+		const updated = await deps.users.patchUpsert(user.id, updates, user.toRow());
+		if (!user.hasVerifiedPhone) {
+			await deps.contactChangeLog.recordDiff({
+				oldUser: user,
+				newUser: updated,
+				reason: 'user_requested',
+				actorUserId: user.id,
+			});
+		}
+		await deps.dispatch.userUpdated(updated);
+		return outcomeOf(env, 'applied', updated);
 	});
-	const recent = archives.find(
-		(archive) => archive.failed_at === null && now - Date.parse(archive.requested_at) < RECENT_ARCHIVE_MS,
-	);
-	if (recent) return `archive=${recent.archive_id} reused=true`;
-	const created = await deps.archives.triggerUserArchive(userId, SYSTEM_USER_ID, true);
-	return `archive=${created.archive_id} reused=false`;
-}
-
-async function cancelScheduledMessageDeletion(
-	deps: AccountStateDeps,
-	env: ActionOf<'delete_user_messages'>,
-	user: User,
-): Promise<ActionOutcome> {
-	if (user.pendingBulkMessageDeletionAt === null) return outcomeOf(env, 'noop', user);
-	const cancelled = await deps.users.patchUpsert(
-		user.id,
-		{
-			pending_bulk_message_deletion_at: null,
-			pending_bulk_message_deletion_channel_count: null,
-			pending_bulk_message_deletion_message_count: null,
-		},
-		user.toRow(),
-	);
-	await deps.messageDeletionQueue.removeFromQueue(user.id);
-	await deps.dispatch.userUpdated(cancelled);
-	return outcomeOf(env, 'applied', cancelled);
 }
 
 function parseBanTarget(value: string): ReturnType<typeof parseIpAddress> {
@@ -330,21 +194,4 @@ export async function applyTempBanIp(deps: AccountStateDeps, env: ActionOf<'temp
 	await deps.ipBans.banIpTemp(getSameIpDecisionKey(parsed.normalized) ?? parsed.normalized, ttlSeconds);
 	await deps.cache.publish(IP_BAN_REFRESH_CHANNEL, 'refresh');
 	return outcomeOf(env, 'applied');
-}
-
-export async function applyLimitNewConversations(
-	deps: AccountStateDeps,
-	env: ActionOf<'limit_new_conversations'>,
-): Promise<ActionOutcome> {
-	const user = await deps.users.findUnique(createUserID(BigInt(env.user_id)));
-	if (!user) return outcomeOf(env, 'ineligible');
-	if (isIneligible(user)) return outcomeOf(env, 'ineligible', user);
-	const store = {cache: deps.cache, now: deps.now};
-	if (!env.on) {
-		const lifted = await clearNewConversationLimit(user.id, store);
-		return outcomeOf(env, lifted ? 'applied' : 'noop', user);
-	}
-	if (isAccountLimitExempt(user)) return outcomeOf(env, 'exempt', user);
-	const applied = await setNewConversationLimit(user.id, env.until_ms, store);
-	return outcomeOf(env, applied ? 'applied' : 'noop', user);
 }

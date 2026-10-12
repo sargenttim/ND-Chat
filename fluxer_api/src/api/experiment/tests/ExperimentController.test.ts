@@ -13,34 +13,14 @@ import {
 	DEFAULT_DOMAIN_MIGRATION_CONFIG,
 	INERT_DOMAIN_MIGRATION_ASSIGNMENT,
 } from '@fluxer/schema/src/domains/admin/DomainMigrationSchemas';
-import {DEFAULT_VOICE_P2P_CONFIG, INERT_VOICE_P2P_ASSIGNMENT} from '@fluxer/schema/src/domains/admin/VoiceP2pSchemas';
 import {
 	DEFAULT_EXPERIMENT_POLL_INTERVAL_SECONDS,
 	DEFAULT_EXPERIMENT_POLL_JITTER_PERCENT,
 	type ExperimentAssignmentsResponse,
 	type ExperimentDeliveryConfigResponse,
+	readDomainMigrationAssignment,
 } from '@fluxer/schema/src/domains/experiment/ExperimentSchemas';
-import type {GeoipResult} from '@pkgs/geoip/src/GeoipLookup';
-import {afterAll, beforeAll, beforeEach, describe, expect, it, vi} from 'vitest';
-
-const {lookupGeoipMock} = vi.hoisted(() => ({
-	lookupGeoipMock: vi.fn(),
-}));
-
-vi.mock('@app/api/utils/IpUtils', async (importOriginal) => ({
-	...(await importOriginal<typeof import('@app/api/utils/IpUtils')>()),
-	lookupGeoip: lookupGeoipMock,
-}));
-
-function geoipCountry(countryCode: string | null): GeoipResult {
-	return {
-		countryCode,
-		normalizedIp: '203.0.113.10',
-		city: null,
-		region: null,
-		countryName: null,
-	};
-}
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 const NOT_MODIFIED = 304;
 const ENDPOINT = '/experiments';
@@ -54,8 +34,6 @@ describe('GET /experiments', () => {
 
 	beforeEach(async () => {
 		await harness.reset();
-		lookupGeoipMock.mockReset();
-		lookupGeoipMock.mockResolvedValue(geoipCountry(null));
 	});
 
 	afterAll(async () => {
@@ -66,7 +44,7 @@ describe('GET /experiments', () => {
 		await createBuilderWithoutAuth(harness).get(ENDPOINT).expect(HTTP_STATUS.UNAUTHORIZED).execute();
 	});
 
-	it('returns the default delivery cadence and the default assignments', async () => {
+	it('returns the default delivery cadence and the inert assignment while the feature is disabled', async () => {
 		const account = await createTestAccount(harness);
 
 		const body = await createBuilder<ExperimentAssignmentsResponse>(harness, account.token).get(ENDPOINT).execute();
@@ -76,11 +54,17 @@ describe('GET /experiments', () => {
 			poll_jitter_percent: DEFAULT_EXPERIMENT_POLL_JITTER_PERCENT,
 			assignments: {
 				domain_migration: INERT_DOMAIN_MIGRATION_ASSIGNMENT,
-				channel_threads: {active: true, config_version: 0},
-				plutonium_page: {enabled: true},
-				voice_p2p: INERT_VOICE_P2P_ASSIGNMENT,
 			},
 		});
+	});
+
+	it('populates the domain migration assignment key even when the rollout is disabled', async () => {
+		const account = await createTestAccount(harness);
+
+		const body = await createBuilder<ExperimentAssignmentsResponse>(harness, account.token).get(ENDPOINT).execute();
+
+		expect(Object.hasOwn(body.assignments, 'domain_migration')).toBe(true);
+		expect(readDomainMigrationAssignment(body).enabled).toBe(false);
 	});
 
 	it('resolves the domain migration caller through the allowlist', async () => {
@@ -120,64 +104,6 @@ describe('GET /experiments', () => {
 		expect(body.assignments.domain_migration).toEqual({enabled: false});
 	});
 
-	it('resolves the voice p2p caller through the allowlist and the exclusion list', async () => {
-		const targeted = await createTestAccount(harness);
-		const untargeted = await createTestAccount(harness);
-		const excluded = await createTestAccount(harness);
-		await getInstanceConfigRepository().setVoiceP2pConfig({
-			...DEFAULT_VOICE_P2P_CONFIG,
-			enabled: true,
-			rollout_basis_points: 0,
-			included_user_ids: [targeted.userId, excluded.userId],
-			excluded_user_ids: [excluded.userId],
-		});
-
-		const targetedBody = await createBuilder<ExperimentAssignmentsResponse>(harness, targeted.token)
-			.get(ENDPOINT)
-			.execute();
-		expect(targetedBody.assignments.voice_p2p).toEqual({enabled: true, max_participants: 2});
-
-		const untargetedBody = await createBuilder<ExperimentAssignmentsResponse>(harness, untargeted.token)
-			.get(ENDPOINT)
-			.execute();
-		expect(untargetedBody.assignments.voice_p2p).toEqual({enabled: false, max_participants: 2});
-
-		const excludedBody = await createBuilder<ExperimentAssignmentsResponse>(harness, excluded.token)
-			.get(ENDPOINT)
-			.execute();
-		expect(excludedBody.assignments.voice_p2p).toEqual({enabled: false, max_participants: 2});
-	});
-
-	it('limits the percentage rollout of every experiment to the listed request countries', async () => {
-		const account = await createTestAccount(harness);
-		const included = await createTestAccount(harness);
-		const repository = getInstanceConfigRepository();
-		const rollout = {enabled: true, rollout_basis_points: 10000, rollout_country_codes: ['SE', 'NO']};
-		await repository.setDomainMigrationConfig({...DEFAULT_DOMAIN_MIGRATION_CONFIG, ...rollout});
-		await repository.setVoiceP2pConfig({
-			...DEFAULT_VOICE_P2P_CONFIG,
-			...rollout,
-			included_user_ids: [included.userId],
-		});
-
-		for (const [countryCode, expected] of [
-			['SE', true],
-			['BR', false],
-			[null, false],
-		] as const) {
-			lookupGeoipMock.mockResolvedValue(geoipCountry(countryCode));
-			const body = await createBuilder<ExperimentAssignmentsResponse>(harness, account.token).get(ENDPOINT).execute();
-			expect(body.assignments.domain_migration).toEqual({enabled: expected});
-			expect(body.assignments.voice_p2p).toEqual({enabled: expected, max_participants: 2});
-		}
-
-		lookupGeoipMock.mockResolvedValue(geoipCountry('BR'));
-		const includedBody = await createBuilder<ExperimentAssignmentsResponse>(harness, included.token)
-			.get(ENDPOINT)
-			.execute();
-		expect(includedBody.assignments.voice_p2p).toEqual({enabled: true, max_participants: 2});
-	});
-
 	it('enrols members of an included guild in every experiment and leaves everyone else out', async () => {
 		const owner = await createTestAccount(harness);
 		const member = await createTestAccount(harness);
@@ -192,23 +118,16 @@ describe('GET /experiments', () => {
 			enabled: true,
 			included_guild_ids: [guild.id],
 		});
-		await repository.setVoiceP2pConfig({
-			...DEFAULT_VOICE_P2P_CONFIG,
-			enabled: true,
-			included_guild_ids: [guild.id],
-		});
 
 		const memberBody = await createBuilder<ExperimentAssignmentsResponse>(harness, member.token)
 			.get(ENDPOINT)
 			.execute();
 		expect(memberBody.assignments.domain_migration).toEqual({enabled: true});
-		expect(memberBody.assignments.voice_p2p).toEqual({enabled: true, max_participants: 2});
 
 		const outsiderBody = await createBuilder<ExperimentAssignmentsResponse>(harness, outsider.token)
 			.get(ENDPOINT)
 			.execute();
 		expect(outsiderBody.assignments.domain_migration).toEqual({enabled: false});
-		expect(outsiderBody.assignments.voice_p2p).toEqual({enabled: false, max_participants: 2});
 	});
 
 	it('enrols premium users, subscription and lifetime alike, when the switch is on', async () => {
@@ -217,14 +136,8 @@ describe('GET /experiments', () => {
 		const free = await createTestAccount(harness);
 		await grantPremium(harness, subscriber.userId, UserPremiumTypes.SUBSCRIPTION);
 		await grantPremium(harness, visionary.userId, UserPremiumTypes.LIFETIME);
-		const repository = getInstanceConfigRepository();
-		await repository.setDomainMigrationConfig({
+		await getInstanceConfigRepository().setDomainMigrationConfig({
 			...DEFAULT_DOMAIN_MIGRATION_CONFIG,
-			enabled: true,
-			include_premium_users: true,
-		});
-		await repository.setVoiceP2pConfig({
-			...DEFAULT_VOICE_P2P_CONFIG,
 			enabled: true,
 			include_premium_users: true,
 		});
@@ -235,33 +148,26 @@ describe('GET /experiments', () => {
 		] as const) {
 			const body = await createBuilder<ExperimentAssignmentsResponse>(harness, account.token).get(ENDPOINT).execute();
 			expect(body.assignments.domain_migration).toEqual({enabled: expected});
-			expect(body.assignments.voice_p2p).toEqual({enabled: expected, max_participants: 2});
 		}
 	});
 
-	it('stores the guild ids, countries and premium switch an admin sets for each experiment', async () => {
+	it('stores the guild ids and premium switch an admin sets for each experiment', async () => {
 		const admin = await setUserACLs(harness, await createTestAccount(harness), [
 			AdminACLs.AUTHENTICATE,
 			AdminACLs.INSTANCE_CONFIG_VIEW,
 			AdminACLs.INSTANCE_CONFIG_UPDATE,
 		]);
 		const guildIds = ['1500000000000000001', '1500000000000000002'];
-		const countryCodes = ['SE', 'NO'];
-		const section = {included_guild_ids: guildIds, include_premium_users: true, rollout_country_codes: countryCodes};
 		const body = await createBuilder<
-			Record<
-				'domain_migration' | 'voice_p2p',
-				{included_guild_ids: Array<string>; include_premium_users: boolean; rollout_country_codes: Array<string>}
-			>
+			Record<'domain_migration', {included_guild_ids: Array<string>; include_premium_users: boolean}>
 		>(harness, admin.token)
 			.patch('/admin/instance/config')
-			.body({domain_migration: section, voice_p2p: section})
+			.body({
+				domain_migration: {included_guild_ids: guildIds, include_premium_users: true},
+			})
 			.execute();
-		for (const stored of [body.domain_migration, body.voice_p2p]) {
-			expect(stored.included_guild_ids).toEqual(guildIds);
-			expect(stored.include_premium_users).toBe(true);
-			expect(stored.rollout_country_codes).toEqual(countryCodes);
-		}
+		expect(body.domain_migration.included_guild_ids).toEqual(guildIds);
+		expect(body.domain_migration.include_premium_users).toBe(true);
 	});
 
 	it('revalidates with a strong etag and answers 304 when nothing changed', async () => {
@@ -381,38 +287,39 @@ describe('GET /experiments', () => {
 		expect(body.assignments.domain_migration).toEqual({enabled: true});
 	});
 
-	it('bumps the voice p2p config version on every admin update without the client sending one', async () => {
+	it('leaves the domain migration config version alone for an admin update that sets no field', async () => {
 		const admin = await setUserACLs(harness, await createTestAccount(harness), [
 			AdminACLs.AUTHENTICATE,
 			AdminACLs.INSTANCE_CONFIG_VIEW,
 			AdminACLs.INSTANCE_CONFIG_UPDATE,
 		]);
 
-		const afterFirst = await createBuilder<{voice_p2p: {config_version: number; enabled: boolean}}>(
+		const afterFirst = await createBuilder<{domain_migration: {config_version: number; enabled: boolean}}>(
 			harness,
 			admin.token,
 		)
 			.patch('/admin/instance/config')
-			.body({voice_p2p: {enabled: true, included_user_ids: [admin.userId]}})
+			.body({domain_migration: {enabled: true}})
 			.execute();
-		expect(afterFirst.voice_p2p).toMatchObject({config_version: 1, enabled: true});
+		expect(afterFirst.domain_migration).toMatchObject({config_version: 1, enabled: true});
 
-		const afterSecond = await createBuilder<{
-			voice_p2p: {config_version: number; rollout_basis_points: number};
-		}>(harness, admin.token)
+		const afterEmpty = await createBuilder<{domain_migration: {config_version: number; enabled: boolean}}>(
+			harness,
+			admin.token,
+		)
 			.patch('/admin/instance/config')
-			.body({voice_p2p: {rollout_basis_points: 2500, max_participants: 4}})
+			.body({domain_migration: {}})
 			.execute();
-		expect(afterSecond.voice_p2p).toMatchObject({config_version: 2, rollout_basis_points: 2500, max_participants: 4});
+		expect(afterEmpty.domain_migration).toMatchObject({config_version: 1, enabled: true});
 
-		const afterEmpty = await createBuilder<{voice_p2p: {config_version: number}}>(harness, admin.token)
+		const afterUndefined = await createBuilder<{domain_migration: {config_version: number; enabled: boolean}}>(
+			harness,
+			admin.token,
+		)
 			.patch('/admin/instance/config')
-			.body({voice_p2p: {}})
+			.body({domain_migration: {enabled: undefined}})
 			.execute();
-		expect(afterEmpty.voice_p2p).toMatchObject({config_version: 2});
-
-		const body = await createBuilder<ExperimentAssignmentsResponse>(harness, admin.token).get(ENDPOINT).execute();
-		expect(body.assignments.voice_p2p).toEqual({enabled: true, max_participants: 4});
+		expect(afterUndefined.domain_migration).toMatchObject({config_version: 1, enabled: true});
 	});
 
 	it('serves the delivery cadence an admin set through the instance config', async () => {

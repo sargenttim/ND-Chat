@@ -1,13 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {UserSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
-import {getActiveInstanceProductName} from '@app/features/app/state/ActiveInstanceProductName';
+import {PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {openClaimAccountModal} from '@app/features/auth/components/modals/ClaimAccountModal';
 import styles from '@app/features/channel/components/barriers/BarrierComponents.module.css';
-import {openChannelFollowModal} from '@app/features/channel/components/modals/ChannelFollowModal';
 import wrapperStyles from '@app/features/channel/components/textarea/InputWrapper.module.css';
 import textareaStyles from '@app/features/channel/components/textarea/TextareaInput.module.css';
-import {FOLLOW_DESCRIPTOR} from '@app/features/channel/utils/ChannelFollowUtils';
 import {CLAIM_ACCOUNT_DESCRIPTOR, VERIFY_EMAIL_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
 import {unblockUser} from '@app/features/relationship/utils/RelationshipActionUtils';
@@ -15,16 +12,15 @@ import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
-import {BouncedEmailChangeModal} from '@app/features/user/components/modals/BouncedEmailChangeModal';
-import Users from '@app/features/user/state/Users';
-import {ACCOUNT_LIMITED_NOTICE_DESCRIPTOR} from '@app/features/user/utils/AccountLimitUtils';
+import {PhoneAddModal} from '@app/features/user/components/modals/PhoneAddModal';
+import {UserSettingsModal} from '@app/features/user/components/modals/UserSettingsModal';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {
 	ClockIcon,
 	EnvelopeSimpleIcon,
 	InfoIcon,
-	MegaphoneSimpleIcon,
+	PhoneIcon,
 	ProhibitIcon,
 	ShieldWarningIcon,
 	TimerIcon,
@@ -52,7 +48,7 @@ const SYSTEM_ANNOUNCEMENTS_FROM_STAFF_DESCRIPTOR = msg({
 	message: "System announcements from {productName} staff. You can't reply here.",
 	comment: 'Read-only system DM barrier message. productName is the Fluxer product name.',
 });
-export const BarrierBase = observer(({message, action, icon}: BarrierBaseProps) => {
+const BarrierBase = observer(({message, action, icon}: BarrierBaseProps) => {
 	const hasAction = Boolean(action);
 	return (
 		<div
@@ -137,7 +133,7 @@ const CountdownTimer = observer(({initialTime}: {initialTime: number}) => {
 		</div>
 	);
 });
-export const UnclaimedAccountBarrier = observer(() => {
+export const UnclaimedAccountBarrier = observer(({onAction}: BarrierProps) => {
 	const {i18n} = useLingui();
 	return (
 		<BarrierBase
@@ -153,6 +149,7 @@ export const UnclaimedAccountBarrier = observer(() => {
 				<Button
 					small={true}
 					onClick={() => {
+						onAction?.();
 						openClaimAccountModal({force: true});
 					}}
 					data-flx="channel.barriers.barrier-components.unclaimed-account-barrier.button.action"
@@ -164,7 +161,7 @@ export const UnclaimedAccountBarrier = observer(() => {
 		/>
 	);
 });
-export const UnverifiedEmailBarrier = observer(() => {
+export const UnverifiedEmailBarrier = observer(({onAction}: BarrierProps) => {
 	const {i18n} = useLingui();
 	return (
 		<BarrierBase
@@ -180,20 +177,14 @@ export const UnverifiedEmailBarrier = observer(() => {
 				<Button
 					small={true}
 					onClick={() => {
-						const bounced = Users.currentUser?.emailBounced === true;
+						onAction?.();
 						ModalCommands.push(
-							modal(
-								() =>
-									bounced ? (
-										<BouncedEmailChangeModal data-flx="channel.barriers.barrier-components.unverified-email-barrier.bounced-email-change-modal" />
-									) : (
-										<UserSettingsModal
-											initialTab="account_security"
-											data-flx="channel.barriers.barrier-components.unverified-email-barrier.user-settings-modal"
-										/>
-									),
-								bounced ? undefined : 'user-settings',
-							),
+							modal(() => (
+								<UserSettingsModal
+									initialTab="account_security"
+									data-flx="channel.barriers.barrier-components.unverified-email-barrier.user-settings-modal"
+								/>
+							)),
 						);
 					}}
 					data-flx="channel.barriers.barrier-components.unverified-email-barrier.button.action"
@@ -251,20 +242,34 @@ export const NotMemberLongEnoughBarrier = observer(({initialTimeRemaining = 10 *
 		/>
 	);
 });
-export const AccountLimitedBarrier = observer(() => {
-	const {i18n} = useLingui();
+export const NoPhoneNumberBarrier = observer(({onAction}: BarrierProps) => {
 	return (
 		<BarrierBase
-			message={i18n._(ACCOUNT_LIMITED_NOTICE_DESCRIPTOR)}
+			message={<Trans>You need to verify a phone number to send messages in this community.</Trans>}
 			icon={
-				<InfoIcon
+				<PhoneIcon
 					size={remFromPx(18)}
 					weight="fill"
-					data-flx="channel.barriers.barrier-components.account-limited-barrier.info-icon"
+					data-flx="channel.barriers.barrier-components.no-phone-number-barrier.phone-icon"
 				/>
 			}
-			action={null}
-			data-flx="channel.barriers.barrier-components.account-limited-barrier.barrier-base"
+			action={
+				<Button
+					small={true}
+					onClick={() => {
+						onAction?.();
+						ModalCommands.push(
+							modal(() => (
+								<PhoneAddModal data-flx="channel.barriers.barrier-components.no-phone-number-barrier.phone-add-modal" />
+							)),
+						);
+					}}
+					data-flx="channel.barriers.barrier-components.no-phone-number-barrier.button.action"
+				>
+					<Trans>Verify phone</Trans>
+				</Button>
+			}
+			data-flx="channel.barriers.barrier-components.no-phone-number-barrier.barrier-base"
 		/>
 	);
 });
@@ -307,36 +312,6 @@ export const TimeoutBarrier = observer(({initialTimeRemaining = 0}: TimedBarrier
 		/>
 	);
 });
-export const AnnouncementFollowBarrier = observer(({channelId}: {channelId: string}) => {
-	const {i18n} = useLingui();
-	return (
-		<BarrierBase
-			message={
-				<Trans comment="Shown instead of the message composer in an announcement channel where the user cannot send messages.">
-					Follow to get these announcements in a channel you choose.
-				</Trans>
-			}
-			icon={
-				<MegaphoneSimpleIcon
-					size={remFromPx(18)}
-					weight="fill"
-					data-flx="channel.barriers.barrier-components.announcement-follow-barrier.megaphone-simple-icon"
-				/>
-			}
-			action={
-				<Button
-					variant="secondary"
-					small={true}
-					onClick={() => openChannelFollowModal(channelId)}
-					data-flx="channel.barriers.barrier-components.announcement-follow-barrier.button.follow"
-				>
-					{i18n._(FOLLOW_DESCRIPTOR)}
-				</Button>
-			}
-			data-flx="channel.barriers.barrier-components.announcement-follow-barrier.barrier-base"
-		/>
-	);
-});
 export const DefaultBarrier = observer(() => {
 	return (
 		<BarrierBase
@@ -357,7 +332,7 @@ export const SystemDmBarrier = observer(() => {
 	const {i18n} = useLingui();
 	return (
 		<BarrierBase
-			message={i18n._(SYSTEM_ANNOUNCEMENTS_FROM_STAFF_DESCRIPTOR, {productName: getActiveInstanceProductName()})}
+			message={i18n._(SYSTEM_ANNOUNCEMENTS_FROM_STAFF_DESCRIPTOR, {productName: PRODUCT_NAME})}
 			icon={
 				<InfoIcon
 					size={remFromPx(18)}
@@ -405,7 +380,7 @@ export const BlockedUserBarrier = observer(({userId, username, onAction}: Blocke
 		/>
 	);
 });
-export const UnclaimedDMBarrier = observer(() => {
+export const UnclaimedDMBarrier = observer(({onAction}: BarrierProps) => {
 	const {i18n} = useLingui();
 	return (
 		<BarrierBase
@@ -421,6 +396,7 @@ export const UnclaimedDMBarrier = observer(() => {
 				<Button
 					small={true}
 					onClick={() => {
+						onAction?.();
 						openClaimAccountModal({force: true});
 					}}
 					data-flx="channel.barriers.barrier-components.unclaimed-dm-barrier.button.action"

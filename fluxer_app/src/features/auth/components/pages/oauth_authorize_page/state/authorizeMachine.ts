@@ -22,9 +22,9 @@ interface AuthorizeMachineContext {
 	destinationName: string | null;
 }
 
-const INITIAL_PHASE: AuthorizePhase = {kind: 'loading'};
+export const INITIAL_PHASE: AuthorizePhase = {kind: 'loading'};
 
-const authorizeStateMachine = setup({
+export const authorizeStateMachine = setup({
 	types: {} as {
 		context: AuthorizeMachineContext;
 		events: AuthorizeEvent;
@@ -77,7 +77,7 @@ const authorizeStateMachine = setup({
 });
 
 export type AuthorizeMachineSnapshot = SnapshotFrom<typeof authorizeStateMachine>;
-type AuthorizeMachineStateValue = 'loading' | 'session_expired' | 'invalid_request' | 'review' | 'success';
+export type AuthorizeMachineStateValue = 'loading' | 'session_expired' | 'invalid_request' | 'review' | 'success';
 
 export function createAuthorizeSnapshot(): AuthorizeMachineSnapshot {
 	return initialTransition(authorizeStateMachine)[0];
@@ -90,7 +90,7 @@ export function transitionAuthorizeSnapshot(
 	return transition(authorizeStateMachine, snapshot, event)[0] as AuthorizeMachineSnapshot;
 }
 
-function getAuthorizeStateValue(snapshot: AuthorizeMachineSnapshot): AuthorizeMachineStateValue {
+export function getAuthorizeStateValue(snapshot: AuthorizeMachineSnapshot): AuthorizeMachineStateValue {
 	switch (snapshot.value) {
 		case 'session_expired':
 		case 'invalid_request':

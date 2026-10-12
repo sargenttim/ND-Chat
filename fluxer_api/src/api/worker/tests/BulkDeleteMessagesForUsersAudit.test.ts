@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {AdminAuditLog} from '@app/api/admin/AdminRepository';
-import type {ChannelService} from '@app/api/channel/services/ChannelService';
-import {UserMessageDeletionService} from '@app/api/channel/services/message/UserMessageDeletionService';
+import type {AdminAuditLog} from '@app/api/admin/IAdminRepository';
 import {sendChannelMessage, setupTestGuildWithMembers} from '@app/api/channel/tests/ChannelTestUtils';
-import {getGatewayService, getSnowflakeService, getWorkerService} from '@app/api/middleware/ServiceRegistry';
+import {getGatewayService, getSnowflakeService} from '@app/api/middleware/ServiceRegistry';
 import {
 	getAdminRepository,
 	getChannelRepository,
@@ -12,11 +10,12 @@ import {
 	getStorageService,
 } from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
-import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
+import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
 import bulkDeleteMessagesForUsers from '@app/api/worker/tasks/admin_bulk/BulkDeleteMessagesForUsers';
 import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
 import type {MessageResponse} from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
+import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
 import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
 
 interface BulkJobResult {
@@ -30,6 +29,17 @@ interface BulkJobResult {
 
 const ADMIN_USER_ID = '9';
 
+function createHelpers(): WorkerTaskHelpers {
+	return {
+		logger: new NoopLogger(),
+		jobId: 909n,
+		addJob: async () => 0n,
+		reportProgress: async () => {},
+		shouldCancel: async () => false,
+		setContextLink: async () => {},
+	};
+}
+
 describe('Bulk delete messages for users', () => {
 	let harness: ApiTestHarness;
 
@@ -42,15 +52,10 @@ describe('Bulk delete messages for users', () => {
 		setWorkerDependenciesForTest({
 			adminRepository: getAdminRepository(),
 			snowflakeService: getSnowflakeService(),
-			channelService: {
-				userMessageDeletion: new UserMessageDeletionService({
-					channelRepository: getChannelRepository(),
-					gatewayService: getGatewayService(),
-					storageService: getStorageService(),
-					purgeQueue: getPurgeQueue(),
-					workerService: getWorkerService(),
-				}),
-			} as ChannelService,
+			channelRepository: getChannelRepository(),
+			gatewayService: getGatewayService(),
+			storageService: getStorageService(),
+			purgeQueue: getPurgeQueue(),
 		});
 	});
 
@@ -66,7 +71,7 @@ describe('Bulk delete messages for users', () => {
 	async function runTask(userIds: Array<string>, auditLogReason: string | null): Promise<BulkJobResult> {
 		return (await bulkDeleteMessagesForUsers(
 			{user_ids: userIds, admin_user_id: ADMIN_USER_ID, audit_log_reason: auditLogReason},
-			createTestWorkerHelpers({jobId: 909n}),
+			createHelpers(),
 		)) as unknown as BulkJobResult;
 	}
 
@@ -79,7 +84,7 @@ describe('Bulk delete messages for users', () => {
 		return messages.filter((message) => message.author.id === userId).length;
 	}
 
-	it('records the admin reason and the message count on the per-user audit row', async () => {
+	it('carries the admin reason and the message count on the per-user audit row', async () => {
 		const {owner, members, systemChannel} = await setupTestGuildWithMembers(harness, 1);
 		const member = members[0]!;
 		await sendChannelMessage(harness, member.token, systemChannel.id, 'first spam');

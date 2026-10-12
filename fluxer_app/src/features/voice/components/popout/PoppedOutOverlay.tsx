@@ -4,7 +4,6 @@ import {Button} from '@app/features/ui/button/Button';
 import styles from '@app/features/voice/components/popout/PoppedOutOverlay.module.css';
 import type {PoppedOutOverlayTransition} from '@app/features/voice/components/popout/PoppedOutSurfaceStateMachine';
 import PopoutWindowManager from '@app/features/voice/state/PopoutWindowManager';
-import {POP_BACK_IN_DESCRIPTOR} from '@app/features/voice/utils/VoiceSharedMessageDescriptors';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {ArrowSquareOutIcon} from '@phosphor-icons/react';
@@ -21,7 +20,10 @@ const TILE_POPPED_OUT_DESCRIPTOR = msg({
 	message: 'Popped out',
 	comment: 'Overlay text shown on a voice participant tile while it lives in a separate popped-out window.',
 });
-
+const POP_BACK_IN_DESCRIPTOR = msg({
+	message: 'Pop back in',
+	comment: 'Button label on the popped-out overlay that closes the popout window and restores the view in the app.',
+});
 const FOCUS_WINDOW_DESCRIPTOR = msg({
 	message: 'Focus window',
 	comment: 'Button label on the popped-out overlay that brings the popped-out window to the foreground.',
@@ -30,7 +32,7 @@ const FOCUS_WINDOW_DESCRIPTOR = msg({
 const OVERLAY_ICON_SIZE = 32;
 const OVERLAY_ICON_SIZE_COMPACT = 22;
 
-type PoppedOutOverlayVariant = 'call' | 'tile';
+export type PoppedOutOverlayVariant = 'call' | 'tile';
 
 interface PoppedOutOverlayProps {
 	popoutKey: string;

@@ -6,6 +6,7 @@ import {
 	drainActivitySpoolNow,
 	emitActivity,
 	idleActivityEvents,
+	jetStreamActivityPublisher,
 	resetActivityEventsForTests,
 	startActivityEvents,
 } from '@app/api/infrastructure/activity/ActivityEvents';
@@ -18,10 +19,11 @@ import {
 	type ActivitySpoolEntry,
 	drainActivitySpool,
 } from '@app/api/infrastructure/activity/ActivitySpool';
-import {JetStreamApiError} from '@nats-io/jetstream';
-import {TimeoutError} from '@nats-io/transport-node';
-import {MockKVProvider} from '@pkgs/kv_client/src/testing/MockKVProvider';
-import {afterEach, describe, expect, it} from 'vitest';
+import {EVENTS_STREAM} from '@app/api/infrastructure/activity/Contract.generated';
+import {MockKVProvider} from '@app/api/test/mocks/MockKVProvider';
+import {JetStreamApiError, jetstream, jetstreamManager} from '@nats-io/jetstream';
+import {connect, type NatsConnection, nanos, TimeoutError} from '@nats-io/transport-node';
+import {afterAll, afterEach, beforeAll, describe, expect, it} from 'vitest';
 
 interface PublishCall {
 	subject: string;
@@ -192,10 +194,11 @@ describe('activity events', () => {
 	it('gives two account changes written at the same version distinct ids', async () => {
 		const publisher = new FakePublisher();
 		await startActivityEvents({publisher, kv: new MockKVProvider()});
-		const row = (flags: bigint) => ({user_id: 1174109840998400001n, version: 11, flags}) as never;
-		await emitAccountChangedIfRelevant(row(0n), row(1n << 50n), 'admin');
-		await emitAccountChangedIfRelevant(row(0n), row(1n << 43n), 'admin');
-		await emitAccountChangedIfRelevant(row(0n), row(1n << 50n), 'admin');
+		const row = (suspicious: number, flags: bigint) =>
+			({user_id: 1174109840998400001n, version: 11, flags, suspicious_activity_flags: suspicious}) as never;
+		await emitAccountChangedIfRelevant(row(2, 0n), row(0, 0n), 'email_verify');
+		await emitAccountChangedIfRelevant(row(2, 0n), row(2, 1n << 43n), 'admin');
+		await emitAccountChangedIfRelevant(row(2, 0n), row(0, 0n), 'email_verify');
 		const ids = publisher.calls.map((call) => call.options.msgID);
 		expect(ids).toHaveLength(3);
 		expect(ids[0]).toMatch(/^account_changed:1174109840998400001:11:/u);
@@ -289,5 +292,49 @@ describe('activity events', () => {
 		expect(lost.published).toBe(1);
 		expect(lost.remaining).toBe(1);
 		expect((await spooled(kv)).map((entry) => entry.id)).toEqual(['account_deleted:3']);
+	});
+});
+
+const NATS_URL = process.env.FLUXER_TEST_ACTIVITY_NATS_URL;
+
+describe.skipIf(!NATS_URL)('activity events against JetStream', () => {
+	let nc: NatsConnection;
+	beforeAll(async () => {
+		nc = await connect({servers: NATS_URL, token: process.env.FLUXER_TEST_ACTIVITY_NATS_TOKEN});
+		const jsm = await jetstreamManager(nc);
+		await jsm.streams.delete(EVENTS_STREAM).catch(() => undefined);
+		await jsm.streams.add({
+			name: EVENTS_STREAM,
+			subjects: ['evt.in.*.*', 'evt.p.*.*'],
+			subject_transform: {src: 'evt.in.*.*', dest: 'evt.p.{{partition(64,2)}}.{{wildcard(1)}}'},
+			allow_msg_ttl: true,
+			duplicate_window: nanos(600_000),
+		});
+	});
+	afterEach(() => {
+		resetActivityEventsForTests();
+	});
+	afterAll(async () => {
+		await nc?.close();
+	});
+
+	it('lands a fact on its partition subject with the msg id and ttl, and drops the spooled copy as a duplicate', async () => {
+		const kv = new MockKVProvider();
+		const publisher = jetStreamActivityPublisher(jetstream(nc));
+		await startActivityEvents({publisher, kv, jsm: await jetstreamManager(nc)});
+		await emitActivity('account_deleted', '1174109840998400001', {user_id: '1174109840998400001'}, workerMeta(), 'x1');
+		await publisher.publish('evt.in.account_deleted.1174109840998400001', '{}', {
+			msgID: 'account_deleted:x1',
+			ttl: 'never',
+			spooled: true,
+		});
+		const jsm = await jetstreamManager(nc);
+		const info = await jsm.streams.info(EVENTS_STREAM);
+		expect(info.state.messages).toBe(1);
+		const stored = await jsm.streams.getMessage(EVENTS_STREAM, {seq: info.state.last_seq});
+		expect(stored?.subject).toMatch(/^evt\.p\.\d{1,2}\.account_deleted$/u);
+		expect(stored?.header.get('Nats-Msg-Id')).toBe('account_deleted:x1');
+		expect(stored?.header.get('Nats-TTL')).toBe('never');
+		expect(await kv.llen(ACTIVITY_SPOOL_KEY)).toBe(0);
 	});
 });

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 
 export type VoiceMediaGraphStatsPlatform = 'native' | 'web';
-type VoiceMediaGraphStatsDirection = 'send' | 'recv';
+export type VoiceMediaGraphStatsDirection = 'send' | 'recv';
 export type VoiceMediaGraphStatsKind = 'audio' | 'video';
 
 export interface VoiceMediaGraphStatsTrackObservation {

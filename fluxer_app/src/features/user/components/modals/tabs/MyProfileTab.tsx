@@ -4,6 +4,7 @@ import {EmailVerificationAlert} from '@app/features/app/components/dialogs/compo
 import {UnclaimedAccountAlert} from '@app/features/app/components/dialogs/components/UnclaimedAccountAlert';
 import {SettingsSection} from '@app/features/app/components/dialogs/shared/SettingsSection';
 import {SettingsTabContainer} from '@app/features/app/components/dialogs/shared/SettingsTabLayout';
+import {PREMIUM_PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {useFormSubmit} from '@app/features/app/hooks/useFormSubmit';
 import {LimitResolver} from '@app/features/app/utils/LimitResolverAdapter';
 import {isLimitToggleEnabled} from '@app/features/app/utils/LimitUtils';
@@ -18,7 +19,7 @@ import {convertMarkdownToSegments} from '@app/features/messaging/utils/MarkdownT
 import type {MentionSegment} from '@app/features/messaging/utils/TextareaSegmentManager';
 import Permission from '@app/features/permissions/state/Permission';
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {getPremiumProductName, shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
+import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
 import * as UnsavedChangesCommands from '@app/features/ui/commands/UnsavedChangesCommands';
 import {Form} from '@app/features/ui/components/form/Form';
@@ -51,17 +52,9 @@ import {
 import {ProfileTypeSelector} from '@app/features/user/components/modals/tabs/my_profile_tab/ProfileTypeSelector';
 import {TimezoneProfileSettings} from '@app/features/user/components/modals/tabs/my_profile_tab/TimezoneProfileSettings';
 import {ProfilePreview} from '@app/features/user/components/profile/ProfilePreview';
-import {PRONOUNS_DESCRIPTOR} from '@app/features/user/components/settings_utils/section_registry/SharedDescriptors';
 import type {Profile} from '@app/features/user/models/Profile';
 import Users from '@app/features/user/state/Users';
-import {ACCOUNT_LIMITED_NOTICE_DESCRIPTOR} from '@app/features/user/utils/AccountLimitUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
-import {
-	COMMUNITY_NICKNAME_DESCRIPTOR,
-	DISPLAY_NAME_DESCRIPTOR,
-	DOC_I_M_FROM_THE_FUTURE_I_CAME_DESCRIPTOR,
-	PROFILE_CUSTOMIZATION_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
 import {setMeaningfulFormValue} from '@app/lib/forms/MeaningfulFormValue';
 import {type RemoteFormResetReason, useRemoteFormReset} from '@app/lib/forms/RemoteFormReset';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
@@ -108,7 +101,10 @@ const PROFILE_CUSTOMIZATION_FOR_DESCRIPTOR = msg({
 	message: 'Profile customization for {selectedGuildName}',
 	comment: 'Label in the my profile tab. Preserve {selectedGuildName}; it is inserted by code.',
 });
-
+const PROFILE_CUSTOMIZATION_DESCRIPTOR = msg({
+	message: 'Profile customization',
+	comment: 'Short label in the my profile tab. Keep it concise.',
+});
 const VERIFY_YOUR_EMAIL_TO_EDIT_THIS_COMMUNITY_PROFILE_DESCRIPTOR = msg({
 	message: 'Verify your email to edit this community profile',
 	comment: 'Label in the my profile tab.',
@@ -126,7 +122,10 @@ const VERIFY_YOUR_EMAIL_BEFORE_CHANGING_YOUR_USERNAME_DISPLAY_DESCRIPTOR = msg({
 		'Verify your email before changing your username, display name, avatar, banner, bio, pronouns, time zone, or {premiumProductName} badge privacy.',
 	comment: 'Label in the my profile tab.',
 });
-
+const COMMUNITY_NICKNAME_DESCRIPTOR = msg({
+	message: 'Community nickname',
+	comment: 'Short label in the my profile tab. Keep it concise.',
+});
 const THIS_NICKNAME_WILL_ONLY_BE_VISIBLE_IN_THIS_DESCRIPTOR = msg({
 	message: 'This nickname will only be visible in this community',
 	comment: 'Label in the my profile tab.',
@@ -135,7 +134,19 @@ const YOU_DON_T_HAVE_PERMISSION_TO_CHANGE_YOUR_DESCRIPTOR = msg({
 	message: "You can't change your nickname here",
 	comment: 'Label in the my profile tab. Keep the tone plain and specific.',
 });
-
+const DISPLAY_NAME_DESCRIPTOR = msg({
+	message: 'Display name',
+	comment: 'Short label in the my profile tab. Keep it concise.',
+});
+const PRONOUNS_DESCRIPTOR = msg({
+	message: 'Pronouns',
+	comment: 'Short label in the my profile tab. Keep it concise.',
+});
+const DOC_I_M_FROM_THE_FUTURE_I_CAME_DESCRIPTOR = msg({
+	message:
+		"Doc, I'm from the future. I came here in a time machine that you invented. Now, I need your help to get back to the year 1985.",
+	comment: 'Label in the my profile tab.',
+});
 const logger = new Logger('MyProfileTab');
 
 function hasGuildMemberProfileFlag(member: GuildMemberData, flag: number): boolean {
@@ -240,9 +251,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 	const [lastFlashTrigger, setLastFlashTrigger] = useState(0);
 	const [ariaAnnouncement, setAriaAnnouncement] = useState('');
 	const isClaimed = user?.isClaimed() ?? false;
-	const isProfileEmailLocked = isClaimed && user?.verified === false;
-	const isProfileAccountLimited = user?.accountLimited === true;
-	const isProfileCustomizationLocked = isProfileEmailLocked || isProfileAccountLimited;
+	const isProfileCustomizationLocked = isClaimed && user?.verified === false;
 	const form = useForm<FormInputs>({
 		defaultValues: {
 			bio: null,
@@ -675,13 +684,11 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 	const selectedGuild = selectedGuildId ? guilds.find((g) => g.id === selectedGuildId) : null;
 	const isPerGuildProfileCustomizationDisabled = isPerGuildProfile && !hasPerGuildProfiles;
 	const isPronounsDisabled = isProfileCustomizationLocked;
-	const profileCustomizationDescription = isProfileEmailLocked
+	const profileCustomizationDescription = isProfileCustomizationLocked
 		? isPerGuildProfile
 			? i18n._(VERIFY_YOUR_EMAIL_BEFORE_EDITING_THIS_COMMUNITY_PROFILE_DESCRIPTOR)
 			: i18n._(VERIFY_YOUR_EMAIL_BEFORE_EDITING_YOUR_PROFILE_YOU_DESCRIPTOR)
-		: isProfileAccountLimited
-			? i18n._(ACCOUNT_LIMITED_NOTICE_DESCRIPTOR)
-			: i18n._(EDIT_YOUR_PROFILE_APPEARANCE_AND_SEE_A_LIVE_DESCRIPTOR);
+		: i18n._(EDIT_YOUR_PROFILE_APPEARANCE_AND_SEE_A_LIVE_DESCRIPTOR);
 	const hasAvatar =
 		!avatarAsset.hasCleared &&
 		(avatarAsset.hasAsset || (!avatarAsset.isDirty && Boolean(profileRemoteValues?.avatar.hasCustomAsset)));
@@ -731,7 +738,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 						description={profileCustomizationDescription}
 						data-flx="user.my-profile-tab.my-profile-tab-component.settings-section"
 					>
-						{isProfileEmailLocked && (
+						{isProfileCustomizationLocked && (
 							<EmailVerificationAlert
 								title={
 									isPerGuildProfile
@@ -744,7 +751,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 									? i18n._(VERIFY_YOUR_EMAIL_BEFORE_CHANGING_YOUR_COMMUNITY_NICKNAME_DESCRIPTOR)
 									: showPremiumFeatures
 										? i18n._(VERIFY_YOUR_EMAIL_BEFORE_CHANGING_YOUR_USERNAME_DISPLAY_DESCRIPTOR, {
-												premiumProductName: getPremiumProductName(),
+												premiumProductName: PREMIUM_PRODUCT_NAME,
 											})
 										: i18n._(VERIFY_YOUR_EMAIL_BEFORE_EDITING_YOUR_PROFILE_YOU_DESCRIPTOR)}
 							</EmailVerificationAlert>
@@ -962,6 +969,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 					onClose={() => setBioExpressionPickerOpen(false)}
 					onEmojiSelect={handleBioEmojiSelect}
 					visibleTabs={['emojis']}
+					selectedTab="emojis"
 					zIndex={30000}
 					data-flx="user.my-profile-tab.my-profile-tab-component.expression-picker-sheet"
 				/>

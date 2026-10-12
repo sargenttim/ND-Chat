@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {APIErrorCode} from '@fluxer/constants/src/ApiErrorCodes';
 import type {ErrorResponse} from '@fluxer/schema/src/domains/common/ErrorSchemas';
 import {HTTPException} from 'hono/http-exception';
 
@@ -54,32 +53,4 @@ export class FluxerError extends HTTPException {
 			...this.data,
 		};
 	}
-}
-
-type StatusErrorOptions = Omit<FluxerErrorOptions, 'status' | 'code'>;
-type RequiredStatusErrorOptions<TAllowMessage extends boolean> = {code: APIErrorCode} & (TAllowMessage extends true
-	? StatusErrorOptions
-	: Omit<StatusErrorOptions, 'message'>);
-
-export function statusError<TAllowMessage extends boolean = true>(
-	status: FluxerErrorStatus,
-	allowMessage: TAllowMessage = true as TAllowMessage,
-) {
-	return class extends FluxerError {
-		constructor(options: RequiredStatusErrorOptions<TAllowMessage>) {
-			const {message, ...rest} = options as StatusErrorOptions & {code: APIErrorCode};
-			super({...rest, status, message: allowMessage ? message : undefined});
-		}
-	};
-}
-
-export function defaultCodeStatusError<TCode extends string = APIErrorCode>(
-	status: FluxerErrorStatus,
-	defaultCode: NoInfer<TCode>,
-) {
-	return class extends FluxerError {
-		constructor({code = defaultCode, ...options}: StatusErrorOptions & {code?: TCode} = {}) {
-			super({...options, code, status});
-		}
-	};
 }

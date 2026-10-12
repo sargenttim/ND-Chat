@@ -38,7 +38,7 @@ export interface OAuth2AuthorizationCodeRow {
 export interface OAuth2AccessTokenRow {
 	token_: string;
 	application_id: ApplicationID;
-	user_id: UserID;
+	user_id: UserID | null;
 	scope: Set<string>;
 	created_at: Date;
 }

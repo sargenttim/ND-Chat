@@ -11,7 +11,6 @@ import {
 	conformBundledCodecFmtp,
 	ensureAudioNackAndStereo,
 	ensureOpusFmtp,
-	ensureOpusStereoReception,
 	ensureVideoDDExtension,
 	placeholderMidsFromTransceivers,
 	videoSectionCanReceiveAV1,
@@ -183,45 +182,6 @@ describe('ensureAudioNackAndStereo', () => {
 	});
 });
 
-describe('ensureOpusStereoReception', () => {
-	it.each(['recvonly', 'sendrecv'] as const)(
-		'receives stereo in a %s section without declaring stereo capture',
-		(direction) => {
-			const media = opusMedia('useinbandfec=1;stereo=0;sprop-stereo=0;maxaveragebitrate=48000');
-			media.direction = direction;
-			ensureOpusStereoReception(media);
-			expect(opusConfig(media)).toBe('useinbandfec=1;sprop-stereo=0;maxaveragebitrate=48000;stereo=1');
-		},
-	);
-
-	it('uses the default sendrecv direction when no direction is present', () => {
-		const media = opusMedia('useinbandfec=1');
-		ensureOpusStereoReception(media);
-		expect(opusConfig(media)).toBe('useinbandfec=1;stereo=1');
-	});
-
-	it.each(['sendonly', 'inactive'] as const)('preserves a %s section', (direction) => {
-		const media = opusMedia('useinbandfec=1;stereo=0;sprop-stereo=0');
-		media.direction = direction;
-		ensureOpusStereoReception(media);
-		expect(opusConfig(media)).toBe('useinbandfec=1;stereo=0;sprop-stereo=0');
-	});
-
-	it('preserves rejected sections and other media or codecs', () => {
-		const rejected = opusMedia('useinbandfec=1');
-		rejected.port = 0;
-		ensureOpusStereoReception(rejected);
-		expect(opusConfig(rejected)).toBe('useinbandfec=1');
-		const video = videoMedia('camera', [{payload: 96, config: 'profile-level-id=42e01f'}]);
-		ensureOpusStereoReception(video);
-		expect(video.fmtp[0]?.config).toBe('profile-level-id=42e01f');
-		const pcm = opusMedia('useinbandfec=1');
-		pcm.rtp[0]!.codec = 'PCMU';
-		ensureOpusStereoReception(pcm);
-		expect(opusConfig(pcm)).toBe('useinbandfec=1');
-	});
-});
-
 describe('collectStereoMids', () => {
 	it('matches the offer media section by msid before the transceiver has a mid', () => {
 		const media = [offerMedia('0', 'mic-track'), offerMedia('1', 'screenshare-track')];
@@ -307,7 +267,7 @@ describe('ensureVideoDDExtension', () => {
 		expect(ddOf(sdp, '1')).toBe(13);
 	});
 
-	it('leaves a section that already has the extension alone', () => {
+	it('leaves a section that already carries the extension alone', () => {
 		const sdp = parse(`${singlePcOffer}\na=extmap:3 ${ddExtensionURI}`);
 		expect(ensureVideoDDExtension(sectionOf(sdp, '2'), sdp, 0)).toBe(3);
 		expect(sectionOf(sdp, '2').ext).toHaveLength(2);

@@ -2,14 +2,13 @@
 
 import * as Modal from '@app/features/app/components/dialogs/Modal';
 import {SettingsTabSection} from '@app/features/app/components/dialogs/shared/SettingsTabLayout';
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {COMMUNITY_MEMBERS_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import {Combobox, type ComboboxFilterOption, type ComboboxOption} from '@app/features/ui/components/form/FormCombobox';
 import {Switch} from '@app/features/ui/components/form/FormSwitch';
-import {FRIENDS_DESCRIPTOR} from '@app/features/user/components/settings_utils/section_registry/SharedDescriptors';
 import {ProfileFieldPrivacyFlags} from '@fluxer/constants/src/UserConstants';
 import {getTimeZoneDisplayOptions} from '@fluxer/date_utils/src/TimeZoneUtils';
 import {msg} from '@lingui/core/macro';
@@ -61,6 +60,10 @@ const EVERYONE_DESCRIPTION_DESCRIPTOR = msg({
 	message: 'Allow anyone who can view your full profile to see your local time',
 	comment: 'Profile timezone privacy option description for the Everyone switch.',
 });
+const FRIENDS_DESCRIPTOR = msg({
+	message: 'Friends',
+	comment: 'Profile timezone privacy option label. Allows friends to see local time.',
+});
 const FRIENDS_DESCRIPTION_DESCRIPTOR = msg({
 	message: 'Allow your friends to see your local time',
 	comment: 'Profile timezone privacy option description for the Friends switch.',
@@ -107,7 +110,7 @@ export function TimezoneProfileSettings({
 	return (
 		<SettingsTabSection
 			title={i18n._(PROFILE_LOCAL_TIME_DESCRIPTOR)}
-			description={i18n._(PROFILE_LOCAL_TIME_SUMMARY_DESCRIPTOR, {productName: RuntimeConfig.productName})}
+			description={i18n._(PROFILE_LOCAL_TIME_SUMMARY_DESCRIPTOR, {productName: PRODUCT_NAME})}
 			data-flx="user.my-profile-tab.timezone-profile-settings.section"
 		>
 			<Button
@@ -191,13 +194,13 @@ function TimezoneProfileSettingsModal({
 				<Modal.ContentLayout data-flx="user.my-profile-tab.timezone-profile-settings.modal-content-layout">
 					<Modal.Description data-flx="user.my-profile-tab.timezone-profile-settings.privacy-note">
 						{i18n._(TIMEZONE_PRIVACY_NOTE_DESCRIPTOR, {
-							productName: RuntimeConfig.productName,
+							productName: PRODUCT_NAME,
 							timezoneIdentifierExample: TIMEZONE_IDENTIFIER_EXAMPLE,
 						})}
 					</Modal.Description>
-					<Combobox<string, TimeZoneSelectOption>
+					<Combobox<string, false, TimeZoneSelectOption>
 						label={i18n._(TIMEZONE_DESCRIPTOR)}
-						description={i18n._(TIMEZONE_HELP_DESCRIPTOR, {productName: RuntimeConfig.productName})}
+						description={i18n._(TIMEZONE_HELP_DESCRIPTOR, {productName: PRODUCT_NAME})}
 						placeholder={i18n._(SEARCH_TIMEZONES_DESCRIPTOR)}
 						value={localTimezone ?? ''}
 						options={options}

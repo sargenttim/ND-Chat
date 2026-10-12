@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::utils::timestamps::format_admin_timestamp;
 use crate::{
     api::types::Archive,
     templates::components::form::{checkbox, csrf_input, submit_button},
@@ -73,7 +72,7 @@ fn archives_table(base: &str, archives: &[Archive]) -> Markup {
                     @for archive in archives {
                         tr {
                             td class="whitespace-nowrap px-4 py-3 text-sm text-neutral-900" {
-                                (format_admin_timestamp(&archive.requested_at))
+                                (archive.requested_at)
                             }
                             td class="px-4 py-3 text-sm text-neutral-900" {
                                 (status_text(archive))

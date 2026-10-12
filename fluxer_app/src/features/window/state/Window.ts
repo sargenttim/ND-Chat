@@ -27,9 +27,20 @@ class Window {
 	windowSize: WindowSize = getWindowSize();
 	windowId: string = generateWindowId();
 	lastFocusedAt: number = Date.now();
+	createdAt: number = Date.now();
 
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
+		this.initListeners();
+	}
+
+	private initListeners(): void {
+		window.addEventListener('focus', () => this.setFocused(true));
+		window.addEventListener('blur', () => this.setFocused(false));
+		document.addEventListener('visibilitychange', () => {
+			this.setVisible(!document.hidden);
+		});
+		window.addEventListener('resize', () => this.updateWindowSize());
 	}
 
 	setFocused(focused: boolean): void {
@@ -50,16 +61,20 @@ class Window {
 	}
 
 	updateWindowSize(): void {
-		const next = getWindowSize();
-		if (next.width === this.windowSize.width && next.height === this.windowSize.height) {
-			return;
-		}
-		this.windowSize = next;
-		logger.debug(`Window resized: ${next.width}x${next.height}`);
+		this.windowSize = getWindowSize();
+		logger.debug(`Window resized: ${this.windowSize.width}x${this.windowSize.height}`);
 	}
 
 	isFocused(): boolean {
 		return this.focused;
+	}
+
+	isVisible(): boolean {
+		return this.visible;
+	}
+
+	getWindowSize(): WindowSize {
+		return this.windowSize;
 	}
 }
 

@@ -176,7 +176,7 @@ function flattenTableRow(row: TableRowNode): void {
 	}
 }
 
-function flattenChildren(nodes: Array<Node>, insideBlockquote = false): void {
+export function flattenChildren(nodes: Array<Node>, insideBlockquote = false): void {
 	const nodeCount = nodes.length;
 	if (nodeCount <= 1) {
 		return;
@@ -201,7 +201,11 @@ function flattenFormattingNodes(nodes: Array<Node>): void {
 	}
 }
 
-function flattenSameType(children: Array<Node>, nodeType: NodeType): void {
+export function isFormattingNode(node: Node): boolean {
+	return FORMATTING_NODE_TYPES.has(node.type);
+}
+
+export function flattenSameType(children: Array<Node>, nodeType: NodeType): void {
 	if (children.length <= 1) {
 		return;
 	}
@@ -235,7 +239,7 @@ function flattenSameType(children: Array<Node>, nodeType: NodeType): void {
 	}
 }
 
-function combineAdjacentTextNodes(nodes: Array<Node>, insideBlockquote = false): void {
+export function combineAdjacentTextNodes(nodes: Array<Node>, insideBlockquote = false): void {
 	const nodeCount = nodes.length;
 	if (nodeCount <= 1) {
 		return;
@@ -379,5 +383,49 @@ function removeEmptyTextNodesBetweenAlerts(nodes: Array<Node>): void {
 	nodes.length = 0;
 	for (let i = 0; i < result.length; i++) {
 		nodes.push(result[i]);
+	}
+}
+
+export function mergeTextNodes(nodes: Array<Node>): Array<Node> {
+	const nodeCount = nodes.length;
+	if (nodeCount <= 1) {
+		return nodes;
+	}
+	let hasConsecutiveTextNodes = false;
+	let prevWasText = false;
+	for (let i = 0; i < nodeCount; i++) {
+		const isText = nodes[i].type === NT_TEXT;
+		if (isText && prevWasText) {
+			hasConsecutiveTextNodes = true;
+			break;
+		}
+		prevWasText = isText;
+	}
+	if (!hasConsecutiveTextNodes) {
+		return nodes;
+	}
+	const mergedNodes: Array<Node> = [];
+	let currentText = '';
+	for (let i = 0; i < nodeCount; i++) {
+		const node = nodes[i];
+		if (node.type === NT_TEXT) {
+			currentText += (node as TextNode).content;
+		} else {
+			if (currentText) {
+				mergedNodes.push({type: NT_TEXT, content: currentText});
+				currentText = '';
+			}
+			mergedNodes.push(node);
+		}
+	}
+	if (currentText) {
+		mergedNodes.push({type: NT_TEXT, content: currentText});
+	}
+	return mergedNodes;
+}
+
+export function addTextNode(nodes: Array<Node>, text: string): void {
+	if (text && text.length > 0) {
+		nodes.push({type: NT_TEXT, content: text});
 	}
 }

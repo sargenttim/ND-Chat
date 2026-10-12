@@ -2,19 +2,21 @@
 
 import {requireSudoMode} from '@app/api/auth/services/SudoVerificationService';
 import {createAttachmentID, createChannelID, createMessageID} from '@app/api/BrandedTypes';
+import {Config} from '@app/api/Config';
 import type {MessageRequest, MessageUpdateRequest} from '@app/api/channel/MessageTypes';
-import {parseMessageRequestBody} from '@app/api/channel/services/message/MessageRequestParser';
-import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
+import {normalizeMessageRequestPayload} from '@app/api/channel/services/message/MessageRequestCompatibility';
+import {parseMultipartMessageData} from '@app/api/channel/services/message/MessageRequestParser';
 import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {SudoModeMiddleware} from '@app/api/middleware/SudoModeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
-import {readStateCapable} from '@app/api/read_state/ReadStateChannelMeta';
 import type {HonoApp} from '@app/api/types/HonoEnv';
-import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
-import {requireRequestClientIp} from '@app/api/utils/RequestClientIp';
+import {parseJsonPreservingLargeIntegers} from '@app/api/utils/LosslessJsonParser';
 import {Validator} from '@app/api/Validator';
+import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
+import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
+import {requireClientIp} from '@fluxer/ip_utils/src/ClientIp';
 import {SudoVerificationSchema} from '@fluxer/schema/src/domains/auth/AuthSchemas';
 import {
 	ChannelIdMessageIdAttachmentIdParam,
@@ -27,7 +29,6 @@ import {
 	PresignedAttachmentUploadRequest,
 	PresignedAttachmentUploadResponse,
 } from '@fluxer/schema/src/domains/message/AttachmentUploadSchemas';
-import {CrosspostSourceResponse} from '@fluxer/schema/src/domains/message/CrosspostSourceSchemas';
 import {
 	BulkDeleteMessagesRequest,
 	BulkMessageFetchRequest,
@@ -68,7 +69,6 @@ export function MessageController(app: HonoApp) {
 			const messageRequestService = ctx.get('messageRequestService');
 			return ctx.json(
 				await messageRequestService.listMessages({
-					viewer: viewerFromCtx(ctx),
 					userId,
 					channelId,
 					query: {
@@ -106,7 +106,6 @@ export function MessageController(app: HonoApp) {
 			const messageRequestService = ctx.get('messageRequestService');
 			return ctx.json(
 				await messageRequestService.listMessagesBulk({
-					viewer: viewerFromCtx(ctx),
 					userId,
 					requests: requests.map((request) => ({
 						channelId: createChannelID(request.channel_id),
@@ -147,7 +146,6 @@ export function MessageController(app: HonoApp) {
 			const messageRequestService = ctx.get('messageRequestService');
 			return ctx.json(
 				await messageRequestService.getMessage({
-					viewer: viewerFromCtx(ctx),
 					userId,
 					channelId,
 					messageId,
@@ -178,9 +176,24 @@ export function MessageController(app: HonoApp) {
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const requestCache = ctx.get('requestCache');
 			const messageRequestService = ctx.get('messageRequestService');
-			const validatedData = await parseMessageRequestBody(ctx, user, channelId, MessageRequestSchema);
+			const contentType = ctx.req.header('content-type');
+			const validatedData = contentType?.includes('multipart/form-data')
+				? ((await parseMultipartMessageData(ctx, user, channelId, MessageRequestSchema)) as MessageRequest)
+				: await (async () => {
+						let data: unknown;
+						try {
+							const raw = await ctx.req.text();
+							data = raw.trim().length === 0 ? {} : parseJsonPreservingLargeIntegers(raw);
+						} catch {
+							throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
+						}
+						const validationResult = MessageRequestSchema.safeParse(normalizeMessageRequestPayload(data));
+						if (!validationResult.success) {
+							throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
+						}
+						return validationResult.data;
+					})();
 			const response = await messageRequestService.sendMessage({
-				viewer: viewerFromCtx(ctx),
 				user,
 				channelId,
 				data: validatedData as MessageRequest,
@@ -206,12 +219,14 @@ export function MessageController(app: HonoApp) {
 				'Returns presigned upload URLs for message attachments in the target channel. Small files (<=10MB) return a singlepart PUT URL; larger files return a multipart plan (upload_id + per-part URLs) that the client should complete via the matching /attachments/complete endpoint. Requires message send and attachment permissions in guild channels.',
 		}),
 		async (ctx) => {
-			const clientIp = requireRequestClientIp(ctx);
+			const clientIp = requireClientIp(ctx.req.raw, {
+				trustClientIpHeader: Config.proxy.trust_client_ip_header,
+				clientIpHeaderName: Config.proxy.client_ip_header,
+			});
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const {attachments} = ctx.req.valid('json');
 			return ctx.json({
 				attachments: await ctx.get('channelService').attachments.requestPresignedAttachmentUploadUrls({
-					viewer: viewerFromCtx(ctx),
 					userId: ctx.get('user').id,
 					channelId,
 					clientIp,
@@ -237,12 +252,14 @@ export function MessageController(app: HonoApp) {
 				'Finalizes one or more multipart attachment uploads. Called after all chunks have been PUT to their presigned URLs. The server lists the uploaded parts and issues S3 CompleteMultipartUpload. Returns the finalized upload keys, which can be referenced in a subsequent message create request.',
 		}),
 		async (ctx) => {
-			const clientIp = requireRequestClientIp(ctx);
+			const clientIp = requireClientIp(ctx.req.raw, {
+				trustClientIpHeader: Config.proxy.trust_client_ip_header,
+				clientIpHeaderName: Config.proxy.client_ip_header,
+			});
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const {uploads} = ctx.req.valid('json');
 			return ctx.json({
 				uploads: await ctx.get('channelService').attachments.completeMultipartAttachmentUploads({
-					viewer: viewerFromCtx(ctx),
 					userId: ctx.get('user').id,
 					channelId,
 					clientIp,
@@ -276,10 +293,25 @@ export function MessageController(app: HonoApp) {
 			const messageId = createMessageID(message_id);
 			const requestCache = ctx.get('requestCache');
 			const messageRequestService = ctx.get('messageRequestService');
-			const validatedData = await parseMessageRequestBody(ctx, user, channelId, MessageUpdateRequestSchema);
+			const contentType = ctx.req.header('content-type');
+			const validatedData = contentType?.includes('multipart/form-data')
+				? ((await parseMultipartMessageData(ctx, user, channelId, MessageUpdateRequestSchema)) as MessageUpdateRequest)
+				: await (async () => {
+						let data: unknown;
+						try {
+							const raw = await ctx.req.text();
+							data = raw.trim().length === 0 ? {} : parseJsonPreservingLargeIntegers(raw);
+						} catch {
+							throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
+						}
+						const validationResult = MessageUpdateRequestSchema.safeParse(normalizeMessageRequestPayload(data));
+						if (!validationResult.success) {
+							throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
+						}
+						return validationResult.data;
+					})();
 			return ctx.json(
 				await messageRequestService.editMessage({
-					viewer: viewerFromCtx(ctx),
 					userId,
 					channelId,
 					messageId,
@@ -330,14 +362,9 @@ export function MessageController(app: HonoApp) {
 			const messageId = createMessageID(message_id);
 			const requestCache = ctx.get('requestCache');
 			const auditLogReason = ctx.get('auditLogReason') ?? null;
-			await ctx.get('channelService').messages.deletion.deleteMessage({
-				viewer: viewerFromCtx(ctx),
-				userId,
-				channelId,
-				messageId,
-				requestCache,
-				auditLogReason,
-			});
+			await ctx
+				.get('channelService')
+				.messages.deletion.deleteMessage({userId, channelId, messageId, requestCache, auditLogReason});
 			return ctx.body(null, 204);
 		},
 	);
@@ -364,7 +391,6 @@ export function MessageController(app: HonoApp) {
 			const attachmentId = createAttachmentID(attachment_id);
 			const requestCache = ctx.get('requestCache');
 			await ctx.get('channelService').attachments.deleteAttachment({
-				viewer: viewerFromCtx(ctx),
 				userId,
 				channelId,
 				messageId: messageId,
@@ -395,13 +421,9 @@ export function MessageController(app: HonoApp) {
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const messageIds = ctx.req.valid('json').message_ids.map(createMessageID);
 			const auditLogReason = ctx.get('auditLogReason') ?? null;
-			await ctx.get('channelService').messages.deletion.bulkDeleteMessages({
-				viewer: viewerFromCtx(ctx),
-				userId,
-				channelId,
-				messageIds,
-				auditLogReason,
-			});
+			await ctx
+				.get('channelService')
+				.messages.deletion.bulkDeleteMessages({userId, channelId, messageIds, auditLogReason});
 			return ctx.body(null, 204);
 		},
 	);
@@ -425,7 +447,7 @@ export function MessageController(app: HonoApp) {
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const {deletedCount} = await ctx
 				.get('channelService')
-				.messages.deletion.purgePersonalNotesMessages({viewer: viewerFromCtx(ctx), userId, channelId});
+				.messages.deletion.purgePersonalNotesMessages({userId, channelId});
 			return ctx.json({deleted_count: deletedCount});
 		},
 	);
@@ -451,9 +473,7 @@ export function MessageController(app: HonoApp) {
 			const userId = user.id;
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
 			const body = ctx.req.valid('json');
-			await ctx
-				.get('channelService')
-				.channelData.operations.getChannel({viewer: viewerFromCtx(ctx), userId, channelId});
+			await ctx.get('channelService').channelData.operations.getChannel({userId, channelId});
 			await requireSudoMode(ctx, user, body);
 			await ctx.get('channelService').userMessageDeletion.deleteUserMessagesInScope(userId, {
 				channelIds: [channelId],
@@ -470,77 +490,17 @@ export function MessageController(app: HonoApp) {
 			operationId: 'indicate_typing',
 			summary: 'Indicate typing activity',
 			responseSchema: null,
-			statusCode: [200, 204],
+			statusCode: 204,
 			security: ['botToken', 'bearerToken', 'sessionToken'],
 			tags: ['Channels', 'Messages'],
 			description:
-				'Notifies other users in the channel that you are actively typing. Typing indicators typically expire after a short period (usually 10 seconds). Returns 204 No Content, or 200 with a JSON body holding the remaining slowmode cooldowns in message_send_cooldown_ms and thread_create_cooldown_ms when the user is rate limited. Commonly called repeatedly while the user is composing a message.',
+				'Notifies other users in the channel that you are actively typing. Typing indicators typically expire after a short period (usually 10 seconds). Returns 204 No Content. Commonly called repeatedly while the user is composing a message.',
 		}),
 		async (ctx) => {
-			const user = ctx.get('user');
-			const viewer = viewerFromCtx(ctx);
+			const userId = ctx.get('user').id;
 			const channelId = createChannelID(ctx.req.valid('param').channel_id);
-			const channelService = ctx.get('channelService');
-			const auth = await channelService.interactions.startTyping({viewer, userId: user.id, channelId});
-			const cooldown = await channelService.getTypingCooldown({user, viewer, auth});
-			return cooldown ? ctx.json(cooldown, 200) : ctx.body(null, 204);
-		},
-	);
-	app.post(
-		'/channels/:channel_id/messages/:message_id/crosspost',
-		RateLimitMiddleware(RateLimitConfigs.CHANNEL_MESSAGE_CROSSPOST),
-		LoginRequired,
-		Validator('param', ChannelIdMessageIdParam),
-		OpenAPI({
-			operationId: 'crosspost_message',
-			summary: 'Publish a message to following channels',
-			responseSchema: MessageResponseSchema,
-			statusCode: 200,
-			security: ['botToken', 'bearerToken', 'sessionToken'],
-			tags: ['Channels', 'Messages'],
-			description:
-				'Publishes a message in an announcement channel to every channel that follows it. The author needs Send Messages. Anyone else needs Send Messages and Manage Messages. Only default messages that are not replies, forwards or copies can be published, and each message can be published once. Copies are delivered asynchronously. Publishing is limited per channel (10 in a row, then one every 6 minutes) and per community (30 in a row, then one every 2 minutes). Returns the updated message with the CROSSPOSTED flag set.',
-		}),
-		async (ctx) => {
-			const {channel_id, message_id} = ctx.req.valid('param');
-			assertAccountNotLimited(ctx.get('user'));
-			return ctx.json(
-				await ctx.get('messageRequestService').crosspostMessage({
-					userId: ctx.get('user').id,
-					viewer: viewerFromCtx(ctx),
-					channelId: createChannelID(channel_id),
-					messageId: createMessageID(message_id),
-					requestCache: ctx.get('requestCache'),
-				}),
-			);
-		},
-	);
-	app.get(
-		'/channels/:channel_id/messages/:message_id/crosspost-source',
-		RateLimitMiddleware(RateLimitConfigs.CHANNEL_MESSAGE_CROSSPOST_SOURCE),
-		LoginRequired,
-		Validator('param', ChannelIdMessageIdParam),
-		OpenAPI({
-			operationId: 'get_message_crosspost_source',
-			summary: 'Get the source community of a published message copy',
-			responseSchema: CrosspostSourceResponse,
-			statusCode: 200,
-			security: ['botToken', 'bearerToken', 'sessionToken'],
-			tags: ['Channels', 'Messages'],
-			description:
-				'Returns the public profile of the community a message copy was published from. Works on copies delivered to a following channel and on the system message posted when a channel starts following. Needs the same access as fetching the message. The response holds the community name, icon, banner, badge features, approximate counts and whether it can be joined through discovery.',
-		}),
-		async (ctx) => {
-			const {channel_id, message_id} = ctx.req.valid('param');
-			return ctx.json(
-				await ctx.get('messageRequestService').getCrosspostSource({
-					userId: ctx.get('user').id,
-					viewer: viewerFromCtx(ctx),
-					channelId: createChannelID(channel_id),
-					messageId: createMessageID(message_id),
-					requestCache: ctx.get('requestCache'),
-				}),
-			);
+			await ctx.get('channelService').interactions.startTyping({userId, channelId});
+			return ctx.body(null, 204);
 		},
 	);
 	app.post(
@@ -572,7 +532,6 @@ export function MessageController(app: HonoApp) {
 				messageId,
 				mentionCount: mentionCount ?? 0,
 				manual,
-				capable: readStateCapable(ctx),
 			});
 			return ctx.body(null, 204);
 		},

@@ -6,11 +6,15 @@ import Accessibility, {
 	ZOOM_LEVEL_MAX,
 	ZOOM_LEVEL_MIN,
 } from '@app/features/accessibility/state/Accessibility';
+import {PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {APP_ZOOM_LEVEL_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
-import {type ComboboxOption, resolveNearestNumericOption} from '@app/features/ui/components/form/FormCombobox';
+import Keybind from '@app/features/input/state/InputKeybind';
+import {formatKeyCombo} from '@app/features/input/utils/KeybindUtils';
+import type {ComboboxOption} from '@app/features/ui/components/form/FormCombobox';
 import {Slider} from '@app/features/ui/components/Slider';
 import {canResetSliderValue, SliderResetIconButton} from '@app/features/ui/components/slider/SliderResetIconButton';
+import {shouldWarnAboutFirefoxWebZoomShortcuts} from '@app/features/ui/utils/AppZoomKeybindUtils';
 import {formatRoundedPercentage, roundPercentage} from '@app/features/ui/utils/PercentageFormatting';
 import {CompactComboboxRow} from '@app/features/user/components/modals/tabs/components/CompactComboboxRow';
 import {msg, ph} from '@lingui/core/macro';
@@ -35,6 +39,15 @@ const RESET_ZOOM_DESCRIPTOR = msg({
 	message: 'Reset zoom',
 	comment: 'Label for controls that reset app zoom to 100%, including the app zoom slider button.',
 });
+const ADJUST_THE_OVERALL_ZOOM_LEVEL_OF_THE_APP_DESCRIPTOR = msg({
+	message:
+		'Adjust the overall zoom level of the app. Firefox keeps the standard browser zoom shortcuts, so use the slider here for {productName} zoom.',
+	comment: 'Description for the app zoom setting in Firefox on the web. productName is the app name.',
+});
+const ADJUST_THE_OVERALL_ZOOM_LEVEL_OF_THE_APP_2_DESCRIPTOR = msg({
+	message: 'Adjust the overall zoom level of the app. Use {zoomIn} / {zoomOut} to adjust quickly.',
+	comment: 'Description for the app zoom setting. The placeholders are keyboard shortcuts.',
+});
 const DEFAULT_FONT_SIZE = 16;
 const DEFAULT_ZOOM_PERCENT = 100;
 const FONT_SIZE_OPTIONS = [12, 14, 15, 16, 18, 20, 24] as const;
@@ -52,11 +65,24 @@ const getNearestFontSize = (value: number): number => {
 	return nearest;
 };
 
-function canResetFontSize(): boolean {
+const resolveFontSizeInput = (
+	inputValue: string,
+	options: ReadonlyArray<ComboboxOption<number>>,
+): number | undefined => {
+	const numericMatch = inputValue.trim().match(/([0-9]+(?:\.[0-9]+)?)/);
+	if (!numericMatch) return undefined;
+	const parsedValue = Number(numericMatch[1]);
+	if (!Number.isFinite(parsedValue)) return undefined;
+	return options.reduce((nearest, option) =>
+		Math.abs(option.value - parsedValue) < Math.abs(nearest.value - parsedValue) ? option : nearest,
+	).value;
+};
+
+export function canResetFontSize(): boolean {
 	return canResetSliderValue(Accessibility.fontSize, DEFAULT_FONT_SIZE);
 }
 
-const FontSizeResetAction: React.FC = observer(() => {
+export const FontSizeResetAction: React.FC = observer(() => {
 	const {i18n} = useLingui();
 	return (
 		<SliderResetIconButton
@@ -91,7 +117,7 @@ export const FontSizeTabContent: React.FC = observer(() => {
 			value={selectedFontSize}
 			options={options}
 			onChange={(value) => AccessibilityCommands.update({fontSize: value})}
-			autoSelectValueFromInput={resolveNearestNumericOption}
+			autoSelectValueFromInput={resolveFontSizeInput}
 			controlWidth="small"
 			menuMinWidth={128}
 			aria-label={i18n._(CHAT_FONT_SIZE_DESCRIPTOR)}
@@ -149,3 +175,15 @@ export const AppZoomLevelTabContent: React.FC = observer(() => {
 		/>
 	);
 });
+
+export function useAppZoomLevelDescription(): string {
+	const {i18n} = useLingui();
+	return useMemo(() => {
+		if (shouldWarnAboutFirefoxWebZoomShortcuts()) {
+			return i18n._(ADJUST_THE_OVERALL_ZOOM_LEVEL_OF_THE_APP_DESCRIPTOR, {productName: PRODUCT_NAME});
+		}
+		const zoomIn = formatKeyCombo(i18n, Keybind.getByAction('system_zoom_in').combo);
+		const zoomOut = formatKeyCombo(i18n, Keybind.getByAction('system_zoom_out').combo);
+		return i18n._(ADJUST_THE_OVERALL_ZOOM_LEVEL_OF_THE_APP_2_DESCRIPTOR, {zoomIn, zoomOut});
+	}, [i18n.locale]);
+}

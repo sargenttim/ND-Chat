@@ -4,19 +4,14 @@ import Accessibility from '@app/features/accessibility/state/Accessibility';
 import styles from '@app/features/app/components/layout/ScrollIndicatorOverlay.module.css';
 import {
 	type ActiveScrollIndicator,
-	type ActiveScrollIndicators,
-	areActiveScrollIndicatorsEqual,
-	EMPTY_ACTIVE_SCROLL_INDICATORS,
-	resolveActiveScrollIndicators,
+	createScrollIndicatorSnapshot,
+	type ScrollIndicatorMachineEvent,
 	type ScrollIndicatorSeverity,
 	type ScrollIndicatorTargetMeasurement,
+	selectActiveScrollIndicators,
+	transitionScrollIndicatorSnapshot,
 } from '@app/features/app/components/layout/ScrollIndicatorStateMachine';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
-import {
-	cancelOwnedAnimationFrame,
-	type OwnedAnimationFrame,
-	requireOwnerWindow,
-} from '@app/features/ui/utils/OwnerWindow';
 import {resolveVisibleScrollViewportHeight} from '@app/features/ui/utils/ScrollViewportGeometry';
 import {clsx} from 'clsx';
 import {AnimatePresence, motion} from 'framer-motion';
@@ -26,6 +21,24 @@ import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 export type {ScrollIndicatorSeverity};
 
 const SCROLL_TARGET_PADDING_PX = 12;
+
+interface OwnedAnimationFrame {
+	id: number;
+	ownerWindow: Window & typeof globalThis;
+}
+
+function resolveOwnerWindow(container: HTMLElement): Window & typeof globalThis {
+	const ownerWindow = container.ownerDocument.defaultView;
+	if (ownerWindow == null) {
+		throw new Error('Scroll indicator container has no owner window');
+	}
+	return ownerWindow;
+}
+
+function cancelOwnedAnimationFrame(frame: OwnedAnimationFrame | null): void {
+	if (frame == null) return;
+	frame.ownerWindow.cancelAnimationFrame(frame.id);
+}
 
 function scrollIndicatorNodeIntoVisibleViewport(
 	container: HTMLElement,
@@ -57,12 +70,12 @@ function hasPositiveArea(rect: MeasurementRect): boolean {
 }
 
 function getMeasurableRectInsideScrollContent(node: HTMLElement, container: HTMLElement): MeasurementRect | null {
-	const nodeStyle = requireOwnerWindow(node, 'Scroll indicator container').getComputedStyle(node);
+	const nodeStyle = resolveOwnerWindow(node).getComputedStyle(node);
 	if (nodeStyle.display === 'none' || nodeStyle.visibility === 'hidden') return null;
 	const nodeRect = node.getBoundingClientRect();
 	if (!hasPositiveArea(nodeRect)) return null;
 	for (let parent = node.parentElement; parent && parent !== container; parent = parent.parentElement) {
-		const parentStyle = requireOwnerWindow(parent, 'Scroll indicator container').getComputedStyle(parent);
+		const parentStyle = resolveOwnerWindow(parent).getComputedStyle(parent);
 		if (parentStyle.display === 'none' || parentStyle.visibility === 'hidden') return null;
 		const parentRect = parent.getBoundingClientRect();
 		if (!hasPositiveArea(parentRect)) return null;
@@ -70,7 +83,7 @@ function getMeasurableRectInsideScrollContent(node: HTMLElement, container: HTML
 	return nodeRect;
 }
 
-function measureScrollIndicatorTargets(container: HTMLElement): Array<ScrollIndicatorTargetMeasurement> {
+export function measureScrollIndicatorTargets(container: HTMLElement): Array<ScrollIndicatorTargetMeasurement> {
 	const containerRect = container.getBoundingClientRect();
 	const nodes = container.querySelectorAll<HTMLElement>(
 		'[data-scroll-indicator="mention"],[data-scroll-indicator="unread"]',
@@ -101,32 +114,38 @@ function findScrollIndicatorNode(container: HTMLElement, id: string): HTMLElemen
 	return null;
 }
 
-const useScrollEdgeIndicators = (
+export const useScrollEdgeIndicators = (
 	getScrollContainer: () => HTMLElement | null,
 	scrollContainerIdentity: string,
 	dependencies: React.DependencyList = [],
 ) => {
-	const [activeIndicators, setActiveIndicators] = useState<ActiveScrollIndicators>(EMPTY_ACTIVE_SCROLL_INDICATORS);
+	const [snapshot, setSnapshot] = useState(() => createScrollIndicatorSnapshot());
+	const activeIndicators = selectActiveScrollIndicators(snapshot);
 	const refreshFrameRef = useRef<OwnedAnimationFrame | null>(null);
 	const visibleViewportHeightRef = useRef(0);
 	const layoutInvalidatedRef = useRef(true);
+	const send = useCallback((event: ScrollIndicatorMachineEvent) => {
+		setSnapshot((previous) => transitionScrollIndicatorSnapshot(previous, event));
+	}, []);
 	const refreshNow = useCallback(() => {
 		const container = getScrollContainer();
 		if (!container) {
-			setActiveIndicators(EMPTY_ACTIVE_SCROLL_INDICATORS);
+			send({type: 'scrollIndicator.reset'});
 			return;
 		}
 		if (layoutInvalidatedRef.current) {
 			layoutInvalidatedRef.current = false;
 			visibleViewportHeightRef.current = resolveVisibleScrollViewportHeight(container);
 		}
-		const next = resolveActiveScrollIndicators({
-			scrollTop: container.scrollTop,
-			viewportHeight: visibleViewportHeightRef.current,
-			targets: measureScrollIndicatorTargets(container),
+		send({
+			type: 'scrollIndicator.measured',
+			measurement: {
+				scrollTop: container.scrollTop,
+				viewportHeight: visibleViewportHeightRef.current,
+				targets: measureScrollIndicatorTargets(container),
+			},
 		});
-		setActiveIndicators((previous) => (areActiveScrollIndicatorsEqual(previous, next) ? previous : next));
-	}, [getScrollContainer]);
+	}, [getScrollContainer, send]);
 	const scheduleRefresh = useCallback(
 		(invalidateLayout = false) => {
 			if (invalidateLayout) layoutInvalidatedRef.current = true;
@@ -135,7 +154,7 @@ const useScrollEdgeIndicators = (
 				refreshNow();
 				return;
 			}
-			const ownerWindow = requireOwnerWindow(container, 'Scroll indicator container');
+			const ownerWindow = resolveOwnerWindow(container);
 			const pendingFrame = refreshFrameRef.current;
 			if (pendingFrame != null && pendingFrame.ownerWindow === ownerWindow) return;
 			cancelOwnedAnimationFrame(pendingFrame);
@@ -154,7 +173,7 @@ const useScrollEdgeIndicators = (
 	useLayoutEffect(() => {
 		const container = getScrollContainer();
 		if (!container) return;
-		const ownerWindow = requireOwnerWindow(container, 'Scroll indicator container');
+		const ownerWindow = resolveOwnerWindow(container);
 		const content = container.firstElementChild instanceof ownerWindow.HTMLElement ? container.firstElementChild : null;
 		const resizeObserver =
 			ownerWindow.ResizeObserver != null
@@ -213,7 +232,7 @@ const useScrollEdgeIndicators = (
 	useEffect(() => {
 		const container = getScrollContainer();
 		if (container == null) return;
-		const ownerWindow = requireOwnerWindow(container, 'Scroll indicator container');
+		const ownerWindow = resolveOwnerWindow(container);
 		const handleResize = () => scheduleRefresh(true);
 		ownerWindow.addEventListener('resize', handleResize);
 		return () => {

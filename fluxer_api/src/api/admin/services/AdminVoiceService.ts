@@ -42,6 +42,14 @@ interface VoiceConfigurationMessage {
 	serverId?: string;
 }
 
+interface VoiceAuditParams {
+	adminUserId: UserID;
+	auditLogReason: string | null;
+	targetType: string;
+	action: string;
+	metadata: Map<string, string>;
+}
+
 function buildVoiceRestrictions(data: VoiceRestrictionData): VoiceRegionRecord['restrictions'] {
 	return {
 		vipOnly: data.vip_only ?? false,
@@ -136,8 +144,7 @@ export class AdminVoiceService {
 			restrictions: buildVoiceRestrictions(data),
 		});
 		await this.publishVoiceConfiguration({type: 'region_created', regionId: region.id});
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createVoiceAuditLog({
 			adminUserId,
 			targetType: 'voice_region',
 			action: 'create_voice_region',
@@ -168,8 +175,7 @@ export class AdminVoiceService {
 		updates.updatedAt = new Date();
 		await voiceRepository.upsertRegion(updates);
 		await this.publishVoiceConfiguration({type: 'region_updated', regionId: data.id});
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createVoiceAuditLog({
 			adminUserId,
 			targetType: 'voice_region',
 			action: 'update_voice_region',
@@ -189,8 +195,7 @@ export class AdminVoiceService {
 		}
 		await voiceRepository.deleteRegion(data.id);
 		await this.publishVoiceConfiguration({type: 'region_deleted', regionId: data.id});
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createVoiceAuditLog({
 			adminUserId,
 			targetType: 'voice_region',
 			action: 'delete_voice_region',
@@ -238,8 +243,7 @@ export class AdminVoiceService {
 			restrictions: buildVoiceRestrictions(data),
 		});
 		await this.publishVoiceConfiguration({type: 'server_created', regionId: data.region_id, serverId: data.server_id});
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createVoiceAuditLog({
 			adminUserId,
 			targetType: 'voice_server',
 			action: 'create_voice_server',
@@ -273,8 +277,7 @@ export class AdminVoiceService {
 		updates.updatedAt = new Date();
 		await voiceRepository.upsertServer(updates);
 		await this.publishVoiceConfiguration({type: 'server_updated', regionId: data.region_id, serverId: data.server_id});
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createVoiceAuditLog({
 			adminUserId,
 			targetType: 'voice_server',
 			action: 'update_voice_server',
@@ -297,8 +300,7 @@ export class AdminVoiceService {
 		}
 		await voiceRepository.deleteServer(data.region_id, data.server_id);
 		await this.publishVoiceConfiguration({type: 'server_deleted', regionId: data.region_id, serverId: data.server_id});
-		await this.deps.auditService.createAuditLog({
-			targetId: 0n,
+		await this.createVoiceAuditLog({
 			adminUserId,
 			targetType: 'voice_server',
 			action: 'delete_voice_server',
@@ -351,5 +353,22 @@ export class AdminVoiceService {
 
 	private async publishVoiceConfiguration(message: VoiceConfigurationMessage): Promise<void> {
 		await this.deps.apiContext.services.cache.publish(VOICE_CONFIGURATION_CHANNEL, JSON.stringify(message));
+	}
+
+	private async createVoiceAuditLog({
+		adminUserId,
+		auditLogReason,
+		targetType,
+		action,
+		metadata,
+	}: VoiceAuditParams): Promise<void> {
+		await this.deps.auditService.createAuditLog({
+			adminUserId,
+			targetType,
+			targetId: BigInt(0),
+			action,
+			auditLogReason,
+			metadata,
+		});
 	}
 }

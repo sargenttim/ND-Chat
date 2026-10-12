@@ -18,7 +18,7 @@ export type MediaControlsVisibilityEvent =
 	| {type: 'controls.mouseLeave'; signals: MediaControlsVisibilitySignals}
 	| {type: 'controls.touchStart'; signals: MediaControlsVisibilitySignals};
 
-const mediaControlsVisibilityStateMachine = setup({
+export const mediaControlsVisibilityStateMachine = setup({
 	types: {} as {
 		events: MediaControlsVisibilityEvent;
 	},

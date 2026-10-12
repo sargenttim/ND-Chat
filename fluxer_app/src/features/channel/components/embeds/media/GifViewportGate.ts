@@ -8,7 +8,7 @@ export interface GifViewportGate {
 	animate: boolean;
 }
 
-function resolveGifViewportGate({
+export function resolveGifViewportGate({
 	isNearViewport,
 	isInViewport,
 	shouldBlur,

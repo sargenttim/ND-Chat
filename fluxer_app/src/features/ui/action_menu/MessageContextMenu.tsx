@@ -30,8 +30,7 @@ import {
 	getMessageSelectionRoot,
 } from '@app/features/messaging/utils/MessageSelectionCopyUtils';
 import {getEmojiNameWithColons, toReactionEmoji, useEmojiURL} from '@app/features/messaging/utils/ReactionUtils';
-import {isApplePlatform as isMacPlatform} from '@app/features/platform/utils/PlatformHelpers';
-import {SubMenu as MenuItemSubmenu, useContextMenuClose} from '@app/features/ui/action_menu/ContextMenu';
+import {useContextMenuClose} from '@app/features/ui/action_menu/ContextMenu';
 import contextMenuStyles from '@app/features/ui/action_menu/ContextMenu.module.css';
 import {CopyIdIcon, CopyLinkIcon, CopyTextIcon, OpenLinkIcon} from '@app/features/ui/action_menu/ContextMenuIcons';
 import type {MediaMenuHandlers} from '@app/features/ui/action_menu/items/MediaMenuData';
@@ -39,7 +38,7 @@ import {TranslateMenuItems} from '@app/features/ui/action_menu/items/TranslateMe
 import {WebSearchMenuItems} from '@app/features/ui/action_menu/items/WebSearchMenuItems';
 import {MenuGroup} from '@app/features/ui/action_menu/MenuGroup';
 import {MenuItem} from '@app/features/ui/action_menu/MenuItem';
-
+import {MenuItemSubmenu} from '@app/features/ui/action_menu/MenuItemSubmenu';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import * as TextCopyCommands from '@app/features/ui/commands/TextCopyCommands';
@@ -191,7 +190,7 @@ const RemoveReactionsSubmenu = observer(({reactions, channelId, messageId}: Remo
 
 RemoveReactionsSubmenu.displayName = 'RemoveReactionsSubmenu';
 
-const AddReactionSubmenuItem = observer(
+export const AddReactionSubmenuItem = observer(
 	({emoji, onSelect}: {emoji: FlatEmoji; onSelect: (emoji: FlatEmoji) => void}) => {
 		const reactionEmoji = useMemo(() => toReactionEmoji(emoji), [emoji]);
 		const emojiUrl = useReactionSubmenuEmojiSrc(emoji);
@@ -383,7 +382,7 @@ export const MessageContextMenu: React.FC<MessageContextMenuProps> = observer(
 			return () => document.removeEventListener('selectionchange', handleSelectionChange);
 		}, [restoreSelection, normalizeSelectionText]);
 		const copyShortcut = useMemo(() => {
-			return isMacPlatform() ? '⌘C' : `${i18n._(CTRL_DESCRIPTOR)}+C`;
+			return /Mac|iPod|iPhone|iPad/.test(navigator.platform) ? '⌘C' : `${i18n._(CTRL_DESCRIPTOR)}+C`;
 		}, [i18n.locale]);
 		const handleCopySelection = useCallback(async () => {
 			if (!selectionText) return;
@@ -497,8 +496,6 @@ export const MessageContextMenu: React.FC<MessageContextMenuProps> = observer(
 		const editItem = itemById.get(ids.edit);
 		const replyItem = itemById.get(ids.reply);
 		const forwardItem = itemById.get(ids.forward);
-		const createThreadItem = itemById.get(ids.createThread);
-		const crosspostItem = itemById.get(ids.crosspost);
 		const copyMessageItem = itemById.get(ids.copyMessage);
 		const pinMessageItem = itemById.get(ids.pinMessage);
 		const bookmarkMessageItem = itemById.get(ids.bookmarkMessage);
@@ -581,14 +578,12 @@ export const MessageContextMenu: React.FC<MessageContextMenuProps> = observer(
 			);
 		};
 		const renderInteractionGroup = () => {
-			if (!editItem && !replyItem && !forwardItem && !createThreadItem && !crosspostItem) return null;
+			if (!editItem && !replyItem && !forwardItem) return null;
 			return (
 				<MenuGroup data-flx="ui.action-menu.message-context-menu.render-interaction-group.menu-group">
 					{editItem && renderDataMenuItem(editItem, 'edit')}
 					{replyItem && renderDataMenuItem(replyItem, 'reply')}
 					{forwardItem && renderDataMenuItem(forwardItem, 'forward')}
-					{createThreadItem && renderDataMenuItem(createThreadItem, 'create-thread')}
-					{crosspostItem && renderDataMenuItem(crosspostItem, 'crosspost')}
 				</MenuGroup>
 			);
 		};
@@ -800,6 +795,7 @@ export const MessageContextMenu: React.FC<MessageContextMenuProps> = observer(
 					<WebSearchMenuItems
 						selectionText={selectionText}
 						onClose={onClose}
+						wrapInGroup
 						data-flx="ui.action-menu.message-context-menu.web-search-menu-items"
 					/>
 				)}
@@ -807,6 +803,7 @@ export const MessageContextMenu: React.FC<MessageContextMenuProps> = observer(
 					<TranslateMenuItems
 						selectionText={translateText}
 						onClose={onClose}
+						wrapInGroup
 						data-flx="ui.action-menu.message-context-menu.translate-menu-items"
 					/>
 				)}

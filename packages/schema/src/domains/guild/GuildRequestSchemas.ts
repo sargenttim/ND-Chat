@@ -8,22 +8,25 @@ import {
 	SystemChannelFlagsDescriptions,
 } from '@fluxer/constants/src/GuildConstants';
 import {
+	AVATAR_MAX_SIZE,
+	EMOJI_MAX_SIZE,
 	MAX_GUILD_ROLES,
 	MAX_GUILD_STICKER_TAGS,
 	MAX_TEMP_BAN_DURATION_SECONDS,
 	MIN_TEMP_BAN_DURATION_SECONDS,
+	STICKER_MAX_SIZE,
 } from '@fluxer/constants/src/LimitConstants';
 import {SudoVerificationSchema} from '@fluxer/schema/src/domains/auth/AuthSchemas';
 import {GuildFeatureSchema} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
 import {TemplateSerializedGuild} from '@fluxer/schema/src/domains/guild/GuildTemplateSchemas';
 import {VanityURLCodeType} from '@fluxer/schema/src/primitives/ChannelValidators';
-import {createBase64ImageType} from '@fluxer/schema/src/primitives/FileValidators';
+import {base64LengthForBytes, createBase64StringType} from '@fluxer/schema/src/primitives/FileValidators';
 import {
 	ContentWarningLevelSchema,
 	DefaultMessageNotificationsSchema,
 	GuildExplicitContentFilterSchema,
 	GuildMFALevelSchema,
-	GuildVerificationLevelInputSchema,
+	GuildVerificationLevelSchema,
 	NSFWLevelSchema,
 	SplashCardAlignmentSchema,
 } from '@fluxer/schema/src/primitives/GuildValidators';
@@ -49,7 +52,9 @@ function coerceBlankStringToNull(value: unknown): unknown {
 
 export const GuildCreateRequest = z.object({
 	name: createStringType(1, 100).describe('The name of the guild (1-100 characters)'),
-	icon: createBase64ImageType().nullish().describe('Base64-encoded image data for the guild icon'),
+	icon: createBase64StringType(1, base64LengthForBytes(AVATAR_MAX_SIZE))
+		.nullish()
+		.describe('Base64-encoded image data for the guild icon'),
 	empty_features: z.boolean().optional().describe('Whether to create the guild without default features'),
 	template: TemplateSerializedGuild.optional().describe('Serialised template data to use for guild structure'),
 });
@@ -59,7 +64,9 @@ export type GuildCreateRequest = z.infer<typeof GuildCreateRequest>;
 export const GuildUpdateRequest = z
 	.object({
 		name: createStringType(1, 100).describe('The name of the guild (1-100 characters)'),
-		icon: createBase64ImageType().nullish().describe('Base64-encoded image data for the guild icon'),
+		icon: createBase64StringType(1, base64LengthForBytes(AVATAR_MAX_SIZE))
+			.nullish()
+			.describe('Base64-encoded image data for the guild icon'),
 		system_channel_id: SnowflakeType.nullish().describe('The ID of the channel where system messages are sent'),
 		system_channel_flags: createBitflagInt32Type(
 			SystemChannelFlags,
@@ -79,7 +86,7 @@ export const GuildUpdateRequest = z
 			'Default notification level for new members',
 		),
 		verification_level: withFieldDescription(
-			GuildVerificationLevelInputSchema,
+			GuildVerificationLevelSchema,
 			'Required verification level for members to participate',
 		),
 		mfa_level: withFieldDescription(GuildMFALevelSchema, 'Required MFA level for moderation actions'),
@@ -101,9 +108,13 @@ export const GuildUpdateRequest = z
 			GuildExplicitContentFilterSchema,
 			'Level of content filtering for explicit media',
 		),
-		banner: createBase64ImageType().nullish().describe('Base64-encoded image data for the guild banner'),
-		splash: createBase64ImageType().nullish().describe('Base64-encoded image data for the guild splash screen'),
-		embed_splash: createBase64ImageType()
+		banner: createBase64StringType(1, base64LengthForBytes(AVATAR_MAX_SIZE))
+			.nullish()
+			.describe('Base64-encoded image data for the guild banner'),
+		splash: createBase64StringType(1, base64LengthForBytes(AVATAR_MAX_SIZE))
+			.nullish()
+			.describe('Base64-encoded image data for the guild splash screen'),
+		embed_splash: createBase64StringType(1, base64LengthForBytes(AVATAR_MAX_SIZE))
 			.nullish()
 			.describe('Base64-encoded image data for the embedded invite splash'),
 		splash_card_alignment: SplashCardAlignmentSchema.optional().describe(
@@ -137,8 +148,12 @@ export const GuildMemberUpdateRequest = z.object({
 		.optional()
 		.transform((ids) => (ids ? new Set(ids) : undefined))
 		.describe(`Array of role IDs to assign to the member (max ${MAX_GUILD_ROLES})`),
-	avatar: createBase64ImageType().nullish().describe('Base64-encoded image data for the member guild avatar'),
-	banner: createBase64ImageType().nullish().describe('Base64-encoded image data for the member guild banner'),
+	avatar: createBase64StringType(1, base64LengthForBytes(AVATAR_MAX_SIZE))
+		.nullish()
+		.describe('Base64-encoded image data for the member guild avatar'),
+	banner: createBase64StringType(1, base64LengthForBytes(AVATAR_MAX_SIZE))
+		.nullish()
+		.describe('Base64-encoded image data for the member guild banner'),
 	bio: createStringType(1, 320).nullish().describe('The member guild profile bio (1-320 characters)'),
 	pronouns: createStringType(1, 40).nullish().describe('The member guild profile pronouns (1-40 characters)'),
 	accent_color: ColorType.nullish().describe('The accent color for the member guild profile as an integer'),
@@ -193,7 +208,9 @@ export const GuildEmojiCreateRequest = z.object({
 	name: createStringType(2, 32)
 		.refine((value) => /^[a-zA-Z0-9_]+$/.test(value), 'Emoji name can only contain letters, numbers, and underscores')
 		.describe('The name of the emoji (2-32 characters, alphanumeric and underscores only)'),
-	image: createBase64ImageType().describe('Base64-encoded image data for the emoji'),
+	image: createBase64StringType(1, base64LengthForBytes(EMOJI_MAX_SIZE)).describe(
+		'Base64-encoded image data for the emoji',
+	),
 });
 
 export type GuildEmojiCreateRequest = z.infer<typeof GuildEmojiCreateRequest>;
@@ -230,7 +247,9 @@ export const GuildStickerCreateRequest = z.object({
 		.optional()
 		.default([])
 		.describe(`Array of autocomplete/suggestion tags (max ${MAX_GUILD_STICKER_TAGS} tags, each 1-30 characters)`),
-	image: createBase64ImageType().describe('Base64-encoded image data for the sticker'),
+	image: createBase64StringType(1, base64LengthForBytes(STICKER_MAX_SIZE)).describe(
+		'Base64-encoded image data for the sticker',
+	),
 });
 
 export type GuildStickerCreateRequest = z.infer<typeof GuildStickerCreateRequest>;

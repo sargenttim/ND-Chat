@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later AND MIT
-// SPDX-FileCopyrightText: 2022 adryd
+// SPDX-License-Identifier: AGPL-3.0-or-later
 
 import styles from '@app/features/accessibility/components/NekoSprite.module.css';
 import Accessibility from '@app/features/accessibility/state/Accessibility';

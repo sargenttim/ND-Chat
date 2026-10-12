@@ -69,6 +69,10 @@ export function syncedPreferencesToJson(preferences: SyncedPreferences): unknown
 	return toJson(SyncedPreferencesSchema, preferences);
 }
 
+export function isEmptySyncedPreferencesEncoded(encoded: string | null | undefined): boolean {
+	return !encoded;
+}
+
 export class SyncedPreferencesDecodeError extends Error {
 	constructor(message: string) {
 		super(`failed to decode synced_preferences: ${message}`);

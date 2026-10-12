@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
-import {GlobalLimits} from '@app/features/app/utils/GlobalLimits';
 import type {Gif} from '@app/features/expressions/commands/GifCommands';
 import {AssetCropModal, type AssetType} from '@app/features/expressions/components/modals/AssetCropModal';
 import {openAssetSourceModal} from '@app/features/expressions/components/modals/AssetSourceModal';
@@ -9,7 +7,12 @@ import {showAnimatedAvifUnsupportedModal} from '@app/features/expressions/utils/
 import {inspectImageFile} from '@app/features/expressions/utils/AnimatedImageUtils';
 import {downloadGifAsImageFile} from '@app/features/expressions/utils/GifFileDownload';
 import {isSvgFile, readImageFileAsUploadDataUrl} from '@app/features/expressions/utils/ImageUploadFileUtils';
-import {revokeObjectUrl} from '@app/features/guild/components/modals/guild_tabs/guild_overview_tab/utils/ImageAsset';
+import {showGuildErrorModal} from '@app/features/guild/components/alerts/GuildErrorModalUtils';
+import {
+	blobToDataUrl,
+	MAX_IMAGE_BYTES,
+	revokeObjectUrl,
+} from '@app/features/guild/components/modals/guild_tabs/guild_overview_tab/utils/ImageAsset';
 import type {FormInputs} from '@app/features/guild/utils/guild_tabs/GuildOverviewTabUtils';
 import {
 	FAILED_TO_PROCESS_CROPPED_IMAGE_DESCRIPTOR,
@@ -17,10 +20,10 @@ import {
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {openFilePicker} from '@app/features/messaging/utils/FilePickerUtils';
 import {formatFileSize} from '@app/features/messaging/utils/FileUtils';
-import {readBlobAsDataUrl as blobToDataUrl, readBlobAsDataUrl} from '@app/features/platform/utils/BlobDataUrl';
 import {canDecodeAnimatedAvif} from '@app/features/platform/utils/ImageDecoderInterop';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
+import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import type React from 'react';
@@ -51,17 +54,17 @@ const IMAGE_COULDN_T_BE_USED_DESCRIPTOR = msg({
 	comment: 'Error modal title shown when a community image upload cannot be accepted or processed.',
 });
 
-type ImageAssetFieldName = 'icon' | 'banner' | 'splash' | 'embed_splash';
+export type ImageAssetFieldName = 'icon' | 'banner' | 'splash' | 'embed_splash';
 type GifMode = 'allow' | 'disallow' | 'require-feature';
 
-interface GifPolicy {
+export interface GifPolicy {
 	mode: GifMode;
 	isAllowed?: () => boolean;
 	featureMissingMessage?: string;
 	disallowedMessage?: string;
 }
 
-interface AspectRatioConfig {
+export interface AspectRatioConfig {
 	compute: (dataUrl: string) => Promise<number>;
 	set: (ratio: number | undefined) => void;
 }
@@ -75,6 +78,7 @@ export interface UseGuildImageAssetFieldArgs {
 	previewUrl: string | null;
 	setPreviewUrl: React.Dispatch<React.SetStateAction<string | null>>;
 	setHasCleared: React.Dispatch<React.SetStateAction<boolean>>;
+	maxBytes?: number;
 	labelForMessages: string;
 	gif?: GifPolicy;
 	aspectRatio?: AspectRatioConfig;
@@ -90,6 +94,10 @@ export interface ImageAssetFieldController {
 	isProcessing: boolean;
 }
 
+interface ApplyDataUrlOptions {
+	skipAspectRatio?: boolean;
+}
+
 export function useGuildImageAssetField({
 	form,
 	fieldName,
@@ -99,6 +107,7 @@ export function useGuildImageAssetField({
 	previewUrl,
 	setPreviewUrl,
 	setHasCleared,
+	maxBytes = MAX_IMAGE_BYTES,
 	labelForMessages,
 	gif,
 	aspectRatio,
@@ -106,7 +115,6 @@ export function useGuildImageAssetField({
 	uploadHint,
 }: UseGuildImageAssetFieldArgs): ImageAssetFieldController {
 	const {i18n} = useLingui();
-	const maxBytes = GlobalLimits.getAvatarMaxSize();
 	const label = labelForMessages;
 	const requestIdRef = useRef(0);
 	const [isProcessing, setIsProcessing] = useState(false);
@@ -117,13 +125,10 @@ export function useGuildImageAssetField({
 	}, [previewUrl]);
 	const showErrorModal = useCallback(
 		(message: React.ReactNode) => {
-			showGenericErrorModal({
-				...{
-					title: i18n._(IMAGE_COULDN_T_BE_USED_DESCRIPTOR),
-					message,
-					dataFlx: 'guild.guild-tabs.guild-overview-tab.use-guild-image-asset-field.error-modal',
-				},
-				defer: true,
+			showGuildErrorModal({
+				title: i18n._(IMAGE_COULDN_T_BE_USED_DESCRIPTOR),
+				message,
+				dataFlx: 'guild.guild-tabs.guild-overview-tab.use-guild-image-asset-field.error-modal',
 			});
 		},
 		[i18n],
@@ -152,16 +157,19 @@ export function useGuildImageAssetField({
 		[aspectRatio],
 	);
 	const applyDataUrl = useCallback(
-		async (dataUrl: string, blob: Blob, requestId: number) => {
+		async (dataUrl: string, blob: Blob, requestId: number, options?: ApplyDataUrlOptions) => {
 			if (requestId !== requestIdRef.current) return;
 			const nextPreviewUrl = URL.createObjectURL(blob);
 			setFieldValue(dataUrl);
 			setPreviewUrl(nextPreviewUrl);
 			setHasCleared(false);
-
+			if (options?.skipAspectRatio) {
+				aspectRatio?.set(undefined);
+				return;
+			}
 			applyAspectRatio(dataUrl, requestId);
 		},
-		[applyAspectRatio, setFieldValue, setHasCleared, setPreviewUrl],
+		[applyAspectRatio, aspectRatio, setFieldValue, setHasCleared, setPreviewUrl],
 	);
 	const handleFile = useCallback(
 		async (file: File | null) => {
@@ -204,7 +212,7 @@ export function useGuildImageAssetField({
 			setIsProcessing(true);
 			let sourceBase64: string;
 			try {
-				sourceBase64 = svg ? await readImageFileAsUploadDataUrl(file) : await readBlobAsDataUrl(file);
+				sourceBase64 = svg ? await readImageFileAsUploadDataUrl(file) : await AvatarUtils.fileToBase64(file);
 			} catch {
 				setIsProcessing(false);
 				showErrorModal(i18n._(INVALID_IMAGE_TRY_ANOTHER_DESCRIPTOR));

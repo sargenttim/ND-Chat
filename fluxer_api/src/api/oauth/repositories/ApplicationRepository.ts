@@ -7,8 +7,8 @@ import {BatchBuilder, fetchMany, fetchOne} from '@app/api/database/CassandraQuer
 import {buildPatchFromData, executeVersionedUpdate} from '@app/api/database/CassandraVersionedUpdate';
 import type {ApplicationByOwnerRow, ApplicationRow} from '@app/api/database/types/OAuth2Types';
 import {APPLICATION_COLUMNS} from '@app/api/database/types/OAuth2Types';
-import {getInstanceProductName} from '@app/api/instance/ProductName';
 import {Application} from '@app/api/models/Application';
+import type {IApplicationRepository} from '@app/api/oauth/repositories/IApplicationRepository';
 import {Applications, ApplicationsByOwner} from '@app/api/Tables';
 import {hashPassword} from '@app/api/utils/PasswordUtils';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
@@ -51,7 +51,7 @@ function buildAdminApplication(secretHash: string | null): Application {
 	const row: ApplicationRow = {
 		application_id: createApplicationID(ADMIN_OAUTH2_APPLICATION_ID),
 		owner_user_id: SYSTEM_USER_ID,
-		name: `${getInstanceProductName()} Admin`,
+		name: 'Fluxer Admin',
 		bot_user_id: null,
 		bot_is_public: false,
 		bot_require_code_grant: false,
@@ -66,7 +66,7 @@ function buildAdminApplication(secretHash: string | null): Application {
 	return new Application(row);
 }
 
-export class ApplicationRepository {
+export class ApplicationRepository implements IApplicationRepository {
 	async getApplication(applicationId: ApplicationID): Promise<Application | null> {
 		if (applicationId === createApplicationID(ADMIN_OAUTH2_APPLICATION_ID)) {
 			const secretHash = await getAdminSecretHash();

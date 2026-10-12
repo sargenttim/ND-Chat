@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use reqwest::Method;
-
 use super::client::{AdminApiClient, ApiResult};
 use super::types::{Application, ApplicationUpdateResponse, LookupApplicationResponse};
 use serde::Serialize;
@@ -45,13 +43,12 @@ impl AdminApiClient {
         new_owner_id: &str,
     ) -> ApiResult<ApplicationUpdateResponse> {
         let body = TransferApplicationOwnershipRequest { new_owner_id };
-        self.send(
-            Method::PATCH,
+        self.patch_typed_with_reason(
             &format!(
                 "/admin/applications/{}",
                 urlencoding::encode(application_id)
             ),
-            Some(&body),
+            &body,
             None,
         )
         .await

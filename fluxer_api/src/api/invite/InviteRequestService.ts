@@ -3,7 +3,6 @@
 import type {ChannelID, GuildID, InviteCode, UserID} from '@app/api/BrandedTypes';
 import {mapChannelToPartialResponse} from '@app/api/channel/ChannelMappers';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
-import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
@@ -63,15 +62,10 @@ export class InviteRequestService {
 		return this.mapInviteResponse(invite, params.requestCache);
 	}
 
-	async deleteInvite(params: {
-		userId: UserID;
-		viewer: ThreadViewer;
-		inviteCode: InviteCode;
-		auditLogReason?: string | null;
-	}): Promise<void> {
+	async deleteInvite(params: {userId: UserID; inviteCode: InviteCode; auditLogReason?: string | null}): Promise<void> {
 		const invite = await this.inviteService.getInvite(params.inviteCode);
 		await this.inviteService.deleteInvite(
-			{userId: params.userId, viewer: params.viewer, inviteCode: params.inviteCode},
+			{userId: params.userId, inviteCode: params.inviteCode},
 			params.auditLogReason,
 		);
 		await this.inviteService.dispatchInviteDelete(invite);
@@ -79,7 +73,6 @@ export class InviteRequestService {
 
 	async createChannelInvite(params: {
 		inviterId: UserID;
-		viewer: ThreadViewer;
 		channelId: ChannelID;
 		requestCache: RequestCache;
 		data: ChannelInviteCreateRequest;
@@ -88,7 +81,6 @@ export class InviteRequestService {
 		const {invite, isNew} = await this.inviteService.createInvite(
 			{
 				inviterId: params.inviterId,
-				viewer: params.viewer,
 				channelId: params.channelId,
 				maxUses: params.data.max_uses ?? 0,
 				maxAge: params.data.max_age ?? 0,
@@ -106,13 +98,11 @@ export class InviteRequestService {
 
 	async listChannelInvites(params: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		channelId: ChannelID;
 		requestCache: RequestCache;
 	}): Promise<Array<InviteMetadataResponseSchema>> {
-		const invites = await this.inviteService.getChannelInvites({
+		const invites = await this.inviteService.getChannelInvitesSorted({
 			userId: params.userId,
-			viewer: params.viewer,
 			channelId: params.channelId,
 		});
 		return this.mapInviteList(invites, params.requestCache);
@@ -123,7 +113,7 @@ export class InviteRequestService {
 		guildId: GuildID;
 		requestCache: RequestCache;
 	}): Promise<Array<InviteMetadataResponseSchema>> {
-		const invites = await this.inviteService.getGuildInvites({
+		const invites = await this.inviteService.getGuildInvitesSorted({
 			userId: params.userId,
 			guildId: params.guildId,
 		});
@@ -140,7 +130,7 @@ export class InviteRequestService {
 				await this.channelService.channelData.operations.getChannelSystem(channelId),
 			getChannelMemberCount: async (channelId: ChannelID) =>
 				await this.channelService.channelData.operations.getChannelMemberCount(channelId),
-			getGuildResponse: async (guildId: GuildID) => await this.guildService.data.operations.getPublicGuildData(guildId),
+			getGuildResponse: async (guildId: GuildID) => await this.guildService.data.getPublicGuildData(guildId),
 			getGuildCounts: async (guildId: GuildID) => await this.gatewayService.getGuildCounts(guildId),
 			gatewayService: this.gatewayService,
 		};

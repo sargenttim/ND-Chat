@@ -35,6 +35,12 @@ pub struct DeleteAllUserMessagesResponse {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct NcmecAttachmentSubmitResult {
+    #[serde(flatten)]
+    pub data: serde_json::Value,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct BrowseChannelResponse {
     #[serde(flatten)]
     pub data: serde_json::Value,

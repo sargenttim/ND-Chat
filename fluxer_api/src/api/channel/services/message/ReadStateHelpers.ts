@@ -3,12 +3,12 @@
 import type {ChannelID, MessageID} from '@app/api/BrandedTypes';
 import type {User} from '@app/api/models/User';
 import type {ReadStateService} from '@app/api/read_state/ReadStateService';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 
 interface IncrementDmMentionCountsParams {
 	readStateService: ReadStateService;
-	userRepository: Pick<UserRepository, 'getRelationship'>;
+	userRepository: Pick<IUserRepository, 'getRelationship'>;
 	user: User | null;
 	recipients: Array<User>;
 	channelId: ChannelID;

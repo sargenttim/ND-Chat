@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use reqwest::Method;
-
 use super::client::{AdminApiClient, ApiResult};
 use super::types::{LimitConfigResponse, LimitConfigUpdateRequest};
 
@@ -14,7 +12,7 @@ impl AdminApiClient {
         &self,
         request: &LimitConfigUpdateRequest,
     ) -> ApiResult<LimitConfigResponse> {
-        self.send(Method::PUT, "/admin/limit-config", Some(request), None)
+        self.put_typed_with_reason("/admin/limit-config", request, None)
             .await
     }
 }

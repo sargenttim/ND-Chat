@@ -4,11 +4,10 @@ import type {CommandOption} from '@app/features/devtools/hooks/useCommands';
 import type {SlashSlotValidity} from '@app/features/lexical/composer/nodes/SlashSlotNode';
 import type {SlashSlotType, SlashSlotValidationError} from '@app/features/lexical/composer/slashSlotValidation';
 import type {MentionSegment} from '@app/features/messaging/utils/TextareaSegmentManager';
-import {isRecord} from '@fluxer/record_utils/src/RecordGuards';
 
-const COMPOSER_SLASH_COMMAND_STATE_SEGMENT_PREFIX = 'slash-command-state:';
-const COMPOSER_SLASH_COMMAND_STATE_MAX_ID_LENGTH = 32_768;
-const COMPOSER_SLASH_SLOT_STATE_SEGMENT_PREFIX = 'slash-slot-state:';
+export const COMPOSER_SLASH_COMMAND_STATE_SEGMENT_PREFIX = 'slash-command-state:';
+export const COMPOSER_SLASH_COMMAND_STATE_MAX_ID_LENGTH = 32_768;
+export const COMPOSER_SLASH_SLOT_STATE_SEGMENT_PREFIX = 'slash-slot-state:';
 export const COMPOSER_SLASH_SLOT_STATE_MAX_ID_LENGTH = 32_768;
 
 interface PersistedSlashSlotStateBase {
@@ -76,6 +75,10 @@ const ROLE_WIRE_RE = /^<@&\d+>$/;
 const CHANNEL_WIRE_RE = /^<#\d+>$/;
 const INTEGER_RE = /^-?\d+$/;
 const NUMBER_RE = /^-?\d+(\.\d+)?$/;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value != null && !Array.isArray(value);
+}
 
 function hasExactKeys(value: Record<string, unknown>, keys: ReadonlyArray<string>): boolean {
 	const actualKeys = Object.keys(value);
@@ -275,7 +278,7 @@ export function createSlashCommandStateSegmentId(
 	return id.length <= COMPOSER_SLASH_COMMAND_STATE_MAX_ID_LENGTH ? id : null;
 }
 
-function parseSlashCommandStateSegmentId(id: string): PersistedSlashCommandState | null {
+export function parseSlashCommandStateSegmentId(id: string): PersistedSlashCommandState | null {
 	if (
 		!id.startsWith(COMPOSER_SLASH_COMMAND_STATE_SEGMENT_PREFIX) ||
 		id.length > COMPOSER_SLASH_COMMAND_STATE_MAX_ID_LENGTH

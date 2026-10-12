@@ -1,12 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {ChannelThreadsAssignmentResponse} from '@fluxer/schema/src/domains/admin/ChannelThreadsSchemas';
 import {
 	DomainMigrationAssignmentResponse,
 	INERT_DOMAIN_MIGRATION_ASSIGNMENT,
 } from '@fluxer/schema/src/domains/admin/DomainMigrationSchemas';
-import {PlutoniumPageAssignmentResponse} from '@fluxer/schema/src/domains/admin/PlutoniumPageSchemas';
-import {INERT_VOICE_P2P_ASSIGNMENT, VoiceP2pAssignmentResponse} from '@fluxer/schema/src/domains/admin/VoiceP2pSchemas';
 import {z} from 'zod';
 
 export const EXPERIMENT_MIN_POLL_INTERVAL_SECONDS = 60;
@@ -45,9 +42,6 @@ export type ExperimentDeliveryConfigResponse = z.infer<typeof ExperimentDelivery
 
 const ExperimentAssignmentsSchema = z.object({
 	domain_migration: DomainMigrationAssignmentResponse.optional(),
-	channel_threads: ChannelThreadsAssignmentResponse.optional(),
-	plutonium_page: PlutoniumPageAssignmentResponse.optional(),
-	voice_p2p: VoiceP2pAssignmentResponse.optional(),
 });
 
 export const ExperimentAssignmentsResponse = z.object({
@@ -68,8 +62,4 @@ export function readDomainMigrationAssignment(
 	response: ExperimentAssignmentsResponse,
 ): DomainMigrationAssignmentResponse {
 	return response.assignments.domain_migration ?? INERT_DOMAIN_MIGRATION_ASSIGNMENT;
-}
-
-export function readVoiceP2pAssignment(response: ExperimentAssignmentsResponse): VoiceP2pAssignmentResponse {
-	return response.assignments.voice_p2p ?? INERT_VOICE_P2P_ASSIGNMENT;
 }

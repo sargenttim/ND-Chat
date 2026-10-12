@@ -15,10 +15,7 @@ import {
 	getSelectedNoiseSuppressionChoice,
 	setNoiseSuppressionChoice,
 } from '@app/features/voice/utils/noise_suppression/NoiseSuppressionChoices';
-import {
-	getNoiseSuppressionChoiceLabel,
-	getNoiseSuppressionFallbackMessage,
-} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionLabels';
+import {getNoiseSuppressionChoiceLabel} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionLabels';
 import {
 	VOICE_AUTOMATIC_GAIN_CONTROL_DESCRIPTOR,
 	VOICE_DIRECT_INPUT_PROFILE_DESCRIPTOR,
@@ -27,7 +24,6 @@ import {
 	VOICE_NOISE_SUPPRESSION_DESCRIPTOR,
 } from '@app/features/voice/utils/VoiceMessageDescriptors';
 import {getActiveVoiceProcessingMode, type VoiceProcessingMode} from '@app/features/voice/utils/VoiceProcessingProfile';
-import {CUSTOM_DESCRIPTOR_2 as CUSTOM_DESCRIPTOR} from '@app/features/voice/utils/VoiceSharedMessageDescriptors';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
@@ -40,7 +36,11 @@ const DIRECT_INPUT_OPTION_DESCRIPTION_DESCRIPTOR = msg({
 	message: 'Sends raw mic audio with no processing.',
 	comment: 'Description for the studio / direct-input option in the voice processing settings radio group.',
 });
-
+const CUSTOM_DESCRIPTOR = msg({
+	message: 'Custom',
+	comment: 'Voice input processing profile where the user configures processing manually.',
+	context: 'voice-processing-profile',
+});
 const TUNE_THE_PROCESSING_YOURSELF_DESCRIPTOR = msg({
 	message: 'Tune the processing yourself.',
 	comment: 'Description for the custom option in the voice processing settings radio group.',
@@ -65,7 +65,6 @@ export const AudioProcessingModal = observer(() => {
 	const {i18n} = useLingui();
 	const mode = getActiveVoiceProcessingMode(VoiceSettings);
 	const noiseSuppressionChoice = getSelectedNoiseSuppressionChoice();
-	const noiseSuppressionFallbackMessage = getNoiseSuppressionFallbackMessage(i18n);
 	const modeOptions: Array<RadioOption<VoiceProcessingMode>> = [
 		{
 			value: 'voice',
@@ -111,9 +110,6 @@ export const AudioProcessingModal = observer(() => {
 						aria-label={i18n._(VOICE_PROCESSING_DESCRIPTOR)}
 						data-flx="voice.voice-connection-status.audio-processing-modal.radio-group.update"
 					/>
-					{mode === 'voice' && noiseSuppressionFallbackMessage && (
-						<p data-flx="voice.voice-connection-status.audio-processing-modal.p">{noiseSuppressionFallbackMessage}</p>
-					)}
 					{mode === 'custom' && (
 						<div
 							className={styles.nsOptions}
@@ -121,7 +117,6 @@ export const AudioProcessingModal = observer(() => {
 						>
 							<CompactComboboxRow<VoiceNoiseSuppressionBackend>
 								label={i18n._(VOICE_NOISE_SUPPRESSION_DESCRIPTOR)}
-								description={noiseSuppressionFallbackMessage}
 								value={noiseSuppressionChoice}
 								options={noiseSuppressionOptions}
 								onChange={setNoiseSuppressionChoice}

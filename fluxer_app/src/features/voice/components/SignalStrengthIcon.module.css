@@ -4,6 +4,10 @@
 	display: block;
 }
 
+.primaryMuted {
+	color: var(--text-primary-muted);
+}
+
 .green {
 	color: var(--status-online);
 }

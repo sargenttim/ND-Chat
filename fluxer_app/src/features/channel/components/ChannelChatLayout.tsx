@@ -5,6 +5,7 @@ import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
+import {createContext, useContext} from 'react';
 
 const MESSAGES_DESCRIPTOR = msg({
 	message: 'Messages',
@@ -18,9 +19,16 @@ const MESSAGE_COMPOSER_DESCRIPTOR = msg({
 interface ChannelChatLayoutProps {
 	messages: React.ReactNode;
 	textarea: React.ReactNode;
+	hideBottomBar?: boolean;
 }
 
-export const ChannelChatLayout = observer(({messages, textarea}: ChannelChatLayoutProps) => {
+const ChannelComposerAmbientStatusVisibilityContext = createContext(true);
+
+export function useChannelComposerAmbientStatusVisibility(): boolean {
+	return useContext(ChannelComposerAmbientStatusVisibilityContext);
+}
+
+export const ChannelChatLayout = observer(({messages, textarea, hideBottomBar = false}: ChannelChatLayoutProps) => {
 	const {i18n} = useLingui();
 	return (
 		<div className={styles.container} data-flx="channel.channel-chat-layout.container">
@@ -36,7 +44,9 @@ export const ChannelChatLayout = observer(({messages, textarea}: ChannelChatLayo
 				aria-label={i18n._(MESSAGE_COMPOSER_DESCRIPTOR)}
 				data-flx="channel.channel-chat-layout.textarea-area"
 			>
-				{textarea}
+				<ChannelComposerAmbientStatusVisibilityContext.Provider value={!hideBottomBar}>
+					{textarea}
+				</ChannelComposerAmbientStatusVisibilityContext.Provider>
 			</section>
 		</div>
 	);

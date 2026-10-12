@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {assign, initialTransition, type SnapshotFrom, setup} from 'xstate';
+import {assign, initialTransition, type SnapshotFrom, setup, transition} from 'xstate';
 
 export interface ReadStateMentionInput {
 	authorBlocked: boolean;
@@ -11,9 +11,9 @@ export interface ReadStateMentionInput {
 	isMuted: boolean;
 }
 
-type ReadStateMentionReason = 'blocked' | 'user' | 'everyone' | 'role' | 'private' | 'none';
+export type ReadStateMentionReason = 'blocked' | 'user' | 'everyone' | 'role' | 'private' | 'none';
 
-type ReadStateMentionEvent = {
+export type ReadStateMentionEvent = {
 	type: 'readStateMention.updated';
 	input: ReadStateMentionInput;
 };
@@ -40,7 +40,7 @@ function getMentionReason(snapshot: ReadStateMentionSnapshot): ReadStateMentionR
 	}
 }
 
-const readStateMentionMachine = setup({
+export const readStateMentionMachine = setup({
 	types: {} as {
 		context: ReadStateMentionInput;
 		events: ReadStateMentionEvent;
@@ -95,13 +95,20 @@ const readStateMentionMachine = setup({
 	},
 });
 
-type ReadStateMentionSnapshot = SnapshotFrom<typeof readStateMentionMachine>;
+export type ReadStateMentionSnapshot = SnapshotFrom<typeof readStateMentionMachine>;
 
-function createReadStateMentionSnapshot(input: ReadStateMentionInput): ReadStateMentionSnapshot {
+export function createReadStateMentionSnapshot(input: ReadStateMentionInput): ReadStateMentionSnapshot {
 	return initialTransition(readStateMentionMachine, input)[0];
 }
 
-function selectReadStateMentionModel(snapshot: ReadStateMentionSnapshot): ReadStateMentionModel {
+export function transitionReadStateMentionSnapshot(
+	snapshot: ReadStateMentionSnapshot,
+	event: ReadStateMentionEvent,
+): ReadStateMentionSnapshot {
+	return transition(readStateMentionMachine, snapshot, event)[0] as ReadStateMentionSnapshot;
+}
+
+export function selectReadStateMentionModel(snapshot: ReadStateMentionSnapshot): ReadStateMentionModel {
 	const reason = getMentionReason(snapshot);
 	return {
 		reason,

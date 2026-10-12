@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-interface UnicodeEmoji {
+export interface UnicodeEmoji {
 	surrogates: string;
 }
 

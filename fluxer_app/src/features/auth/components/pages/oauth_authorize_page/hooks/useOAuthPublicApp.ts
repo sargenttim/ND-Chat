@@ -6,13 +6,13 @@ import {
 	logger,
 	type PublicAppData,
 } from '@app/features/auth/components/pages/oauth_authorize_page/OAuthAuthorizePageShared';
+import AccountManager from '@app/features/auth/state/AccountManager';
 import accountStorage from '@app/features/auth/state/AccountStorage';
-import Accounts from '@app/features/auth/state/Accounts';
 import {http} from '@app/features/platform/transport/RestTransport';
 import {HttpError} from '@app/features/platform/types/EndpointError';
 import {useEffect, useState} from 'react';
 
-type PublicAppStatus = 'idle' | 'loading' | 'ready' | 'session_expired' | 'error';
+export type PublicAppStatus = 'idle' | 'loading' | 'ready' | 'session_expired' | 'error';
 
 export interface PublicAppState {
 	status: PublicAppStatus;
@@ -21,8 +21,7 @@ export interface PublicAppState {
 }
 
 export function useOAuthPublicApp(clientId: string | null): PublicAppState {
-	const currentUserId = Accounts.currentUserId;
-	const currentAccountKey = Accounts.currentAccountKey;
+	const currentUserId = AccountManager.currentUserId;
 	const [state, setState] = useState<PublicAppState>(() => ({
 		status: clientId ? 'loading' : 'idle',
 		data: null,
@@ -40,18 +39,11 @@ export function useOAuthPublicApp(clientId: string | null): PublicAppState {
 				const resp = await http.get<PublicAppData>(Endpoints.OAUTH_PUBLIC_APPLICATION(clientId));
 				if (cancelled) return;
 				const currentUser = resp.body.current_user;
-				if (currentUserId && !currentUser) {
-					logger.warn('OAuth public app fetch returned no current user for a signed-in account');
-					setState({status: 'session_expired', data: null, error: null});
-					return;
-				}
-				if (currentUser && currentUser.id === currentUserId && currentAccountKey != null) {
+				if (currentUser && currentUser.id === currentUserId) {
 					const userData = authResponseUserToUserData(currentUser);
 					if (userData) {
-						Accounts.updateAccountUserData(currentAccountKey, userData);
-						void accountStorage.updateAccountUserData(currentAccountKey, userData).catch((error) => {
-							logger.warn(`Failed to persist account user data for ${currentAccountKey}`, error);
-						});
+						AccountManager.updateAccountUserData(currentUser.id, userData);
+						void accountStorage.updateAccountUserData(currentUser.id, userData);
 					}
 				}
 				setState({status: 'ready', data: resp.body, error: null});
@@ -69,6 +61,6 @@ export function useOAuthPublicApp(clientId: string | null): PublicAppState {
 		return () => {
 			cancelled = true;
 		};
-	}, [clientId, currentAccountKey, currentUserId]);
+	}, [clientId, currentUserId]);
 	return state;
 }

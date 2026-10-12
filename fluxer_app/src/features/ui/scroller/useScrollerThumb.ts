@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {clamp} from '@app/features/ui/components/slider/SliderMath';
-
 import {
 	calculateThumbState,
+	clamp,
 	getAxisPointerPosition,
 	getAxisScrollMetrics,
 	type ScrollAxis,

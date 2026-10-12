@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-interface FluxerImageDecoderInit {
+export interface FluxerImageDecoderInit {
 	data: ReadableStream<Uint8Array> | ArrayBuffer | ArrayBufferView;
 	type: string;
 }
@@ -10,7 +10,7 @@ export interface FluxerImageDecoderDecodedFrame {
 	complete: boolean;
 }
 
-interface FluxerImageDecoderTrack {
+export interface FluxerImageDecoderTrack {
 	animated: boolean;
 	frameCount: number;
 	repetitionCount?: number;

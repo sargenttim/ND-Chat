@@ -8,7 +8,6 @@ import {
 	type GuildNSFWLevelValue,
 	GuildSplashCardAlignment,
 	type GuildSplashCardAlignmentValue,
-	GuildVerificationLevel,
 	type GuildVerificationLevelValue,
 	normalizeLegacyNsfwLevel,
 } from '@fluxer/constants/src/GuildConstants';
@@ -31,6 +30,7 @@ export class Guild {
 	readonly embedSplashWidth: number | null;
 	readonly embedSplashHeight: number | null;
 	readonly features: Set<string>;
+	readonly badgeIds: Set<bigint>;
 	readonly verificationLevel: GuildVerificationLevelValue;
 	readonly mfaLevel: GuildMFALevelValue;
 	readonly nsfwLevel: GuildNSFWLevelValue;
@@ -49,7 +49,6 @@ export class Guild {
 	readonly auditLogsIndexedAt: Date | null;
 	readonly membersIndexedAt: Date | null;
 	readonly messageHistoryCutoff: Date | null;
-	readonly invitesPausedUntil: Date | null;
 	readonly version: number;
 
 	constructor(row: GuildRow) {
@@ -69,10 +68,8 @@ export class Guild {
 		this.embedSplashWidth = row.embed_splash_width ?? null;
 		this.embedSplashHeight = row.embed_splash_height ?? null;
 		this.features = row.features ?? new Set();
-		this.verificationLevel = Math.min(
-			row.verification_level ?? 0,
-			GuildVerificationLevel.HIGH,
-		) as GuildVerificationLevelValue;
+		this.badgeIds = row.badge_ids ?? new Set();
+		this.verificationLevel = (row.verification_level ?? 0) as GuildVerificationLevelValue;
 		this.mfaLevel = (row.mfa_level ?? 0) as GuildMFALevelValue;
 		this.nsfwLevel = normalizeLegacyNsfwLevel(row.nsfw_level ?? 0) as GuildNSFWLevelValue;
 		this.nsfw = row.nsfw ?? this.nsfwLevel === 3;
@@ -90,7 +87,6 @@ export class Guild {
 		this.auditLogsIndexedAt = row.audit_logs_indexed_at ?? null;
 		this.membersIndexedAt = row.members_indexed_at ?? null;
 		this.messageHistoryCutoff = row.message_history_cutoff ?? null;
-		this.invitesPausedUntil = row.invites_paused_until ?? null;
 		this.version = row.version;
 	}
 
@@ -112,6 +108,7 @@ export class Guild {
 			embed_splash_width: this.embedSplashWidth,
 			embed_splash_height: this.embedSplashHeight,
 			features: this.features.size > 0 ? this.features : null,
+			badge_ids: this.badgeIds.size > 0 ? this.badgeIds : null,
 			verification_level: this.verificationLevel,
 			mfa_level: this.mfaLevel,
 			nsfw_level: this.nsfwLevel,
@@ -130,7 +127,6 @@ export class Guild {
 			audit_logs_indexed_at: this.auditLogsIndexedAt,
 			members_indexed_at: this.membersIndexedAt,
 			message_history_cutoff: this.messageHistoryCutoff,
-			invites_paused_until: this.invitesPausedUntil,
 			version: this.version,
 		};
 	}

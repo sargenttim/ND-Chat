@@ -5,6 +5,7 @@ import {Logger} from '@app/api/Logger';
 import {fileShaCache} from '@app/api/middleware/FileShaCache';
 import {phraseBlocklistCache} from '@app/api/middleware/PhraseBlocklistCache';
 import {urlBlocklistCache} from '@app/api/middleware/UrlBlocklistCache';
+import {extractUrlCandidates} from '@app/api/utils/UrlNormalizer';
 import {ContentBlockedError} from '@fluxer/errors/src/domains/content/ContentBlockedError';
 
 export interface ModerationContext {
@@ -39,12 +40,16 @@ class ContentModerationService {
 			);
 			throw new ContentBlockedError();
 		}
-		if (urlBlocklistCache.containsBannedLink(text)) {
-			Logger.warn(
-				{surface: ctx.surface, userId: ctx.userId?.toString(), guildId: ctx.guildId?.toString()},
-				'content_moderation.block url match in text',
-			);
-			throw new ContentBlockedError();
+		const urls = extractUrlCandidates(text);
+		if (urls.length === 0) return;
+		for (const url of urls) {
+			if (urlBlocklistCache.isUrlOrDomainBanned(url)) {
+				Logger.warn(
+					{surface: ctx.surface, userId: ctx.userId?.toString(), guildId: ctx.guildId?.toString()},
+					'content_moderation.block url match in text',
+				);
+				throw new ContentBlockedError();
+			}
 		}
 	}
 
@@ -52,6 +57,17 @@ class ContentModerationService {
 		if (!url) return;
 		if (urlBlocklistCache.isUrlOrDomainBanned(url)) {
 			Logger.warn({surface: ctx.surface, userId: ctx.userId?.toString(), url}, 'content_moderation.block url match');
+			throw new ContentBlockedError();
+		}
+	}
+
+	scanHostname(host: string, ctx: ModerationContext): void {
+		if (!host) return;
+		if (urlBlocklistCache.isHostnameBanned(host)) {
+			Logger.warn(
+				{surface: ctx.surface, userId: ctx.userId?.toString(), host},
+				'content_moderation.block hostname match',
+			);
 			throw new ContentBlockedError();
 		}
 	}

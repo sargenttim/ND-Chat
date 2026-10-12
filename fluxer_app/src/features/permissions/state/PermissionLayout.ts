@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import {makeSyncedField} from '@app/features/user/state/SyncedField';
 import {
 	PermissionLayoutSettingsSchema,
@@ -9,12 +8,12 @@ import {
 } from '@fluxer/schema/src/gen/fluxer/user/preferences/v1/preferences_pb';
 import {makeAutoObservable} from 'mobx';
 
-enum PermissionLayoutMode {
+export enum PermissionLayoutMode {
 	COMFY = 'comfy',
 	DENSE = 'dense',
 }
 
-enum PermissionGridMode {
+export enum PermissionGridMode {
 	SINGLE = 'single',
 	GRID = 'grid',
 }
@@ -44,7 +43,7 @@ class PermissionLayout {
 
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
-		initializeStore(this, () => this.initPersistence());
+		this.initPersistence();
 	}
 
 	private async initPersistence(): Promise<void> {
@@ -75,6 +74,14 @@ class PermissionLayout {
 
 	get isGrid(): boolean {
 		return this.gridMode === PermissionGridMode.GRID;
+	}
+
+	setLayoutMode(mode: PermissionLayoutMode): void {
+		this.layoutMode = mode;
+	}
+
+	setGridMode(mode: PermissionGridMode): void {
+		this.gridMode = mode;
 	}
 
 	toggleLayoutMode(): void {

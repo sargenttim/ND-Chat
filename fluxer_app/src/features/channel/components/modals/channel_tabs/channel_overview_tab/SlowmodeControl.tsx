@@ -3,7 +3,7 @@
 import styles from '@app/features/channel/components/modals/channel_tabs/ChannelOverviewTab.module.css';
 import {SettingsControlRow} from '@app/features/channel/components/modals/channel_tabs/channel_overview_tab/SettingsControlRow';
 import type {FormInputs} from '@app/features/channel/components/modals/channel_tabs/channel_overview_tab/shared';
-import {formatList, getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
+import {getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
 import {formatPermissionLabel} from '@app/features/permissions/utils/PermissionUtils';
 import {Slider} from '@app/features/ui/components/Slider';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
@@ -12,6 +12,7 @@ import {SECONDS_PER_HOUR, SECONDS_PER_MINUTE} from '@fluxer/date_utils/src/DateC
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
+import {formatListWithConfig} from '@pkgs/list_utils/src/ListFormatting';
 import type React from 'react';
 import {Controller, type UseFormReturn} from 'react-hook-form';
 
@@ -59,22 +60,20 @@ function formatSlowmodeDuration(i18n: I18n, seconds: number): string {
 	if (remainingSeconds > 0) {
 		parts.push(formatSlowmodeDurationPart(remainingSeconds, 'second', i18n.locale));
 	}
-	return formatList(parts, {locale: i18n.locale, style: 'long', type: 'unit'});
+	return formatListWithConfig(parts, {locale: i18n.locale, style: 'long', type: 'unit'});
 }
 
 interface SlowmodeControlProps {
 	form: UseFormReturn<FormInputs>;
-	name?: 'slowmode' | 'default_thread_rate_limit_per_user';
-	label?: string;
 }
 
-export const SlowmodeControl: React.FC<SlowmodeControlProps> = ({form, name = 'slowmode', label}) => {
+export const SlowmodeControl: React.FC<SlowmodeControlProps> = ({form}) => {
 	const {i18n} = useLingui();
-	const slowmodeLabel = label ?? i18n._(SLOWMODE_DESCRIPTOR);
+	const slowmodeLabel = i18n._(SLOWMODE_DESCRIPTOR);
 	const bypassSlowmodePermissionLabel = formatPermissionLabel(i18n, Permissions.BYPASS_SLOWMODE);
 	return (
 		<Controller
-			name={name}
+			name="slowmode"
 			control={form.control}
 			render={({field}) => {
 				let currentSeconds: number;

@@ -9,7 +9,6 @@ import {
 	REMOVE_FROM_FAVORITES_DESCRIPTOR,
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {useAttachmentRefreshOnError} from '@app/features/messaging/hooks/useAttachmentRefreshOnError';
-import {resolveDesktopCrossOriginMediaURL} from '@app/features/messaging/utils/DesktopResourceUrl';
 import {formatFileSize} from '@app/features/messaging/utils/FileUtils';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
@@ -55,6 +54,13 @@ interface InlineAudioPlayerProps {
 	onDownloadClick?: (e: React.MouseEvent) => void;
 	onContextMenu?: (e: React.MouseEvent) => void;
 	className?: string;
+}
+
+function formatTime(time: number): string {
+	if (!Number.isFinite(time)) return '0:00';
+	const minutes = Math.floor(time / 60);
+	const seconds = Math.floor(time % 60);
+	return `${minutes}:${seconds.toString().padStart(2, '0')}`;
 }
 
 function splitFilename(filename: string): {name: string; extension: string} {
@@ -199,7 +205,7 @@ export function InlineAudioPlayer({
 			>
 				<audio
 					ref={mediaRef as React.RefObject<HTMLAudioElement>}
-					src={resolveDesktopCrossOriginMediaURL(sourceAttribute)}
+					src={sourceAttribute}
 					preload={preloadAttribute}
 					onError={handleMediaError}
 					data-flx="voice.media-player.inline-audio-player.audio"
@@ -311,7 +317,7 @@ export function InlineAudioPlayer({
 					transition={{duration: Accessibility.useReducedMotion ? 0 : 0.2, ease: 'easeOut'}}
 					data-flx="voice.media-player.inline-audio-player.mobile-timestamp"
 				>
-					{state.isPlaying ? formatDuration(currentTime) : formatDuration(displayDuration)}
+					{state.isPlaying ? formatTime(currentTime) : formatTime(displayDuration)}
 				</motion.span>
 			</motion.div>
 		);
@@ -327,7 +333,7 @@ export function InlineAudioPlayer({
 		>
 			<audio
 				ref={mediaRef as React.RefObject<HTMLAudioElement>}
-				src={resolveDesktopCrossOriginMediaURL(sourceAttribute)}
+				src={sourceAttribute}
 				preload={preloadAttribute}
 				onError={handleMediaError}
 				data-flx="voice.media-player.inline-audio-player.audio--2"

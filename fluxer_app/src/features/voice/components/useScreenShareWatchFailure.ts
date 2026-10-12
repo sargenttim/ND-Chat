@@ -72,7 +72,7 @@ interface ScreenShareWatchAttemptKeyOptions {
 	operationKey?: string | number | null;
 }
 
-function screenShareWatchAttemptKey({
+export function screenShareWatchAttemptKey({
 	streamKey,
 	watchGeneration,
 	trackSid,

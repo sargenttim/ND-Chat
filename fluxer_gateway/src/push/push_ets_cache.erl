@@ -6,7 +6,8 @@
 -export([
     init/0,
     get_user_guild_settings/2,
-    put_user_guild_settings/3, put_user_guild_settings/4,
+    put_user_guild_settings/3,
+    put_user_guild_settings/4,
     delete_user_guild_settings/2,
     reserve_user_guild_settings/2,
     get_blocked_ids/1,
@@ -15,6 +16,7 @@
     reserve_blocked_ids/1,
     release/1,
     rebalance/0,
+    rebalance_async/0,
     cache_stats/0,
     evict_tables/1,
     table_size/1
@@ -166,6 +168,11 @@ release({Table, Token, Keys}) ->
         fun(Key) -> select_delete(Table, [{{Key, pending, Token, '_'}, [], [true]}]) end,
         Keys
     ).
+
+-spec rebalance_async() -> ok.
+rebalance_async() ->
+    _ = spawn(fun rebalance/0),
+    ok.
 
 -spec rebalance() -> ok.
 rebalance() ->
@@ -353,6 +360,15 @@ user_id_from_key(_) ->
 
 -ifdef(TEST).
 -include_lib("eunit/include/eunit.hrl").
+
+synced_blocked_ids_are_stored_without_an_expiry_test() ->
+    init(),
+    try
+        ok = put_blocked_ids(4001, [4002]),
+        ?assertEqual([{4001, [4002], infinity}], ets:lookup(?BLOCKED_IDS, 4001))
+    after
+        safe_delete(?BLOCKED_IDS, 4001)
+    end.
 
 synced_blocked_ids_never_expire_test() ->
     init(),

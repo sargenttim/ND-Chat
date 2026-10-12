@@ -8,7 +8,7 @@ export interface TransientUploadFieldMutation {
 	readonly hasCleared?: boolean;
 }
 
-function getTransientUploadFieldMutation({
+export function getTransientUploadFieldMutation({
 	value,
 	previewUrl,
 	hasCleared = false,

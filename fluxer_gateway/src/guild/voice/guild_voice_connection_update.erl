@@ -4,6 +4,8 @@
 
 -typing([eqwalizer]).
 
+-include_lib("fluxer_gateway/include/voice_state.hrl").
+
 -export([handle_update_connection/6]).
 
 -export_type([
@@ -102,7 +104,7 @@ proceed_after_restore(
     ExistingChannelIdBin = maps:get(<<"channel_id">>, ExistingVS, null),
     NewChannelIdBin = integer_to_binary(ChannelIdValue),
     IsChannelChange = ExistingChannelIdBin =/= NewChannelIdBin,
-    GuildId = snowflake_id:parse_maybe(
+    GuildId = guild_voice_connection_normalize:normalize_positive_snowflake(
         maps:get(id, UpdatedState, undefined)
     ),
     ViewerKeyResult = guild_voice_connection_util:resolve_viewer_stream_keys(
@@ -139,7 +141,7 @@ handle_existing_connection(
             ExistingChannelIdBin = maps:get(<<"channel_id">>, ExistingVoiceState, null),
             NewChannelIdBin = integer_to_binary(ChannelIdValue),
             IsChannelChange = ExistingChannelIdBin =/= NewChannelIdBin,
-            GuildId = snowflake_id:parse_maybe(
+            GuildId = guild_voice_connection_normalize:normalize_positive_snowflake(
                 maps:get(id, State, undefined)
             ),
             ViewerKeyResult = guild_voice_connection_util:resolve_viewer_stream_keys(

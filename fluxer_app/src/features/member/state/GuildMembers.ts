@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import GatewayConnection from '@app/features/gateway/transport/GatewayConnection';
 import type {GuildReadyData} from '@app/features/gateway/types/GatewayGuildTypes';
 import {GuildMember} from '@app/features/member/models/GuildMember';
 import SelectedGuild from '@app/features/navigation/state/SelectedGuild';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import Users from '@app/features/user/state/Users';
 import type {GuildMemberData} from '@fluxer/schema/src/domains/guild/GuildMemberSchemas';
-import type {User as WireUser} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 import {makeAutoObservable} from 'mobx';
 
 type Members = Record<string, GuildMember>;
@@ -174,7 +173,7 @@ class GuildMembers {
 		}
 		addVoiceStateMembers(guild, members);
 		const missingVoiceStateMemberUserIds = getMissingVoiceStateMemberUserIds(guild, members);
-		if (missingVoiceStateMemberUserIds.length > 0 && GatewaySessions.foregroundConnection.socket) {
+		if (missingVoiceStateMemberUserIds.length > 0 && GatewayConnection.socket) {
 			void this.ensureMembersLoaded(guild.id, missingVoiceStateMemberUserIds).catch((error: unknown) => {
 				logger.warn('Failed to fetch missing voice members after guild create', {
 					guildId: guild.id,
@@ -183,7 +182,7 @@ class GuildMembers {
 				});
 			});
 		}
-		if (options?.synced || GatewaySessions.foregroundConnection.hasCompletedGuildSync(guild.id)) {
+		if (options?.synced || GatewayConnection.hasCompletedGuildSync(guild.id)) {
 			this.loadedGuilds.add(guild.id);
 			void this.requestPendingMessageMembers(guild.id);
 		}
@@ -214,19 +213,6 @@ class GuildMembers {
 		}
 		this.members[guildId][member.user.id] = new GuildMember(guildId, member);
 		this.nonMembers[guildId]?.delete(member.user.id);
-	}
-
-	hydrateOrRefresh(guildId: string, member: GuildMemberData): void {
-		const existing = this.members[guildId]?.[member.user.id];
-		if (!existing) {
-			this.hydrateIfMissing(guildId, member);
-			return;
-		}
-		Users.handleUserUpdate(member.user as WireUser);
-		if (existing.user === Users.getUser(member.user.id) && existing.matches(member)) {
-			return;
-		}
-		this.members[guildId][member.user.id] = new GuildMember(guildId, member);
 	}
 
 	handleMemberRemove(guildId: string, userId: string): void {
@@ -355,7 +341,7 @@ class GuildMembers {
 				markMissingAsNonMembers: options?.markMissingAsNonMembers ?? false,
 				timeoutId,
 			});
-			const socket = GatewaySessions.foregroundConnection.socket;
+			const socket = GatewayConnection.socket;
 			const requestOptions: {
 				guildId: string;
 				nonce: string;
@@ -387,7 +373,7 @@ class GuildMembers {
 		limit?: number;
 		presences?: boolean;
 	}): void {
-		const socket = GatewaySessions.foregroundConnection.socket;
+		const socket = GatewayConnection.socket;
 		if (!socket) {
 			return;
 		}
@@ -417,11 +403,8 @@ class GuildMembers {
 			return;
 		}
 		this.queuePendingMessageMemberHydration(guildId, missingIds);
-		if (
-			!GatewaySessions.foregroundConnection.hasCompletedGuildSync(guildId) &&
-			SelectedGuild.selectedGuildId === guildId
-		) {
-			GatewaySessions.foregroundConnection.syncGuildIfNeeded(guildId, 'message-member-hydration');
+		if (!GatewayConnection.hasCompletedGuildSync(guildId) && SelectedGuild.selectedGuildId === guildId) {
+			GatewayConnection.syncGuildIfNeeded(guildId, 'message-member-hydration');
 		}
 		await this.requestPendingMessageMembers(guildId);
 	}
@@ -456,7 +439,7 @@ class GuildMembers {
 	}
 
 	private async requestPendingMessageMembers(guildId: string): Promise<void> {
-		if (!GatewaySessions.foregroundConnection.hasCompletedGuildSync(guildId)) {
+		if (!GatewayConnection.hasCompletedGuildSync(guildId)) {
 			return;
 		}
 		const pending = this.pendingMessageMemberHydration.get(guildId);

@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Routes} from '@app/app/Routes';
-import {GuildSettingsModal, UserSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
 import Authentication from '@app/features/auth/state/Authentication';
 import {CategoryCreateModal} from '@app/features/channel/components/modals/CategoryCreateModal';
 import {ChannelCreateModal} from '@app/features/channel/components/modals/ChannelCreateModal';
 import Channels from '@app/features/channel/state/Channels';
 import {DELETE_MY_MESSAGES_DESCRIPTOR} from '@app/features/channel/utils/ChannelMessageDescriptors';
-import {COMMUNITY_RECORD_DESCRIPTOR, RecordDebugModal} from '@app/features/devtools/components/debug/RecordDebugModal';
-
-import {hasForumUnread} from '@app/features/forum/state/ForumReadState';
+import {GuildDebugModal} from '@app/features/devtools/components/debug/GuildDebugModal';
 import {GuildNotificationSettingsModal} from '@app/features/guild/components/modals/GuildNotificationSettingsModal';
 import {GuildPrivacySettingsModal} from '@app/features/guild/components/modals/GuildPrivacySettingsModal';
+import {GuildSettingsModal} from '@app/features/guild/components/modals/GuildSettingsModal';
 import {useDeleteMyMessagesInGuild} from '@app/features/guild/hooks/useDeleteMyMessagesInGuild';
 import {useLeaveGuild} from '@app/features/guild/hooks/useLeaveGuild';
 import type {Guild} from '@app/features/guild/models/Guild';
@@ -32,11 +30,12 @@ import {
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {InviteModal} from '@app/features/invite/components/modals/InviteModal';
 import * as InviteUtils from '@app/features/invite/utils/InviteUtils';
+import {REPORT_COMMUNITY_DESCRIPTOR} from '@app/features/moderation/utils/ModerationMessageDescriptors';
+import {openReportGuildModal} from '@app/features/moderation/utils/ReportActionUtils';
 import * as RouterUtils from '@app/features/navigation/utils/RouterUtils';
 import Permission from '@app/features/permissions/state/Permission';
 import * as ReadStateCommands from '@app/features/read_state/commands/ReadStateCommands';
 import ReadStates from '@app/features/read_state/state/ReadStates';
-import {getUnreadThreadIds} from '@app/features/threads/utils/ThreadViewUtils';
 import {
 	CopyIdIcon,
 	CreateCategoryIcon,
@@ -50,6 +49,7 @@ import {
 	MuteIcon,
 	NotificationSettingsIcon,
 	PrivacySettingsIcon,
+	ReportUserIcon,
 	SettingsIcon,
 } from '@app/features/ui/action_menu/ContextMenuIcons';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
@@ -62,6 +62,7 @@ import type {
 	MenuSubmenuItemType,
 } from '@app/features/ui/menu_bottom_sheet/MenuBottomSheet';
 import * as UserGuildSettingsCommands from '@app/features/user/commands/UserGuildSettingsCommands';
+import {UserSettingsModal} from '@app/features/user/components/modals/UserSettingsModal';
 import {
 	GUILD_SETTINGS_LABEL_DESCRIPTOR,
 	getGuildSettingsTabs,
@@ -99,10 +100,41 @@ interface UseGuildMenuDataOptions {
 	preserveInitialMarkAsReadVisibility?: boolean;
 }
 
+export interface GuildMenuHandlers {
+	handleMarkAsRead: () => void;
+	handleInviteMembers: () => void;
+	handleCommunitySettings: () => void;
+	handleCreateChannel: () => void;
+	handleCreateCategory: () => void;
+	handleNotificationSettings: () => void;
+	handlePrivacySettings: () => void;
+	handleEditCommunityProfile: () => void;
+	handleLeaveCommunity: () => void;
+	handleDeleteMyMessagesInCommunity: () => void;
+	handleCopyGuildId: () => void;
+	handleDebugGuild: () => void;
+	handleResetMatureContentAgreeState: () => void;
+	handleReportGuild: () => void;
+	handleToggleHideMutedChannels: (checked: boolean) => void;
+}
+
+export interface GuildMenuPermissions {
+	canManageGuild: boolean;
+	canManageChannels: boolean;
+	canInvite: boolean;
+	canAccessGuildSettings: boolean;
+	isOwner: boolean;
+	hasGuildUnread: boolean;
+	developerMode: boolean;
+}
+
 export interface GuildMenuData {
 	groups: Array<MenuGroupType>;
+	handlers: GuildMenuHandlers;
+	permissions: GuildMenuPermissions;
 	isMuted: boolean;
 	mutedText: string | null;
+	hideMutedChannels: boolean;
 }
 
 export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions): GuildMenuData {
@@ -140,24 +172,18 @@ export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions)
 	const hasCurrentGuildMatureContentGate =
 		guild.nsfw || guild.contentWarningLevel === ContentWarningLevel.CONTENT_WARNING;
 	const initialHasGuildUnread = useMemo(
-		() =>
-			Channels.getGuildChannels(guild.id).some((channel) =>
-				channel.isThreadOnly() ? hasForumUnread(channel) : ReadStates.hasUnread(channel.id),
-			) || getUnreadThreadIds(guild.id).length > 0,
+		() => Channels.getGuildChannels(guild.id).some((channel) => ReadStates.hasUnread(channel.id)),
 		[guild.id],
 	);
 	const hasGuildUnread = preserveInitialMarkAsReadVisibility
 		? initialHasGuildUnread
-		: channels.some((channel) =>
-				channel.isThreadOnly() ? hasForumUnread(channel) : ReadStates.hasUnread(channel.id),
-			) || getUnreadThreadIds(guild.id).length > 0;
+		: channels.some((channel) => ReadStates.hasUnread(channel.id));
 	const handlers = useMemo(
 		() => ({
 			handleMarkAsRead: () => {
 				const channelIds = channels
 					.filter((channel) => ReadStates.isUnreadOrMentioned(channel.id))
 					.map((channel) => channel.id);
-				channelIds.push(...getUnreadThreadIds(guild.id));
 				if (channelIds.length > 0) {
 					void ReadStateCommands.bulkAckChannels(channelIds);
 				}
@@ -178,15 +204,12 @@ export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions)
 			handleCommunitySettings: () => {
 				ModalCommands.pushAfterBottomSheetClose(
 					onClose,
-					modal(
-						() => (
-							<GuildSettingsModal
-								guildId={guild.id}
-								data-flx="ui.action-menu.items.guild-menu-data.handle-community-settings.guild-settings-modal"
-							/>
-						),
-						'guild-settings',
-					),
+					modal(() => (
+						<GuildSettingsModal
+							guildId={guild.id}
+							data-flx="ui.action-menu.items.guild-menu-data.handle-community-settings.guild-settings-modal"
+						/>
+					)),
 				);
 			},
 			handleCreateChannel: () => {
@@ -236,16 +259,13 @@ export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions)
 			handleEditCommunityProfile: () => {
 				ModalCommands.pushAfterBottomSheetClose(
 					onClose,
-					modal(
-						() => (
-							<UserSettingsModal
-								initialGuildId={guild.id}
-								initialTab="my_profile"
-								data-flx="ui.action-menu.items.guild-menu-data.handle-edit-community-profile.user-settings-modal"
-							/>
-						),
-						'user-settings',
-					),
+					modal(() => (
+						<UserSettingsModal
+							initialGuildId={guild.id}
+							initialTab="my_profile"
+							data-flx="ui.action-menu.items.guild-menu-data.handle-edit-community-profile.user-settings-modal"
+						/>
+					)),
 				);
 			},
 			handleLeaveCommunity: () => {
@@ -262,10 +282,9 @@ export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions)
 				ModalCommands.pushAfterBottomSheetClose(
 					onClose,
 					modal(() => (
-						<RecordDebugModal
-							label={i18n._(COMMUNITY_RECORD_DESCRIPTOR)}
+						<GuildDebugModal
 							title={i18n._(COMMUNITY_DEBUG_DESCRIPTOR)}
-							record={guild}
+							guild={guild}
 							data-flx="ui.action-menu.items.guild-menu-data.handle-debug-guild.guild-debug-modal"
 						/>
 					)),
@@ -275,6 +294,9 @@ export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions)
 				GuildMatureContentAgree.revokeGuild(guild.id);
 				onClose();
 			},
+			handleReportGuild: () => {
+				ModalCommands.runAfterBottomSheetClose(onClose, () => openReportGuildModal({i18n, guild}));
+			},
 			handleToggleHideMutedChannels: (checked: boolean) => {
 				const currentSettings = UserGuildSettings.getSettingsForScope(guild.id);
 				const currentValue = currentSettings?.hide_muted_channels ?? false;
@@ -283,6 +305,18 @@ export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions)
 			},
 		}),
 		[channels, deleteMyMessagesInGuild, guild, i18n.locale, leaveGuild, onClose],
+	);
+	const permissions: GuildMenuPermissions = useMemo(
+		() => ({
+			canManageGuild,
+			canManageChannels,
+			canInvite,
+			canAccessGuildSettings,
+			isOwner,
+			hasGuildUnread,
+			developerMode,
+		}),
+		[canManageGuild, canManageChannels, canInvite, canAccessGuildSettings, isOwner, hasGuildUnread, developerMode],
 	);
 	const availableSettingsTabs = useMemo(() => {
 		const allTabs = getGuildSettingsTabs(i18n);
@@ -329,16 +363,13 @@ export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions)
 					}
 					ModalCommands.pushAfterBottomSheetClose(
 						onClose,
-						modal(
-							() => (
-								<GuildSettingsModal
-									guildId={guild.id}
-									initialTab={tab.type}
-									data-flx="ui.action-menu.items.guild-menu-data.on-click.guild-settings-modal"
-								/>
-							),
-							'guild-settings',
-						),
+						modal(() => (
+							<GuildSettingsModal
+								guildId={guild.id}
+								initialTab={tab.type}
+								data-flx="ui.action-menu.items.guild-menu-data.on-click.guild-settings-modal"
+							/>
+						)),
 					);
 				},
 			}));
@@ -418,11 +449,19 @@ export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions)
 				danger: true,
 			},
 		];
-		if (!isOwner && !isStockCommunityGuild(guild.id)) {
+		if (!isOwner) {
+			if (!isStockCommunityGuild(guild.id)) {
+				dangerActions.push({
+					icon: <LeaveIcon size={20} data-flx="ui.action-menu.items.guild-menu-data.groups.leave-icon" />,
+					label: i18n._(LEAVE_COMMUNITY_DESCRIPTOR),
+					onClick: handlers.handleLeaveCommunity,
+					danger: true,
+				});
+			}
 			dangerActions.push({
-				icon: <LeaveIcon size={20} data-flx="ui.action-menu.items.guild-menu-data.groups.leave-icon" />,
-				label: i18n._(LEAVE_COMMUNITY_DESCRIPTOR),
-				onClick: handlers.handleLeaveCommunity,
+				icon: <ReportUserIcon size={20} data-flx="ui.action-menu.items.guild-menu-data.groups.report-user-icon" />,
+				label: i18n._(REPORT_COMMUNITY_DESCRIPTOR),
+				onClick: handlers.handleReportGuild,
 				danger: true,
 			});
 		}
@@ -477,8 +516,10 @@ export function useGuildMenuData(guild: Guild, options: UseGuildMenuDataOptions)
 	]);
 	return {
 		groups,
-
+		handlers,
+		permissions,
 		isMuted,
 		mutedText: mutedText ?? null,
+		hideMutedChannels,
 	};
 }

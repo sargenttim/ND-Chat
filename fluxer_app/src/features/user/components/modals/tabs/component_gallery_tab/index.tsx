@@ -3,12 +3,13 @@
 import {SettingsTabContainer, SettingsTabContent} from '@app/features/app/components/dialogs/shared/SettingsTabLayout';
 import {StatusSlate} from '@app/features/app/components/dialogs/shared/StatusSlate';
 import {Accordion} from '@app/features/ui/accordion/Accordion';
-import {CheckboxItem, SubMenu as MenuItemSubmenu} from '@app/features/ui/action_menu/ContextMenu';
+import {CheckboxItem} from '@app/features/ui/action_menu/ContextMenu';
 import {MenuGroup} from '@app/features/ui/action_menu/MenuGroup';
 import {MenuGroups} from '@app/features/ui/action_menu/MenuGroups';
 import {MenuItem} from '@app/features/ui/action_menu/MenuItem';
 import {MenuItemRadio} from '@app/features/ui/action_menu/MenuItemRadio';
 import {MenuItemSlider} from '@app/features/ui/action_menu/MenuItemSlider';
+import {MenuItemSubmenu} from '@app/features/ui/action_menu/MenuItemSubmenu';
 import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
 import type {RadioOption} from '@app/features/ui/radio_group/RadioGroup';
 import {ButtonsTab} from '@app/features/user/components/modals/tabs/component_gallery_tab/ComponentGalleryTabButtonsTab';
@@ -17,7 +18,6 @@ import {IndicatorsTab} from '@app/features/user/components/modals/tabs/component
 import {MarkdownTab} from '@app/features/user/components/modals/tabs/component_gallery_tab/MarkdownTab';
 import {OverlaysTab} from '@app/features/user/components/modals/tabs/component_gallery_tab/OverlaysTab';
 import {SelectionsTab} from '@app/features/user/components/modals/tabs/component_gallery_tab/SelectionsTab';
-import {MORE_ACTIONS_DESCRIPTOR} from '@app/features/user/utils/UserMessageDescriptors';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {
@@ -42,6 +42,10 @@ const EDITABLE_TEXT_DESCRIPTOR = msg({
 });
 const OPACITY_DESCRIPTOR = msg({
 	message: 'Opacity',
+	comment: 'Short label in the index. Keep it concise.',
+});
+const MORE_ACTIONS_DESCRIPTOR = msg({
+	message: 'More actions',
 	comment: 'Short label in the index. Keep it concise.',
 });
 
@@ -82,7 +86,7 @@ const ComponentGalleryTab: React.FC = () => {
 	const [sliderValue2, setSliderValue2] = useState(75);
 	const [sliderValue3, setSliderValue3] = useState(50);
 	const [sliderValue4, setSliderValue4] = useState(75);
-	const sliderValue5 = 60;
+	const [sliderValue5, setSliderValue5] = useState(60);
 	const [color, setColor] = useState(0x3b82f6);
 	const [color2, setColor2] = useState(0xff5733);
 	const [radioValue, setRadioValue] = useState<'a' | 'b' | 'c'>('a');
@@ -313,6 +317,7 @@ const ComponentGalleryTab: React.FC = () => {
 						sliderValue4={sliderValue4}
 						setSliderValue4={setSliderValue4}
 						sliderValue5={sliderValue5}
+						setSliderValue5={setSliderValue5}
 						data-flx="user.component-gallery-tab.selections-tab"
 					/>
 				</GalleryAccordionSection>

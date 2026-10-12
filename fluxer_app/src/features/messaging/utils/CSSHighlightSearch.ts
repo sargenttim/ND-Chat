@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const HIGHLIGHT_NAME = 'search-highlight';
+export const HIGHLIGHT_NAME = 'search-highlight';
 
 export function isHighlightAPISupported(): boolean {
 	return typeof CSS !== 'undefined' && 'highlights' in CSS;

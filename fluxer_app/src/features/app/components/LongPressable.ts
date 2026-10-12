@@ -1,20 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {
-	calculateSwipeVelocity,
-	pushVelocitySample,
-	SWIPE_VELOCITY_THRESHOLD,
-	type VelocitySample,
-} from '@app/features/app/hooks/SwipeVelocity';
 import {useMergeRefs} from '@app/features/app/hooks/useMergeRefs';
 import {isKeyboardActivationKey} from '@app/features/input/utils/KeyboardUtils';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 
 const LONG_PRESS_MOVEMENT_THRESHOLD = 10;
+const SWIPE_VELOCITY_THRESHOLD = 0.4;
+const MIN_VELOCITY_SAMPLES = 2;
+const MAX_VELOCITY_SAMPLE_AGE = 100;
 const PRESS_HIGHLIGHT_DELAY_MS = 100;
 const LONG_PRESS_DURATION_MS = 500;
 const LONG_PRESS_CLICK_SUPPRESSION_MS = 750;
 const HAS_POINTER_EVENTS = typeof window !== 'undefined' && 'PointerEvent' in window;
+
+interface VelocitySample {
+	x: number;
+	y: number;
+	timestamp: number;
+}
 
 type LongPressableElement = 'div' | 'span';
 type LongPressEvent = React.PointerEvent<HTMLElement> | React.TouchEvent<HTMLElement>;
@@ -28,11 +31,20 @@ interface LongPressableProps extends React.HTMLAttributes<HTMLElement> {
 	onLongPress?: LongPressHandler;
 	disabled?: boolean;
 	pressedClassName?: string;
+	onPressStateChange?: (isPressed: boolean) => void;
 }
 
 export const LongPressable = React.forwardRef<HTMLElement, LongPressableProps>(
 	(
-		{as: Component = 'div', delay = LONG_PRESS_DURATION_MS, onLongPress, disabled, pressedClassName, ...rest},
+		{
+			as: Component = 'div',
+			delay = LONG_PRESS_DURATION_MS,
+			onLongPress,
+			disabled,
+			pressedClassName,
+			onPressStateChange,
+			...rest
+		},
 		forwardedRef,
 	) => {
 		const innerRef = useRef<HTMLElement | null>(null);
@@ -49,6 +61,13 @@ export const LongPressable = React.forwardRef<HTMLElement, LongPressableProps>(
 		const suppressClickTimer = useRef<NodeJS.Timeout | null>(null);
 		const [isPressed, setIsPressed] = useState(false);
 		const composedRef = useMergeRefs<HTMLElement>([forwardedRef, innerRef]);
+		const setPressed = useCallback(
+			(pressed: boolean) => {
+				setIsPressed(pressed);
+				onPressStateChange?.(pressed);
+			},
+			[onPressStateChange],
+		);
 		const clearSuppressedClick = useCallback(() => {
 			suppressNextClickRef.current = false;
 			if (suppressClickTimer.current) {
@@ -63,6 +82,27 @@ export const LongPressable = React.forwardRef<HTMLElement, LongPressableProps>(
 				suppressClickTimer.current = null;
 				suppressNextClickRef.current = false;
 			}, LONG_PRESS_CLICK_SUPPRESSION_MS);
+		}, []);
+		const calculateVelocity = useCallback((): number => {
+			const samples = velocitySamples.current;
+			if (samples.length < MIN_VELOCITY_SAMPLES) return 0;
+			const now = performance.now();
+			let firstRecentIndex = 0;
+			while (
+				firstRecentIndex < samples.length &&
+				now - samples[firstRecentIndex].timestamp >= MAX_VELOCITY_SAMPLE_AGE
+			) {
+				firstRecentIndex++;
+			}
+			if (samples.length - firstRecentIndex < MIN_VELOCITY_SAMPLES) return 0;
+			const first = samples[firstRecentIndex];
+			const last = samples[samples.length - 1];
+			const dt = last.timestamp - first.timestamp;
+			if (dt === 0) return 0;
+			const dx = last.x - first.x;
+			const dy = last.y - first.y;
+			const distance = Math.sqrt(dx * dx + dy * dy);
+			return distance / dt;
 		}, []);
 		const detachPressScrollCancel = useCallback(() => {
 			const handler = pressScrollCancelHandler.current;
@@ -100,8 +140,8 @@ export const LongPressable = React.forwardRef<HTMLElement, LongPressableProps>(
 			storedEvent.current = null;
 			velocitySamples.current = [];
 			isPressIntent.current = false;
-			setIsPressed(false);
-		}, [detachPressScrollCancel]);
+			setPressed(false);
+		}, [detachPressScrollCancel, setPressed]);
 		clearTimerRef.current = clearTimer;
 		const {
 			onPointerDown: userOnPointerDown,
@@ -144,7 +184,7 @@ export const LongPressable = React.forwardRef<HTMLElement, LongPressableProps>(
 				storedEvent.current = event;
 				highlightTimer.current = setTimeout(() => {
 					if (isPressIntent.current) {
-						setIsPressed(true);
+						setPressed(true);
 					}
 					highlightTimer.current = null;
 				}, PRESS_HIGHLIGHT_DELAY_MS);
@@ -152,12 +192,12 @@ export const LongPressable = React.forwardRef<HTMLElement, LongPressableProps>(
 					if (!disabled && onLongPress && storedEvent.current && isPressIntent.current) {
 						suppressNextClick();
 						onLongPress(storedEvent.current);
-						setIsPressed(false);
+						setPressed(false);
 					}
 					clearTimer();
 				}, delay);
 			},
-			[attachPressScrollCancel, clearTimer, delay, disabled, onLongPress, suppressNextClick],
+			[attachPressScrollCancel, clearTimer, delay, disabled, onLongPress, setPressed, suppressNextClick],
 		);
 		const handlePointerDown = useCallback(
 			(event: React.PointerEvent<HTMLElement>) => {
@@ -174,19 +214,22 @@ export const LongPressable = React.forwardRef<HTMLElement, LongPressableProps>(
 				if (pointerIdRef.current !== event.pointerId) return;
 				const startPos = pressStartPos.current;
 				if (!startPos) return;
-				pushVelocitySample(velocitySamples.current, event.clientX, event.clientY);
+				velocitySamples.current.push({x: event.clientX, y: event.clientY, timestamp: performance.now()});
+				if (velocitySamples.current.length > 10) {
+					velocitySamples.current.splice(0, velocitySamples.current.length - 10);
+				}
 				const deltaX = Math.abs(event.clientX - startPos.x);
 				const deltaY = Math.abs(event.clientY - startPos.y);
 				if (deltaX > LONG_PRESS_MOVEMENT_THRESHOLD || deltaY > LONG_PRESS_MOVEMENT_THRESHOLD) {
 					clearTimer();
 					return;
 				}
-				const velocity = calculateSwipeVelocity(velocitySamples.current, performance.now());
+				const velocity = calculateVelocity();
 				if (velocity > SWIPE_VELOCITY_THRESHOLD) {
 					clearTimer();
 				}
 			},
-			[clearTimer, userOnPointerMove],
+			[clearTimer, calculateVelocity, userOnPointerMove],
 		);
 		const handlePointerUp = useCallback(
 			(event: React.PointerEvent<HTMLElement>) => {
@@ -222,19 +265,22 @@ export const LongPressable = React.forwardRef<HTMLElement, LongPressableProps>(
 				if (!pressStartPos.current) return;
 				const touch = event.touches[0];
 				if (!touch) return;
-				pushVelocitySample(velocitySamples.current, touch.clientX, touch.clientY);
+				velocitySamples.current.push({x: touch.clientX, y: touch.clientY, timestamp: performance.now()});
+				if (velocitySamples.current.length > 10) {
+					velocitySamples.current.splice(0, velocitySamples.current.length - 10);
+				}
 				const deltaX = Math.abs(touch.clientX - pressStartPos.current.x);
 				const deltaY = Math.abs(touch.clientY - pressStartPos.current.y);
 				if (deltaX > LONG_PRESS_MOVEMENT_THRESHOLD || deltaY > LONG_PRESS_MOVEMENT_THRESHOLD) {
 					clearTimer();
 					return;
 				}
-				const velocity = calculateSwipeVelocity(velocitySamples.current, performance.now());
+				const velocity = calculateVelocity();
 				if (velocity > SWIPE_VELOCITY_THRESHOLD) {
 					clearTimer();
 				}
 			},
-			[clearTimer, userOnTouchMove],
+			[clearTimer, calculateVelocity, userOnTouchMove],
 		);
 		const handleTouchEnd = useCallback(
 			(event: React.TouchEvent<HTMLElement>) => {

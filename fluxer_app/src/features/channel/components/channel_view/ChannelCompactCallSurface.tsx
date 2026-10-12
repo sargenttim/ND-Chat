@@ -18,6 +18,7 @@ interface ChannelCompactCallSurfaceProps {
 	audioOnly?: boolean;
 	hideControlBar?: boolean;
 	onFullscreenRequest?: () => void;
+	fullscreenRequestNonce?: number;
 	reserveHeaderChrome?: boolean;
 }
 
@@ -32,6 +33,7 @@ export const ChannelCompactCallSurface = observer(function ChannelCompactCallSur
 	audioOnly = false,
 	hideControlBar = false,
 	onFullscreenRequest,
+	fullscreenRequestNonce,
 	reserveHeaderChrome = false,
 }: ChannelCompactCallSurfaceProps) {
 	return (
@@ -54,6 +56,7 @@ export const ChannelCompactCallSurface = observer(function ChannelCompactCallSur
 				avatarFallback={avatarFallback}
 				avatarFallbackFullBleed={avatarFallbackFullBleed}
 				onFullscreenRequest={onFullscreenRequest}
+				fullscreenRequestNonce={fullscreenRequestNonce}
 				reserveHeaderChrome={reserveHeaderChrome}
 				data-flx="channel.channel-view.channel-compact-call-surface.compact-voice-call-view"
 			/>

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {normalizeMemberListRanges} from '@app/features/member/utils/MemberListRangeUtils';
-import {assign, initialTransition, type SnapshotFrom, setup} from 'xstate';
+import {assign, initialTransition, type SnapshotFrom, setup, transition} from 'xstate';
 
 export interface MemberListViewportMachineInput {
 	hasReceivedInitialPayload?: boolean;
@@ -10,14 +10,14 @@ export interface MemberListViewportMachineInput {
 	totalRows?: number | null;
 }
 
-interface MemberListViewportMachineContext {
+export interface MemberListViewportMachineContext {
 	hasReceivedInitialPayload: boolean;
 	requestedRanges: Array<[number, number]>;
 	subscribedRanges: Array<[number, number]>;
 	totalRows: number;
 }
 
-type MemberListViewportMachineEvent =
+export type MemberListViewportMachineEvent =
 	| {
 			type: 'memberList.storeUpdated';
 			hasReceivedInitialPayload: boolean;
@@ -41,8 +41,8 @@ export interface MemberListViewportModel {
 	totalRows: number;
 }
 
-type MemberListViewportMachineSnapshot = SnapshotFrom<typeof memberListViewportStateMachine>;
-type MemberListViewportStateValue = 'initialLoading' | 'virtualized';
+export type MemberListViewportMachineSnapshot = SnapshotFrom<typeof memberListViewportStateMachine>;
+export type MemberListViewportStateValue = 'initialLoading' | 'virtualized';
 
 function sanitizeTotalRows(totalRows: number | null | undefined): number {
 	if (totalRows == null || !Number.isFinite(totalRows)) {
@@ -55,7 +55,7 @@ function normalizeRanges(ranges: Array<[number, number]> | null | undefined): Ar
 	return normalizeMemberListRanges(ranges ?? []);
 }
 
-const memberListViewportStateMachine = setup({
+export const memberListViewportStateMachine = setup({
 	types: {} as {
 		context: MemberListViewportMachineContext;
 		events: MemberListViewportMachineEvent;
@@ -124,17 +124,26 @@ const memberListViewportStateMachine = setup({
 	},
 });
 
-function createMemberListViewportSnapshot(
+export function createMemberListViewportSnapshot(
 	input: MemberListViewportMachineInput = {},
 ): MemberListViewportMachineSnapshot {
 	return initialTransition(memberListViewportStateMachine, input)[0];
 }
 
-function getMemberListViewportStateValue(snapshot: MemberListViewportMachineSnapshot): MemberListViewportStateValue {
+export function transitionMemberListViewportSnapshot(
+	snapshot: MemberListViewportMachineSnapshot,
+	event: MemberListViewportMachineEvent,
+): MemberListViewportMachineSnapshot {
+	return transition(memberListViewportStateMachine, snapshot, event)[0] as MemberListViewportMachineSnapshot;
+}
+
+export function getMemberListViewportStateValue(
+	snapshot: MemberListViewportMachineSnapshot,
+): MemberListViewportStateValue {
 	return snapshot.value === 'virtualized' ? 'virtualized' : 'initialLoading';
 }
 
-function selectMemberListViewportModel(snapshot: MemberListViewportMachineSnapshot): MemberListViewportModel {
+export function selectMemberListViewportModel(snapshot: MemberListViewportMachineSnapshot): MemberListViewportModel {
 	const stateValue = getMemberListViewportStateValue(snapshot);
 	const isInitialLoading = stateValue === 'initialLoading';
 	const {requestedRanges, totalRows} = snapshot.context;

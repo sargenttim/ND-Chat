@@ -98,8 +98,6 @@ A credential can affect even an unauthenticated operation. It selects account-ba
 
 A protected operation returns 401 `UNAUTHORIZED` for a missing, malformed, unknown, expired, or revoked credential. Bot tokens on Admin operations and non-bearer credentials on bearer-only operations also return 401.
 
-The routes with a route header on [Threads](/http-api/threads/), [Thread members](/http-api/thread-members/) and [Forums](/http-api/forums/) are the exception. A bot token reaches them with no declaration. A user request reaches them only with a session token and the `channel_threads` client capability. Any other request returns 404 `NOT_FOUND`, including one with no credential or an OAuth2 access token. [Client capability](/http-api/threads/#client-capability) defines the rule.
-
 A valid identity denied by the operation returns 403 `ACCESS_DENIED`. An [Authentication](/http-api/authentication/) operation that resolves a bot account returns 403 `BOT_USER_AUTH_ENDPOINT_ACCESS_DENIED`, as [Bot tokens](#bot-tokens) describes.
 
 Scope and Admin permission failures use the specific codes above. A 401 has no `WWW-Authenticate` header, so clients must inspect `code`.
@@ -126,7 +124,24 @@ Enforcement applies at those operations only, and does not gate password change 
 
 ## Account state gates
 
-A [limited account](/http-api/users/#account-limitation) keeps its credentials and sessions. The operations listed there return 403 `ACCOUNT_LIMITED`, and every other operation accepts the account as usual.
+An ordinary authenticated operation rejects an account that has an unmet suspicious activity requirement with 403 `ACCOUNT_SUSPICIOUS_ACTIVITY`. Each set flag in the response is one requirement the account has not met. A flag no longer appears in the response once the account meets that requirement.
+
+### Account suspicious activity body
+
+| Field | Type | Description |
+| --- | --- | --- |
+| data | object | An object whose `suspicious_activity_flags` member is the integer [suspicious activity flag](/admin-api/users/#suspicious-activity-flags) bitfield still outstanding |
+
+A route that explicitly admits an account with an unmet suspicious activity requirement still accepts its credential. These stay reachable while a requirement is outstanding:
+
+- [Get current user](/http-api/users/current-user/#get-current-user) and [Modify current user](/http-api/users/current-user/#modify-current-user).
+- [Get current user settings](/http-api/users/settings/#get-current-user-settings).
+- The [email change flow](/http-api/users/email-and-password/) with its bounced-address variants, and the email verification resend.
+- The [phone verification](/http-api/users/phone-verification/) flow.
+- Session listing and session termination.
+- The application and authorisation management operations in [Applications](/http-api/applications/) and [OAuth2](/http-api/oauth2/).
+
+An Admin operation applies no suspicious activity gate.
 
 No shared gate rejects a deleted or disabled account. Each operation that reads account state applies its own rule, and login, password, and email operations refuse a deleted account outright.
 

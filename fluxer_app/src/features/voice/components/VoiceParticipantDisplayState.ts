@@ -6,7 +6,7 @@ import {
 	type VoiceEngineV2AppParticipantSpeakingSnapshot,
 } from '@app/features/voice/engine/v2/VoiceEngineV2AppSelectors';
 
-interface VoiceParticipantDisplaySnapshot extends VoiceEngineV2AppParticipantSpeakingSnapshot {
+export interface VoiceParticipantDisplaySnapshot extends VoiceEngineV2AppParticipantSpeakingSnapshot {
 	isMicrophoneEnabled?: boolean | null;
 	isCameraEnabled?: boolean | null;
 	isScreenShareEnabled?: boolean | null;

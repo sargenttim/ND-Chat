@@ -34,6 +34,7 @@ const OPEN_IMAGE_IN_BROWSER_DESCRIPTOR = msg({
 interface ReverseImageSearchMenuItemsProps {
 	imageUrl: string | null | undefined;
 	onClose?: () => void;
+	wrapInGroup?: boolean;
 	defaultLabel?: string;
 	includeCopyAndOpen?: boolean;
 	copyLabel?: string;
@@ -41,7 +42,7 @@ interface ReverseImageSearchMenuItemsProps {
 }
 
 export const ReverseImageSearchMenuItems: React.FC<ReverseImageSearchMenuItemsProps> = observer(
-	({imageUrl, onClose, defaultLabel, includeCopyAndOpen = false, copyLabel, openLabel}) => {
+	({imageUrl, onClose, wrapInGroup = false, defaultLabel, includeCopyAndOpen = false, copyLabel, openLabel}) => {
 		const {i18n} = useLingui();
 		const renderDefaultLabel = defaultLabel ?? i18n._(REVERSE_IMAGE_SEARCH_DESCRIPTOR);
 		const renderCopyLabel = copyLabel ?? i18n._(COPY_IMAGE_URL_DESCRIPTOR);
@@ -162,6 +163,11 @@ export const ReverseImageSearchMenuItems: React.FC<ReverseImageSearchMenuItemsPr
 				{searchItems}
 			</>
 		);
-		return <MenuGroup data-flx="ui.action-menu.items.reverse-image-search-menu-items.menu-group">{content}</MenuGroup>;
+		if (wrapInGroup) {
+			return (
+				<MenuGroup data-flx="ui.action-menu.items.reverse-image-search-menu-items.menu-group">{content}</MenuGroup>
+			);
+		}
+		return content;
 	},
 );

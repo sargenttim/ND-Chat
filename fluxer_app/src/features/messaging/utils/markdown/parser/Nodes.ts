@@ -136,7 +136,7 @@ export type Node =
 	| TableCellNode
 	| AlertNode
 	| SpoilerNode;
-type MentionType =
+export type MentionType =
 	| {
 			kind: 'User';
 			id: string;
@@ -171,7 +171,7 @@ type MentionType =
 	| {
 			kind: 'Here';
 	  };
-type EmojiType =
+export type EmojiType =
 	| {
 			kind: 'Standard';
 			raw: string;
@@ -184,3 +184,8 @@ type EmojiType =
 			id: string;
 			animated: boolean;
 	  };
+
+export interface ParserResult {
+	node: Node;
+	advance: number;
+}

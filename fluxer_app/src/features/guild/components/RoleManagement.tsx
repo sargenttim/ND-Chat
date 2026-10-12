@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
-import {GuildSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
+import {GuildSettingsModal} from '@app/features/guild/components/modals/GuildSettingsModal';
 import styles from '@app/features/guild/components/RoleManagement.module.css';
 import type {GuildRole} from '@app/features/guild/models/GuildRole';
 import GuildSettingsModalState from '@app/features/guild/state/GuildSettingsModal';
@@ -173,16 +173,13 @@ const ManageRolesMenuContent: React.FC<ManageRolesMenuContentProps> = observer(f
 		}
 		ModalCommands.pushAfterBottomSheetClose(
 			onClose,
-			modal(
-				() => (
-					<GuildSettingsModal
-						guildId={guildId}
-						initialTab="roles"
-						data-flx="guild.role-management.handle-open-guild-settings.guild-settings-modal"
-					/>
-				),
-				'guild-settings',
-			),
+			modal(() => (
+				<GuildSettingsModal
+					guildId={guildId}
+					initialTab="roles"
+					data-flx="guild.role-management.handle-open-guild-settings.guild-settings-modal"
+				/>
+			)),
 		);
 	}, [guildId, onClose]);
 	const allRoles = useMemo(() => {
@@ -282,16 +279,13 @@ export const ManageRolesBottomSheet: React.FC<ManageRolesBottomSheetProps> = obs
 		}
 		ModalCommands.pushAfterBottomSheetClose(
 			onClose,
-			modal(
-				() => (
-					<GuildSettingsModal
-						guildId={guildId}
-						initialTab="roles"
-						data-flx="guild.role-management.handle-open-guild-settings.guild-settings-modal--2"
-					/>
-				),
-				'guild-settings',
-			),
+			modal(() => (
+				<GuildSettingsModal
+					guildId={guildId}
+					initialTab="roles"
+					data-flx="guild.role-management.handle-open-guild-settings.guild-settings-modal--2"
+				/>
+			)),
 		);
 	}, [guildId, onClose]);
 	const allRoles = useMemo(() => {
@@ -373,16 +367,13 @@ function openNoRolesModal(guildId: string) {
 				return;
 			}
 			ModalCommands.push(
-				modal(
-					() => (
-						<GuildSettingsModal
-							guildId={guildId}
-							initialTab="roles"
-							data-flx="guild.role-management.handle-open-roles-settings.guild-settings-modal"
-						/>
-					),
-					'guild-settings',
-				),
+				modal(() => (
+					<GuildSettingsModal
+						guildId={guildId}
+						initialTab="roles"
+						data-flx="guild.role-management.handle-open-roles-settings.guild-settings-modal"
+					/>
+				)),
 			);
 		}, []);
 		return (

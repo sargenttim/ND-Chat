@@ -9,6 +9,7 @@ import type {MessageAttachment} from '@fluxer/schema/src/domains/message/Message
 
 interface AttachmentRenderingState {
 	enrichedAttachments: Array<MessageAttachment>;
+	activeAttachments: Array<MessageAttachment>;
 	mediaAttachments: Array<MessageAttachment>;
 	shouldUseMosaic: boolean;
 }
@@ -17,7 +18,7 @@ function freshAttachmentUrl(url: string | null): string | null {
 	return url === null ? null : AttachmentUrlRefresher.fresh(url);
 }
 
-function withFreshAttachmentUrls(attachment: MessageAttachment): MessageAttachment {
+export function withFreshAttachmentUrls(attachment: MessageAttachment): MessageAttachment {
 	const url = freshAttachmentUrl(attachment.url);
 	const proxyUrl = freshAttachmentUrl(attachment.proxy_url);
 	if (url === attachment.url && proxyUrl === attachment.proxy_url) return attachment;
@@ -35,9 +36,10 @@ export const getAttachmentRenderingState = (
 	const enrichedAttachments = expiryApplied.map((entry) => entry.attachment);
 	const activeAttachments = expiryApplied.filter((entry) => !entry.isExpired).map((entry) => entry.attachment);
 	const {mediaAttachments} = splitMediaAndFileAttachments(activeAttachments);
-	const shouldUseMosaic = mediaAttachments.length > 0 && UserSettings.inlineAttachmentMedia;
+	const shouldUseMosaic = mediaAttachments.length > 0 && UserSettings.getInlineAttachmentMedia();
 	return {
 		enrichedAttachments,
+		activeAttachments,
 		mediaAttachments,
 		shouldUseMosaic,
 	};

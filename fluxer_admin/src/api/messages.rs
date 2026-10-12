@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use reqwest::Method;
-
 use crate::api::generated::{snowflake, types as generated_types};
 
 use super::client::{AdminApiClient, ApiError, ApiResult};
 use super::types::{
     BrowseChannelResponse, DeleteAllUserMessagesResponse, LookupMessageResponse,
-    MessageShredResponse, MessageShredStatusResponse, SearchChannelMessagesResponse,
+    MessageShredResponse, MessageShredStatusResponse, NcmecAttachmentSubmitResult,
+    SearchChannelMessagesResponse,
 };
 
 impl AdminApiClient {
@@ -18,18 +17,48 @@ impl AdminApiClient {
         audit_log_reason: Option<&str>,
     ) -> ApiResult<()> {
         let _: serde_json::Value = self
-            .send(
-                Method::DELETE,
+            .delete_with_reason(
                 &format!(
                     "/admin/channels/{}/messages/{}",
                     urlencoding::encode(channel_id),
                     urlencoding::encode(message_id)
                 ),
-                None::<&serde_json::Value>,
+                None,
                 audit_log_reason,
             )
             .await?;
         Ok(())
+    }
+
+    pub async fn report_attachment_to_ncmec(
+        &self,
+        channel_id: &str,
+        message_id: &str,
+        attachment_id: &str,
+        filename: &str,
+        reporter_full_name: &str,
+        source_report_id: Option<&str>,
+    ) -> ApiResult<NcmecAttachmentSubmitResult> {
+        let body = generated_types::ReportAttachmentToNcmecRequest {
+            attachment_id: snowflake(attachment_id),
+            channel_id: snowflake(channel_id),
+            confirmed_viewed: true,
+            filename: generated_types::ReportAttachmentToNcmecRequestFilename::try_from(filename)
+                .map_err(|e| ApiError::Parse(e.to_string()))?,
+            message_id: snowflake(message_id),
+            reporter_full_name:
+                generated_types::ReportAttachmentToNcmecRequestReporterFullName::try_from(
+                    reporter_full_name,
+                )
+                .map_err(|e| ApiError::Parse(e.to_string()))?,
+            source_report_id: source_report_id.map(snowflake),
+        };
+        let response = self
+            .generated()
+            .create_admin_ncmec_report(&body)
+            .await
+            .map_err(|e| self.generated_error(e))?;
+        self.generated_value(response.into_inner())
     }
 
     pub async fn lookup_message(

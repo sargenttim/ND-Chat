@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createChannelID} from '@app/api/BrandedTypes';
-import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
 import {LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {GroupDmCreateProtectionMiddleware} from '@app/api/middleware/GroupDmProtectionMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
@@ -83,7 +82,6 @@ export function UserChannelController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			await ctx.get('userChannelRequestService').pinChannel({
-				viewer: viewerFromCtx(ctx),
 				userId: ctx.get('user').id,
 				channelId: createChannelID(ctx.req.valid('param').channel_id),
 			});
@@ -107,7 +105,6 @@ export function UserChannelController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			await ctx.get('userChannelRequestService').unpinChannel({
-				viewer: viewerFromCtx(ctx),
 				userId: ctx.get('user').id,
 				channelId: createChannelID(ctx.req.valid('param').channel_id),
 			});

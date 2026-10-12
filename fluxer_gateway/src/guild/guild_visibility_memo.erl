@@ -32,8 +32,8 @@ new(ChannelIds, OldState, NewState) ->
             [
                 Id
              || Id <- ChannelIds,
-                guild_permissions_check:view_inputs(Id, OldState) =:=
-                    guild_permissions_check:view_inputs(Id, NewState)
+                guild_permissions:view_inputs(Id, OldState) =:=
+                    guild_permissions:view_inputs(Id, NewState)
             ],
             true
         ),
@@ -79,7 +79,7 @@ compute(ChannelIds, OldState, NewState, Reusable, ChangeContext) ->
     {boolean(), boolean()}.
 visibility(ChannelId, OldState, NewState, Reusable, ChangeContext) ->
     #{user_id := UserId, old_member := OldMember, new_member := NewMember} = ChangeContext,
-    OldVisible = guild_permissions_check:can_view_channel(
+    OldVisible = guild_visibility_channels:channel_is_visible(
         UserId, ChannelId, OldMember, OldState
     ),
     case maps:is_key(ChannelId, Reusable) of
@@ -87,7 +87,7 @@ visibility(ChannelId, OldState, NewState, Reusable, ChangeContext) ->
             {OldVisible, OldVisible};
         false ->
             {OldVisible,
-                guild_permissions_check:can_view_channel(
+                guild_visibility_channels:channel_is_visible(
                     UserId, ChannelId, NewMember, NewState
                 )}
     end.

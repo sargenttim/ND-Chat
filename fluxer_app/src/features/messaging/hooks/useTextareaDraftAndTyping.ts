@@ -1,15 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import * as DraftCommands from '@app/features/messaging/commands/DraftCommands';
-import {segmentsEqual} from '@app/features/messaging/state/MessagingDrafts';
 import type {MentionSegment, TextareaSegmentManager} from '@app/features/messaging/utils/TextareaSegmentManager';
-import {onBeforeAppStorageScopeChange} from '@app/features/platform/state/PersistentStorage';
-import {flushPendingPersistWrites} from '@app/features/platform/utils/MobXPersistence';
-import RollingTypingSender from '@app/features/typing/rolling/RollingTypingSender';
+import {TypingUtils} from '@app/features/typing/utils/TypingUtils';
 import {useEffect, useRef} from 'react';
 
 interface UseTextareaDraftAndTypingOptions {
-	draftOwner: DraftCommands.DraftOwner;
 	channelId: string;
 	value: string;
 	setValue: React.Dispatch<React.SetStateAction<string>>;
@@ -26,8 +22,26 @@ function cloneSegments(segments: ReadonlyArray<MentionSegment> | null | undefine
 	return segments?.map((segment) => ({...segment})) ?? [];
 }
 
+function segmentsEqual(a: ReadonlyArray<MentionSegment>, b: ReadonlyArray<MentionSegment>): boolean {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		const left = a[i];
+		const right = b[i];
+		if (
+			left.type !== right.type ||
+			left.id !== right.id ||
+			left.displayText !== right.displayText ||
+			left.actualText !== right.actualText ||
+			left.start !== right.start ||
+			left.end !== right.end
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
 export const useTextareaDraftAndTyping = ({
-	draftOwner,
 	channelId,
 	value,
 	setValue,
@@ -60,10 +74,10 @@ export const useTextareaDraftAndTyping = ({
 		if (enabled) {
 			return;
 		}
-		RollingTypingSender.stopTyping(channelId);
+		TypingUtils.clear(channelId);
 		pendingDraftRef.current = null;
 		if (currentDraftRef.current) {
-			DraftCommands.deleteDraft(draftOwner, channelId);
+			DraftCommands.deleteDraft(channelId);
 		}
 		segmentManagerRef?.current.clear();
 		isRestoringDraftRef.current = true;
@@ -78,12 +92,12 @@ export const useTextareaDraftAndTyping = ({
 			clearTimeout(timer);
 			isRestoringDraftRef.current = false;
 		};
-	}, [draftOwner, channelId, enabled, setValue, previousValueRef]);
+	}, [channelId, enabled, setValue, previousValueRef]);
 	useEffect(() => {
 		if (isEditingMessageInComposer) {
 			return;
 		}
-		if (!draft || previousValueRef.current === undefined || !DraftCommands.ownsActiveDrafts(draftOwner)) {
+		if (!draft || previousValueRef.current === undefined) {
 			return;
 		}
 		isRestoringDraftRef.current = true;
@@ -101,7 +115,7 @@ export const useTextareaDraftAndTyping = ({
 			clearTimeout(timer);
 			isRestoringDraftRef.current = false;
 		};
-	}, [draftOwner, draft, draftSegments, previousValueRef, setValue, isEditingMessageInComposer]);
+	}, [draft, draftSegments, previousValueRef, setValue, isEditingMessageInComposer]);
 	const flushDraftRef = useRef<() => void>(() => {});
 	useEffect(() => {
 		const flush = () => {
@@ -118,16 +132,16 @@ export const useTextareaDraftAndTyping = ({
 			}
 			if (pending.value) {
 				if (pending.segments === null) {
-					DraftCommands.createDraft(draftOwner, pending.channelId, pending.value);
+					DraftCommands.createDraft(pending.channelId, pending.value);
 				} else {
-					DraftCommands.createDraft(draftOwner, pending.channelId, pending.value, pending.segments);
+					DraftCommands.createDraft(pending.channelId, pending.value, pending.segments);
 				}
 			} else {
-				DraftCommands.deleteDraft(draftOwner, pending.channelId);
+				DraftCommands.deleteDraft(pending.channelId);
 			}
 		};
 		flushDraftRef.current = flush;
-		if (isEditingMessageInComposer || isRestoringDraftRef.current || !DraftCommands.ownsActiveDrafts(draftOwner)) {
+		if (isEditingMessageInComposer || isRestoringDraftRef.current) {
 			return;
 		}
 		pendingDraftRef.current = {
@@ -139,33 +153,19 @@ export const useTextareaDraftAndTyping = ({
 		return () => {
 			clearTimeout(timer);
 		};
-	}, [draftOwner, channelId, value, isEditingMessageInComposer]);
+	}, [channelId, value, isEditingMessageInComposer]);
 	useEffect(() => {
 		return () => {
 			flushDraftRef.current();
 		};
 	}, [channelId, isEditingMessageInComposer]);
 	useEffect(() => {
-		const flushBeforeUnload = (): void => {
-			flushDraftRef.current();
-			flushPendingPersistWrites();
-		};
-		const stopScopeChange = onBeforeAppStorageScopeChange(flushBeforeUnload);
-		window.addEventListener('pagehide', flushBeforeUnload);
-		window.addEventListener('beforeunload', flushBeforeUnload);
-		return () => {
-			stopScopeChange();
-			window.removeEventListener('pagehide', flushBeforeUnload);
-			window.removeEventListener('beforeunload', flushBeforeUnload);
-		};
-	}, []);
-	useEffect(() => {
 		const typingPreviousValue = typingPreviousValueRef.current;
 		typingPreviousValueRef.current = {channelId, value};
 		if (isRestoringDraftRef.current) {
 			return;
 		}
-		RollingTypingSender.handleComposerChange({
+		TypingUtils.handleComposerChange({
 			channelId,
 			value,
 			previousValue: typingPreviousValue?.channelId === channelId ? typingPreviousValue.value : null,

@@ -7,12 +7,12 @@ import type {PasswordResetTokenRow} from '@app/api/database/types/AuthTypes';
 export class PasswordResetToken {
 	readonly token: string;
 	readonly userId: UserID;
-	readonly email: string | null;
+	readonly email: string;
 
 	constructor(row: PasswordResetTokenRow) {
 		this.token = row.token_;
 		this.userId = row.user_id;
-		this.email = row.email ?? null;
+		this.email = row.email;
 	}
 
 	toRow(): PasswordResetTokenRow {

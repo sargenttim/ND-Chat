@@ -322,7 +322,7 @@ export async function shutdownActivityEvents(timeoutMs = 2000): Promise<void> {
 	stopActivityEvents();
 }
 
-function stopActivityEvents(): void {
+export function stopActivityEvents(): void {
 	runtime?.stop();
 	runtime = null;
 }

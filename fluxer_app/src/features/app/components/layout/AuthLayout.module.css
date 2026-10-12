@@ -26,16 +26,14 @@
 	position: fixed;
 	inset: 0;
 	display: flex;
-	background:
-		radial-gradient(ellipse 54rem 30rem at 50% -8%, rgb(138 98 209 / 0.18), transparent 68%),
-		linear-gradient(145deg, #05040d 0%, #080616 48%, #0d0a1c 100%);
+	background-color: var(--background-secondary);
 }
 
 .container {
 	position: relative;
 	min-height: 100svh;
 	width: 100%;
-	background-color: #080616;
+	background-color: var(--brand-primary);
 }
 
 :global(.auth-page),
@@ -47,11 +45,21 @@
 }
 
 .characterBackground {
-	composes: spaceBackground from '@app/features/ui/space_background/SpaceBackground.module.css';
-	--starfield-position: fixed;
 	min-height: 100svh;
 	overflow: auto;
+	position: relative;
 	width: 100%;
+}
+
+.rightSplit {
+	bottom: 0;
+	inset-inline-end: 0;
+	opacity: 1;
+	pointer-events: none;
+	position: fixed;
+	transition: opacity 0.4s ease;
+	width: auto;
+	z-index: 0;
 }
 
 .leftSplit {
@@ -62,7 +70,6 @@
 	min-height: 100svh;
 	position: relative;
 	width: 100%;
-	z-index: 1;
 }
 
 .leftSplitWrapper {
@@ -80,44 +87,10 @@
 	justify-content: center;
 }
 
-.cardMotionWrap {
-	box-sizing: border-box;
-	display: grid;
-	place-items: center;
-	min-height: 100svh;
-	width: 100%;
-	padding: clamp(1.5rem, 4vw, 3rem);
-	overflow: hidden;
-	transform-origin: center;
-}
-
-.fullscreenContent {
-	position: relative;
-	z-index: 10;
-	display: flex;
-	width: 100%;
-	min-height: 100svh;
-	align-items: center;
-	justify-content: center;
-}
-
-.fullscreenPassthrough {
-	display: contents;
-}
-
-.presentationProbe {
-	position: absolute;
-	inset: 0;
-	width: 100%;
-	min-height: 100svh;
-	overflow: hidden;
-	pointer-events: none;
-	visibility: hidden;
-}
-
-.splashBackdrop {
+.splashImage {
 	position: fixed;
-	inset: 0;
+	right: 0;
+	bottom: 0;
 	pointer-events: none;
 	overflow: hidden;
 	z-index: 0;
@@ -149,51 +122,77 @@
 	width: 100%;
 	align-items: center;
 	justify-content: center;
-	padding: clamp(1.5rem, 4vw, 3rem);
+	padding: clamp(2rem, 6vw, 4rem);
 	box-sizing: border-box;
 }
 
-.cardContainerInMotion {
-	flex: 0 1 auto;
-	min-height: 0;
-	padding: 0;
-	width: min(100%, 38rem);
-	max-width: 100%;
-}
-
 .card {
-	position: relative;
 	margin: 0;
 	display: flex;
 	height: auto;
-	min-height: auto;
+	min-height: 31.25rem;
 	width: 100%;
-	max-width: 32rem;
+	max-width: 56rem;
 	overflow: hidden;
-	border: 0.0625rem solid rgb(255 255 255 / 0.08);
-	border-radius: 0.5rem;
+	border-radius: 1rem;
 	background-color: var(--background-secondary);
-	box-shadow: 0 1.25rem 4rem -1.5rem rgb(0 0 0 / 0.7);
+	box-shadow: 0 1.5625rem 3.125rem -0.75rem rgb(0 0 0 / 0.25);
 	transition:
 		max-width 180ms ease,
-		box-shadow 180ms ease;
+		min-height 180ms ease;
+}
+
+.cardSingle {
+	max-width: 42rem;
 }
 
 .cardStandard {
 	max-width: 32rem;
+	min-height: auto;
 }
 
 .cardCompact {
 	max-width: 27rem;
+	min-height: auto;
+}
+
+.cardWide {
+	max-width: 38rem;
+	min-height: auto;
+}
+
+.logoSide {
+	display: flex;
+	width: 33.333333%;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	padding: 3rem 2rem;
+	border-right: 0.0625rem solid var(--background-modifier-accent);
+	background-color: var(--background-secondary);
+}
+
+.logo {
+	margin-bottom: 1.5rem;
+	height: 8rem;
+	width: 8rem;
+}
+
+.wordmark {
+	height: 2rem;
 }
 
 .formSide {
 	display: flex;
-	width: 100%;
+	width: 66.666667%;
 	flex-direction: column;
 	justify-content: center;
-	padding: clamp(2rem, 4vw, 2.75rem);
+	padding: 3rem;
 	background: var(--background-secondary);
+}
+
+.formSideSingle {
+	width: 100%;
 }
 
 .formSideStandard {
@@ -204,6 +203,10 @@
 	padding: 2rem;
 }
 
+.formSideWide {
+	padding: 2.5rem;
+}
+
 @media (prefers-reduced-motion: reduce) {
 	.card {
 		transition: none;
@@ -211,32 +214,20 @@
 }
 
 @media (max-width: 640px) {
-	.cardMotionWrap {
-		padding: 1rem;
-	}
-
 	.cardContainer {
-		padding: 1rem;
-	}
-
-	.formSide {
 		padding: 1.5rem;
 	}
 
 	.formSideStandard,
-	.formSideCompact {
+	.formSideCompact,
+	.formSideWide {
 		padding: 1.5rem;
 	}
 }
 
 .mobileContainer {
-	composes: starfield from '@app/features/ui/space_background/SpaceBackground.module.css';
-	--starfield-position: fixed;
 	min-height: 100dvh;
-	background:
-		radial-gradient(ellipse 28rem 18rem at 32% 0%, rgb(122 87 191 / 0.16), transparent 74%),
-		radial-gradient(ellipse 22rem 18rem at 88% 92%, rgb(91 65 151 / 0.12), transparent 72%),
-		linear-gradient(145deg, #05040d 0%, #080616 46%, #0d0a1c 100%);
+	background-color: var(--background-secondary);
 	padding: calc(2rem + env(safe-area-inset-top, 0px)) 1.5rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
 	overflow-y: auto;
 	overflow-x: hidden;
@@ -244,22 +235,22 @@
 }
 
 .mobileContent {
-	position: relative;
-	z-index: 1;
 	margin-left: auto;
 	margin-right: auto;
 	width: 100%;
 	max-width: 28rem;
 }
 
-.mobileFullscreenContent {
-	position: relative;
-	z-index: 1;
-	display: flex;
-	width: 100%;
-	min-height: calc(100dvh - 4.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
-	align-items: center;
-	justify-content: center;
+.mobileLogoContainer {
+	margin-bottom: 2rem;
+	text-align: center;
+}
+
+.mobileWordmark {
+	margin-left: auto;
+	margin-right: auto;
+	height: 2rem;
+	color: var(--text-primary);
 }
 
 @media (min-width: 1600px) {
@@ -294,7 +285,7 @@
 :global(html.auth-page),
 :global(html.auth-page body) {
 	height: 100%;
-	background-color: #080616;
+	background-color: var(--background-secondary);
 }
 
 @supports (padding: env(safe-area-inset-top)) {

@@ -120,7 +120,7 @@ function isChannelVisible(channel: Channel): boolean {
 
 function channelResult(channel: Channel, i18n: I18n): QuickSwitcherExecutableResult | null {
 	const candidate = buildChannelCandidate(channel, i18n);
-	return candidate == null ? null : candidateToResult(candidate);
+	return candidate == null ? null : candidateToResult(candidate, i18n);
 }
 
 function collectChannelResults(
@@ -142,11 +142,7 @@ function collectChannelResults(
 }
 
 function isUnreadInCurrentCommunity(channel: Channel): boolean {
-	if (
-		(channel.type !== ChannelTypes.GUILD_TEXT && channel.type !== ChannelTypes.GUILD_ANNOUNCEMENT) ||
-		!isChannelVisible(channel)
-	)
-		return false;
+	if (channel.type !== ChannelTypes.GUILD_TEXT || !isChannelVisible(channel)) return false;
 	if (UserGuildSettings.isMutedAtAnyLevel(channel.guildId ?? null, channel.id)) return false;
 	if (!ReadStates.hasUnread(channel.id)) return false;
 	const unreadLevel = UserGuildSettings.resolvedGuildUnreadBadgesLevel({
@@ -266,8 +262,8 @@ function rankedType(ranked: RankedCandidate): ForwardSearchResult['type'] {
 	return ranked.candidate.type === QuickSwitcherResultTypes.USER ? 'user' : 'text_channel';
 }
 
-function rankedToResult(ranked: RankedCandidate, _i18n: I18n): QuickSwitcherExecutableResult {
-	const result = candidateToResult(ranked.candidate);
+function rankedToResult(ranked: RankedCandidate, i18n: I18n): QuickSwitcherExecutableResult {
+	const result = candidateToResult(ranked.candidate, i18n);
 	if (result.type !== QuickSwitcherResultTypes.USER) return result;
 	const {user} = result;
 	const tag = NicknameUtils.formatUserTagForStreamerMode(user);
@@ -472,7 +468,7 @@ export function generateQueryModeResults(
 				listed = [...sets.guilds, ...sets.virtualGuilds];
 				break;
 		}
-		return [header, ...listed.map((candidate) => candidateToResult(candidate))];
+		return [header, ...listed.map((candidate) => candidateToResult(candidate, i18n))];
 	}
 	let ranked: Array<RankedCandidate>;
 	switch (prefixMode) {

@@ -1,23 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {buildMediaProxyURL} from '@app/features/messaging/utils/MediaProxyUtils';
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {buildThemeCssFetchUrl} from '@app/features/theme/utils/ThemeUtils';
 import {useEffect, useState} from 'react';
 
 const logger = new Logger('useThemeExists');
 
 export type ThemeExistsStatus = 'loading' | 'ready' | 'error';
 
-export const useThemeExists = (themeId: string, runtimeSnapshot: RuntimeConfigSnapshot): ThemeExistsStatus => {
+const buildThemeUrl = (endpoint: string, themeId: string): string => {
+	const base = endpoint.replace(/\/$/, '');
+	return `${base}/themes/${themeId}.css`;
+};
+export const useThemeExists = (themeId: string | null | undefined): ThemeExistsStatus => {
 	const [status, setStatus] = useState<ThemeExistsStatus>('loading');
+	const mediaEndpoint = RuntimeConfig.mediaEndpoint;
 	useEffect(() => {
+		if (!mediaEndpoint || !themeId) {
+			setStatus('loading');
+			return;
+		}
 		let cancelled = false;
 		const checkThemeExists = async () => {
 			try {
-				const themeUrl = buildThemeCssFetchUrl(runtimeSnapshot, themeId);
-				if (themeUrl == null) throw new Error('Media endpoint not configured');
-				const response = await fetch(themeUrl, {method: 'HEAD'});
+				const response = await fetch(buildMediaProxyURL(buildThemeUrl(mediaEndpoint, themeId)), {method: 'HEAD'});
 				if (!response.ok) throw new Error('Theme not found');
 				if (cancelled) return;
 				setStatus('ready');
@@ -32,6 +39,6 @@ export const useThemeExists = (themeId: string, runtimeSnapshot: RuntimeConfigSn
 		return () => {
 			cancelled = true;
 		};
-	}, [runtimeSnapshot, themeId]);
+	}, [mediaEndpoint, themeId]);
 	return status;
 };

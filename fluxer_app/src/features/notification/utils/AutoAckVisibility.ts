@@ -10,11 +10,11 @@ interface TextChatVisibleForAutoAckOptions {
 	activeVoiceCallFullscreenScopeKey: string | null;
 }
 
-function getDirectCallFullscreenScopeKey(channelId: string): string {
+export function getDirectCallFullscreenScopeKey(channelId: string): string {
 	return `dm-call:${channelId}`;
 }
 
-function isVoiceCallFullscreenScopeForChannel(channelId: string, scopeKey: string | null): boolean {
+export function isVoiceCallFullscreenScopeForChannel(channelId: string, scopeKey: string | null): boolean {
 	return (
 		scopeKey === getGuildVoiceCallExpansionKey(channelId) || scopeKey === getDirectCallFullscreenScopeKey(channelId)
 	);

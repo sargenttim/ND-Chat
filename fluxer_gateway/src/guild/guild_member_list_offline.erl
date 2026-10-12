@@ -10,3 +10,11 @@
 -spec threshold() -> pos_integer().
 threshold() ->
     ?OFFLINE_RENDER_THRESHOLD.
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+
+threshold_is_positive_test() ->
+    ?assert(threshold() > 0).
+
+-endif.

@@ -3,7 +3,8 @@
 import type {VoiceChannelPermissions} from '@app/features/voice/utils/VoicePermissionUtils';
 import {assign, initialTransition, type SnapshotFrom, setup, transition} from 'xstate';
 
-type VoicePermissionChangeTarget = 'speak' | 'stream' | 'video';
+export type VoicePermissionChangeTarget = 'speak' | 'stream' | 'video';
+export type VoicePermissionWatchStateValue = 'inactive' | 'watching';
 
 export interface VoiceRemoteMicrophonePublicationInput {
 	publicationId: string;
@@ -20,7 +21,7 @@ export type VoicePermissionCommand =
 	| {type: 'setRemoteVideoSubscribed'; publicationId: string; subscribed: boolean}
 	| {type: 'stopPermissionWatch'};
 
-interface VoicePermissionMachineContext {
+export interface VoicePermissionMachineContext {
 	permissions: VoiceChannelPermissions;
 	deafened: boolean;
 	guildId: string | null;
@@ -55,7 +56,7 @@ export type VoicePermissionEvent =
 	| {type: 'permission.reset'}
 	| {type: 'permission.clearCommands'};
 
-const DEFAULT_VOICE_PERMISSION_STATE: VoiceChannelPermissions = {
+export const DEFAULT_VOICE_PERMISSION_STATE: VoiceChannelPermissions = {
 	canSpeak: true,
 	canStream: true,
 	canUseVideo: true,
@@ -232,7 +233,7 @@ function reset(context: VoicePermissionMachineContext): VoicePermissionMachineCo
 	return initialContext(context.watcherActive ? [{type: 'stopPermissionWatch'}] : EMPTY_COMMANDS);
 }
 
-const voicePermissionStateMachine = setup({
+export const voicePermissionStateMachine = setup({
 	types: {} as {
 		context: VoicePermissionMachineContext;
 		events: VoicePermissionEvent;
@@ -330,4 +331,8 @@ export function transitionVoicePermissionSnapshot(
 	event: VoicePermissionEvent,
 ): VoicePermissionSnapshot {
 	return transition(voicePermissionStateMachine, snapshot, event)[0] as VoicePermissionSnapshot;
+}
+
+export function getVoicePermissionWatchStateValue(snapshot: VoicePermissionSnapshot): VoicePermissionWatchStateValue {
+	return snapshot.context.watcherActive ? 'watching' : 'inactive';
 }

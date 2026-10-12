@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import assert from 'node:assert/strict';
-import type {DiagnosticsPort} from '@fluxer/voice_engine_v2/src/ports';
+import type {DiagnosticsPort} from '@fluxer/voice_engine_v2';
 
-const VOICE_ENGINE_V2_DIAGNOSTICS_CODE_MAX_LENGTH = 128;
-const VOICE_ENGINE_V2_DIAGNOSTICS_MESSAGE_MAX_LENGTH = 4096;
+export const VOICE_ENGINE_V2_DIAGNOSTICS_CODE_MAX_LENGTH = 128;
+export const VOICE_ENGINE_V2_DIAGNOSTICS_MESSAGE_MAX_LENGTH = 4096;
 
-type VoiceEngineV2DiagnosticsLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
+export type VoiceEngineV2DiagnosticsLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error';
 
 const KNOWN_LEVELS: ReadonlySet<VoiceEngineV2DiagnosticsLevel> = new Set(['trace', 'debug', 'info', 'warn', 'error']);
 

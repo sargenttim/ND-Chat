@@ -55,3 +55,7 @@ export function noteLocalVoiceActivityFromSnapshot(
 ): boolean {
 	return noteLocalVoiceActivity(snapshot, options);
 }
+
+export function resetVoiceIdleActivityBridgeForTests(): void {
+	lastRecordedVoiceActivityAt = null;
+}

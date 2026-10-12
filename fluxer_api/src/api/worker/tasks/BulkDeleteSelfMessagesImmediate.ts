@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createUserID} from '@app/api/BrandedTypes';
-import {loadSelfMessageEligibilityContext} from '@app/api/channel/services/message/SelfMessageFilter';
+import {UserMessageDeletionService} from '@app/api/channel/services/message/UserMessageDeletionService';
 import {getContentMessage} from '@app/api/content_i18n/ContentI18n';
 import {Logger} from '@app/api/Logger';
 import {deserializeSelfMessageFilter, SelfMessageFilterPayload} from '@app/api/worker/utils/SelfMessageFilterPayload';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
+import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import type {WorkerTaskHandler} from '@pkgs/worker/src/contracts/WorkerTask';
 import {z} from 'zod';
 
@@ -17,18 +18,41 @@ const bulkDeleteSelfMessagesImmediate: WorkerTaskHandler = async (payload, helpe
 	const validated = PayloadSchema.parse(payload);
 	helpers.logger.debug({payload: validated}, 'Processing bulkDeleteSelfMessagesImmediate task');
 	const userId = createUserID(BigInt(validated.userId));
-	const {channelService, userRepository, guildRepository, workerService} = getWorkerDependencies();
+	const {
+		channelRepository,
+		gatewayService,
+		userRepository,
+		guildRepository,
+		storageService,
+		purgeQueue,
+		workerService,
+	} = getWorkerDependencies();
 	const user = await userRepository.findUnique(userId);
 	if (!user) {
 		helpers.logger.info({userId: validated.userId}, 'User no longer exists, skipping deletion');
 		return;
 	}
-	const eligibilityContext = await loadSelfMessageEligibilityContext(userId, {userRepository, guildRepository});
-	const deletionService = channelService.userMessageDeletion;
+	const [privateChannels, userGuilds] = await Promise.all([
+		userRepository.listPrivateChannels(userId),
+		guildRepository.listUserGuilds(userId),
+	]);
+	const openDmChannelIds = new Set<string>();
+	for (const channel of privateChannels) {
+		if (channel.type === ChannelTypes.DM || channel.type === ChannelTypes.GROUP_DM) {
+			openDmChannelIds.add(channel.id.toString());
+		}
+	}
+	const currentGuildIds = new Set(userGuilds.map((guild) => guild.id.toString()));
+	const deletionService = new UserMessageDeletionService({
+		channelRepository,
+		gatewayService,
+		storageService,
+		purgeQueue,
+	});
 	const result = await deletionService.deleteUserMessagesFiltered(
 		userId,
 		deserializeSelfMessageFilter(validated.filter),
-		eligibilityContext,
+		{currentGuildIds, openDmChannelIds},
 		(deleted) => helpers.logger.debug(`Deleted ${deleted} messages so far`),
 	);
 	Logger.debug(

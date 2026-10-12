@@ -6,12 +6,11 @@ import {
 	getSpriteSheetBackground,
 } from '@app/features/channel/components/emoji_picker/EmojiPickerConstants';
 import type {Channel} from '@app/features/channel/models/Channel';
-import EmojiPicker, {getEmojiUsageKey} from '@app/features/emoji/state/EmojiPicker';
+import * as EmojiPickerCommands from '@app/features/emoji/commands/EmojiPickerCommands';
 import type {FlatEmoji} from '@app/features/emoji/types/EmojiTypes';
 import {checkEmojiAvailability} from '@app/features/expressions/utils/ExpressionPermissionUtils';
 import {getEmojiDisplayDataWithSkinTone} from '@app/features/expressions/utils/SkinToneUtils';
 import UnicodeEmojis, {EMOJI_SPRITES} from '@app/features/expressions/utils/UnicodeEmojis';
-import {loadImage} from '@app/features/messaging/utils/ImageCacheUtils';
 import {getEmojiRenderUrl} from '@app/features/messaging/utils/markdown/EmojiDetector';
 import {EmojiContextMenuItems} from '@app/features/ui/action_menu/items/EmojiContextMenuItems';
 import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
@@ -26,34 +25,9 @@ type PickerEmojiImageProps = React.ImgHTMLAttributes<HTMLImageElement> & {
 	alt: string;
 };
 
-const PICKER_IMAGE_RETRY_LIMIT = 3;
-
 const PickerEmojiImage = ({src, alt, ...props}: PickerEmojiImageProps) => {
 	const imageRef = useRef<HTMLImageElement | null>(null);
 	const hasLoadedRef = useRef(false);
-	const retriesRef = useRef(0);
-	const cancelRetryRef = useRef<(() => void) | null>(null);
-	useEffect(() => {
-		retriesRef.current = 0;
-		return () => {
-			cancelRetryRef.current?.();
-			cancelRetryRef.current = null;
-		};
-	}, [src]);
-	const handleError = () => {
-		if (retriesRef.current >= PICKER_IMAGE_RETRY_LIMIT) {
-			return;
-		}
-		retriesRef.current += 1;
-		cancelRetryRef.current?.();
-		cancelRetryRef.current = loadImage(src, () => {
-			cancelRetryRef.current = null;
-			const image = imageRef.current;
-			if (image != null && image.getAttribute('src') === src) {
-				image.src = src;
-			}
-		});
-	};
 	const handleLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
 		const view = event.currentTarget?.ownerDocument?.defaultView ?? window;
 		view.requestAnimationFrame(() => {
@@ -73,7 +47,6 @@ const PickerEmojiImage = ({src, alt, ...props}: PickerEmojiImageProps) => {
 			alt={alt}
 			className={hasLoadedRef.current ? styles.emojiImage : clsx(styles.emojiImage, styles.emojiImageLoading)}
 			onLoad={hasLoadedRef.current ? undefined : handleLoad}
-			onError={hasLoadedRef.current ? undefined : handleError}
 		/>
 	);
 };
@@ -135,7 +108,7 @@ export const EmojiRenderer = React.forwardRef<HTMLButtonElement, EmojiRendererPr
 			if (e.altKey) {
 				e.preventDefault();
 				e.stopPropagation();
-				EmojiPicker.toggleFavorite(getEmojiUsageKey(emoji));
+				EmojiPickerCommands.toggleFavorite(emoji);
 				return;
 			}
 			handleSelect(emoji, e.shiftKey);

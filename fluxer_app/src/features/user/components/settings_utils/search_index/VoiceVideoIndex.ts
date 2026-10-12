@@ -2,15 +2,12 @@
 
 import {PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import type {SearchableSettingDescriptor} from '@app/features/user/components/settings_utils/search_index/SearchIndexTypes';
-import {
-	ALLOW_AV1_SCREEN_SHARE_DESCRIPTOR,
-	ALLOW_HEVC_SCREEN_SHARE_DESCRIPTOR,
-	ENCODER_PATH_DESCRIPTOR,
-	SHOW_NEW_DEVICE_ALERTS_DESCRIPTOR,
-	STREAM_PREVIEW_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
 import {msg} from '@lingui/core/macro';
 
+const SHOW_NEW_DEVICE_ALERTS_DESCRIPTOR = msg({
+	message: 'Show new device alerts',
+	comment: 'Settings search entry label. Names the settings search entry in the settings UI.',
+});
 const DEVICE_ALERTS_DESCRIPTOR = msg({
 	message: 'Device alerts',
 	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
@@ -87,7 +84,15 @@ const CHOOSE_THE_VIDEO_CODEC_FOR_SCREEN_SHARING_DESCRIPTOR = msg({
 	message: 'Video codec for screen sharing',
 	comment: 'Settings search entry description. One-line summary of what the settings search entry controls.',
 });
-
+const ALLOW_AV1_SCREEN_SHARE_DESCRIPTOR = msg({
+	message: 'Allow AV1 for screen sharing',
+	comment: 'Settings search entry label for the AV1 screen-share opt-in. AV1 is a codec name and should stay literal.',
+});
+const ALLOW_HEVC_SCREEN_SHARE_DESCRIPTOR = msg({
+	message: 'Allow H.265 (HEVC) for screen sharing',
+	comment:
+		'Settings search entry label for the H.265/HEVC screen-share opt-in. H.265 and HEVC are codec names and should stay literal.',
+});
 const ADVANCED_CODEC_COMPATIBILITY_NOTE_DESCRIPTOR = msg({
 	message: 'May cause compatibility issues for viewers. We’re working on improving this.',
 	comment: 'Settings search entry description for the AV1 and H.265 screen-share opt-in toggles.',
@@ -116,7 +121,10 @@ const PIP_DESCRIPTOR = msg({
 	message: 'PiP',
 	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
 });
-
+const STREAM_PREVIEW_DESCRIPTOR = msg({
+	message: 'Stream preview',
+	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
+});
 const CONTROL_BACKGROUND_PREVIEW_POPOUT_AND_STREAM_THUMBNAIL_BEHAVIOR_DESCRIPTOR = msg({
 	message: 'Preview, popout, and stream thumbnail behavior',
 	comment: 'Settings search entry description. One-line summary of what the settings search entry controls.',
@@ -125,7 +133,10 @@ const SCREEN_SHARE_ENCODER_CONTROLS_DESCRIPTOR = msg({
 	message: 'Screen share encoder controls',
 	comment: 'Settings search entry label. Names the settings search entry in the settings UI.',
 });
-
+const ENCODER_PATH_DESCRIPTOR = msg({
+	message: 'Encoder path',
+	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
+});
 const SOFTWARE_ENCODER_DESCRIPTOR = msg({
 	message: 'Software encoder',
 	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
@@ -138,8 +149,12 @@ const SVC_DESCRIPTOR = msg({
 	message: 'SVC',
 	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
 });
+const BITRATE_DESCRIPTOR = msg({
+	message: 'Bitrate',
+	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
+});
 const TUNE_LOW_LEVEL_SCREEN_SHARE_ENCODER_BEHAVIOR_FOR_THE_NEXT_STREAM_DESCRIPTOR = msg({
-	message: 'Encoder path, SVC mode, and content hint',
+	message: 'Encoder, SVC, and bitrate presets',
 	comment: 'Settings search entry description. One-line summary of what the settings search entry controls.',
 });
 
@@ -229,6 +244,7 @@ export const voiceVideoIndex: Array<SearchableSettingDescriptor> = [
 			SOFTWARE_ENCODER_DESCRIPTOR,
 			HARDWARE_ENCODER_DESCRIPTOR,
 			SVC_DESCRIPTOR,
+			BITRATE_DESCRIPTOR,
 			PRODUCT_NAME,
 		],
 		description: TUNE_LOW_LEVEL_SCREEN_SHARE_ENCODER_BEHAVIOR_FOR_THE_NEXT_STREAM_DESCRIPTOR,

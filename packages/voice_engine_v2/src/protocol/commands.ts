@@ -67,6 +67,7 @@ export type VoiceEngineV2Command =
 	  }
 	| {type: 'data.publish'; operationId: VoiceEngineV2OperationId; options: VoiceEngineV2DataOptions}
 	| {type: 'stats.collect'; operationId: VoiceEngineV2OperationId}
+	| {type: 'capabilities.queryHardwareEncoder'; operationId: VoiceEngineV2OperationId}
 	| {type: 'permissions.check'; operationId: VoiceEngineV2OperationId; name: VoiceEngineV2PermissionName}
 	| {type: 'permissions.request'; operationId: VoiceEngineV2OperationId; name: VoiceEngineV2PermissionName}
 	| {type: 'devices.enumerate'; operationId: VoiceEngineV2OperationId}
@@ -145,7 +146,8 @@ export function getVoiceEngineV2CommandTypeResourceKey(
 			return 'dataChannel';
 		case 'stats.collect':
 			return 'stats';
-
+		case 'capabilities.queryHardwareEncoder':
+			return 'capabilities';
 		case 'permissions.check':
 		case 'permissions.request':
 			return 'permissions';

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
-import {GlobalLimits} from '@app/features/app/utils/GlobalLimits';
+import {IMAGE_MAX_SIZE_BYTES} from '@app/features/app/config/I18nDisplayConstants';
+import {getAcceptString} from '@app/features/expressions/utils/AssetFormatCopy';
 import {isSvgFile, readImageFileAsUploadDataUrl} from '@app/features/expressions/utils/ImageUploadFileUtils';
 import {
 	INVALID_IMAGE_TRY_ANOTHER_DESCRIPTOR,
@@ -10,7 +11,6 @@ import {
 import {openFilePicker} from '@app/features/messaging/utils/FilePickerUtils';
 import {formatFileSize} from '@app/features/messaging/utils/FileUtils';
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {readBlobAsDataUrl} from '@app/features/platform/utils/BlobDataUrl';
 import {Button} from '@app/features/ui/button/Button';
 import * as TextCopyCommands from '@app/features/ui/commands/TextCopyCommands';
 import {Combobox} from '@app/features/ui/components/form/FormCombobox';
@@ -20,7 +20,6 @@ import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
 import * as DateUtils from '@app/features/user/utils/DateFormatting';
 import styles from '@app/features/webhook/components/WebhookListItem.module.css';
 import type {Webhook} from '@app/features/webhook/models/Webhook';
-import {getAcceptString} from '@fluxer/constants/src/AssetFormatPolicy';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {CaretDownIcon, CopySimpleIcon, TrashSimpleIcon} from '@phosphor-icons/react';
@@ -126,7 +125,6 @@ export const WebhookListItem: React.FC<WebhookListItemProps> = observer(
 		}, [webhook.id, effectiveAvatar]);
 		const webhookUrl = useMemo(() => webhook.webhookUrl, [webhook.webhookUrl]);
 		const handleCopy = useCallback(async () => {
-			if (!webhookUrl) return;
 			try {
 				await TextCopyCommands.copy(i18n, webhookUrl);
 			} catch (error) {
@@ -160,12 +158,12 @@ export const WebhookListItem: React.FC<WebhookListItemProps> = observer(
 		const handleAvatarUpload = useCallback(async () => {
 			const [file] = await openFilePicker({accept: getAcceptString('avatar')});
 			if (!file) return;
-			if (file.size > GlobalLimits.getAvatarMaxSize()) {
+			if (file.size > 10 * 1024 * 1024) {
 				showGenericErrorModal({
 					title: () => i18n._(SOMETHING_WENT_WRONG_DESCRIPTOR),
 					message: () =>
 						i18n._(AVATAR_FILE_IS_TOO_LARGE_PLEASE_CHOOSE_A_DESCRIPTOR, {
-							imageMaxSizeLabel: formatFileSize(i18n.locale, GlobalLimits.getAvatarMaxSize()),
+							imageMaxSizeLabel: formatFileSize(i18n.locale, IMAGE_MAX_SIZE_BYTES),
 						}),
 					dataFlx: 'webhook.webhook-list-item.avatar-too-large-error-modal',
 				});
@@ -173,7 +171,9 @@ export const WebhookListItem: React.FC<WebhookListItemProps> = observer(
 			}
 			try {
 				setIsUpdatingAvatar(true);
-				const base64 = isSvgFile(file) ? await readImageFileAsUploadDataUrl(file) : await readBlobAsDataUrl(file);
+				const base64 = isSvgFile(file)
+					? await readImageFileAsUploadDataUrl(file)
+					: await AvatarUtils.fileToBase64(file);
 				setLocalAvatar(base64);
 				onUpdate?.(webhook.id, {avatar: base64});
 			} catch {
@@ -319,7 +319,7 @@ export const WebhookListItem: React.FC<WebhookListItemProps> = observer(
 									<Input
 										id={`webhook-url-${webhook.id}`}
 										label={i18n._(WEBHOOK_URL_DESCRIPTOR)}
-										value={webhookUrl ?? ''}
+										value={webhookUrl}
 										readOnly
 										onFocus={(event) => event.currentTarget.select()}
 										className={styles.monoInput}

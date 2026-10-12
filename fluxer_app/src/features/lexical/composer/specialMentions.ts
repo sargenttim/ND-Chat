@@ -26,7 +26,7 @@ export function createSpecialMentionPayload(kind: SpecialMentionKind): ComposerI
 }
 
 export function areSpecialMentionsAllowed(
-	channel: Pick<Channel, 'guildId' | 'isGroupDM'> | null,
+	channel: Pick<Channel, 'guildId' | 'isPersonalNotes'> | null,
 	allowSpecialMentions: boolean | undefined,
 	allowedTriggers: ReadonlyArray<TriggerType> | undefined,
 	canMentionEveryone: boolean,
@@ -34,7 +34,7 @@ export function areSpecialMentionsAllowed(
 	if (channel == null || allowSpecialMentions === false || !isAutocompleteTriggerAllowed('mention', allowedTriggers)) {
 		return false;
 	}
-	return channel.guildId == null ? channel.isGroupDM() : canMentionEveryone;
+	return channel.guildId == null ? !channel.isPersonalNotes() : canMentionEveryone;
 }
 
 export function hasOpenCodeFence(text: string): boolean {

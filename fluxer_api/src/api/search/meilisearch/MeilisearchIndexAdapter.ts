@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {MeilisearchClient, MeilisearchTask} from '@app/api/search/meilisearch/MeilisearchClient';
-import {MeilisearchTaskError} from '@app/api/search/meilisearch/MeilisearchClient';
-import {
-	joinMeiliFilters,
-	type MeilisearchFilter,
-	meiliTermFilter,
-} from '@app/api/search/meilisearch/MeilisearchFilterUtils';
+import type {MeilisearchFilter} from '@app/api/search/meilisearch/MeilisearchFilterUtils';
+import {joinMeiliFilters} from '@app/api/search/meilisearch/MeilisearchFilterUtils';
 import type {MeilisearchIndexDefinition} from '@app/api/search/meilisearch/MeilisearchIndexDefinitions';
 import type {SearchOptions, SearchResult} from '@fluxer/schema/src/contracts/search/SearchAdapterTypes';
 
@@ -62,13 +58,7 @@ export class MeilisearchIndexAdapter<
 				uid,
 				primaryKey: this.indexDefinition.primaryKey,
 			});
-			try {
-				await this.client.waitForTask(task.taskUid);
-			} catch (error) {
-				if (!(error instanceof MeilisearchTaskError && error.code === 'index_already_exists')) {
-					throw error;
-				}
-			}
+			await this.client.waitForTask(task.taskUid);
 		}
 		await Promise.all([
 			this.applySetting('PUT', 'searchable-attributes', this.indexDefinition.searchableAttributes),
@@ -114,10 +104,6 @@ export class MeilisearchIndexAdapter<
 			`/indexes/${encodeURIComponent(this.indexDefinition.uid)}/documents/delete-batch`,
 			ids,
 		);
-	}
-
-	async deleteByTerm(field: string, value: string): Promise<void> {
-		await this.deleteByFilter(meiliTermFilter(field, value));
 	}
 
 	async deleteByFilter(filter: MeilisearchFilter): Promise<void> {

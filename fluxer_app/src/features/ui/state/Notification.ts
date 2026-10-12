@@ -2,17 +2,12 @@
 
 import {Routes} from '@app/app/Routes';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
-import Accounts from '@app/features/auth/state/Accounts';
+import AccountManager from '@app/features/auth/state/AccountManager';
 import Authentication from '@app/features/auth/state/Authentication';
 import type {Channel} from '@app/features/channel/models/Channel';
 import Channels from '@app/features/channel/state/Channels';
-import {
-	formatNewPostNotificationSuffix,
-	resolveNewPostNotificationLevel,
-} from '@app/features/forum/utils/ForumNotificationUtils';
 import GuildMatureContentAgree from '@app/features/guild/state/GuildMatureContentAgree';
 import Guilds from '@app/features/guild/state/Guilds';
-import {GROUP_DM_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {Message} from '@app/features/messaging/models/MessagingMessage';
 import * as MessageUtils from '@app/features/messaging/utils/MessageUtils';
 import Navigation from '@app/features/navigation/state/Navigation';
@@ -24,15 +19,12 @@ import * as PushSubscriptionService from '@app/features/platform/push/PushSubscr
 import {IS_DEV} from '@app/features/platform/types/Env';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {makePersistent, stopPersistent} from '@app/features/platform/utils/MobXPersistence';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import LocalPresence from '@app/features/presence/state/LocalPresence';
 import type {RelationshipWire} from '@app/features/relationship/models/Relationship';
 import FriendsTab from '@app/features/relationship/state/FriendsTab';
 import Relationships from '@app/features/relationship/state/Relationships';
 import {FRIEND_ADDED_DESCRIPTOR} from '@app/features/relationship/utils/RelationshipMessageDescriptors';
 import StreamerMode from '@app/features/streamer_mode/state/StreamerMode';
-import ThreadMemberships from '@app/features/threads/state/ThreadMemberships';
-import {isThreadMuted, resolveThreadNotificationLevel} from '@app/features/threads/utils/ThreadNotificationUtils';
 import Modal from '@app/features/ui/state/Modal';
 import {isInstalledPwa} from '@app/features/ui/utils/PwaUtils';
 import type {User} from '@app/features/user/models/User';
@@ -61,6 +53,10 @@ const SENT_YOU_A_FRIEND_REQUEST_DESCRIPTOR = msg({
 const IS_NOW_YOUR_FRIEND_DESCRIPTOR = msg({
 	message: '{displayName} is now your friend!',
 	comment: 'Toast title announcing a newly accepted friend request.',
+});
+const GROUP_DM_DESCRIPTOR = msg({
+	message: 'Group DM',
+	comment: 'Fallback name shown in a desktop notification for a group DM that has no custom name.',
 });
 const logger = new Logger('Notification');
 const shouldManagePushSubscriptions = (): boolean => isInstalledPwa();
@@ -151,9 +147,8 @@ class NotificationState {
 			},
 			{autoBind: true},
 		);
-		initializeStore(this, async () => {
-			await this.initPersistence();
-			await this.refreshPermission();
+		void this.initPersistence().then(() => {
+			void this.refreshPermission();
 		});
 		queueMicrotask(() => {
 			NotificationUtils.ensureDesktopNotificationClickHandler();
@@ -162,7 +157,7 @@ class NotificationState {
 			this.accountReactionDisposer = reaction(
 				() => {
 					try {
-						return Accounts?.currentUserId;
+						return AccountManager?.currentUserId;
 					} catch {
 						return undefined;
 					}
@@ -201,6 +196,14 @@ class NotificationState {
 		this.accountReactionDisposer = null;
 	}
 
+	getUnreadMessageBadgeEnabled(): boolean {
+		return this.unreadMessageBadgeEnabled;
+	}
+
+	getBrowserNotificationsEnabled(): boolean {
+		return this.browserNotificationsEnabled;
+	}
+
 	getTTSNotificationMode(): TTSNotificationMode {
 		return this.ttsNotificationMode;
 	}
@@ -209,8 +212,12 @@ class NotificationState {
 		this.ttsNotificationMode = mode;
 	}
 
-	private isMessageMentionLike(channel: Channel, message: Message, currentUser: User, ignoreEveryone = false): boolean {
-		if (MessageUtils.isMentioned(currentUser, message, ignoreEveryone)) {
+	isFocused(): boolean {
+		return this.focused;
+	}
+
+	private isMessageMentionLike(channel: Channel, message: Message, currentUser: User): boolean {
+		if (MessageUtils.isMentioned(currentUser, message)) {
 			return true;
 		}
 		if (channel.isPrivate()) {
@@ -220,15 +227,6 @@ class NotificationState {
 	}
 
 	private shouldNotifyBasedOnSettings(channel: Channel, messageRecord: Message, currentUser: User): boolean {
-		if (channel.isThread()) {
-			const isMember = ThreadMemberships.isMember(channel.id);
-			const threadLevel = isMember
-				? resolveThreadNotificationLevel(channel)
-				: (resolveNewPostNotificationLevel(channel, messageRecord.id) ?? MessageNotifications.ONLY_MENTIONS);
-			if (threadLevel === MessageNotifications.NO_MESSAGES) return false;
-			if (threadLevel === MessageNotifications.ALL_MESSAGES) return true;
-			return this.isMessageMentionLike(channel, messageRecord, currentUser, !isMember);
-		}
 		const level = UserGuildSettings.resolveEffectiveMessageNotifications({
 			id: channel.id,
 			guildId: channel.guildId,
@@ -253,7 +251,7 @@ class NotificationState {
 	}
 
 	private isViewingChannel(channelId: string): boolean {
-		return this.getVisibleChannelId() === channelId || Navigation.threadId === channelId;
+		return this.getVisibleChannelId() === channelId;
 	}
 
 	private validateNotificationData(message: WireMessage): NotificationData | null {
@@ -266,9 +264,7 @@ class NotificationState {
 		if ((message.flags & MessageFlags.SUPPRESS_NOTIFICATIONS) === MessageFlags.SUPPRESS_NOTIFICATIONS) {
 			return null;
 		}
-		if (channel.isThread()) {
-			if (isThreadMuted(channel)) return null;
-		} else if (
+		if (
 			UserGuildSettings.resolvesToNoMessages({
 				id: channel.id,
 				guildId: channel.guildId,
@@ -319,15 +315,14 @@ class NotificationState {
 		let subtitle: string | undefined;
 		switch (channel.type) {
 			case ChannelTypes.GUILD_TEXT:
-			case ChannelTypes.GUILD_ANNOUNCEMENT:
 			case ChannelTypes.GUILD_VOICE:
 				if (message.type === MessageTypes.DEFAULT) {
 					if (useMacOSNotificationPresentation) {
 						const guild = channel.guildId ? Guilds.getGuild(channel.guildId) : null;
-						const channelPrefix = channel.type === ChannelTypes.GUILD_VOICE ? '' : '#';
+						const channelPrefix = channel.type === ChannelTypes.GUILD_TEXT ? '#' : '';
 						subtitle = guild ? `${guild.name} ${channelPrefix}${channel.name}` : `${channelPrefix}${channel.name}`;
 					} else {
-						const channelPrefix = channel.type === ChannelTypes.GUILD_VOICE ? '' : '#';
+						const channelPrefix = channel.type === ChannelTypes.GUILD_TEXT ? '#' : '';
 						title = `${title} (${channelPrefix}${channel.name})`;
 					}
 				} else {
@@ -335,32 +330,15 @@ class NotificationState {
 					if (guild) {
 						if (useMacOSNotificationPresentation) {
 							title = guild.name;
-							const channelPrefix = channel.type === ChannelTypes.GUILD_VOICE ? '' : '#';
+							const channelPrefix = channel.type === ChannelTypes.GUILD_TEXT ? '#' : '';
 							subtitle = `${channelPrefix}${channel.name}`;
 						} else {
-							const channelPrefix = channel.type === ChannelTypes.GUILD_VOICE ? '' : '#';
+							const channelPrefix = channel.type === ChannelTypes.GUILD_TEXT ? '#' : '';
 							title = `${guild.name} (${channelPrefix}${channel.name})`;
 						}
 					}
 				}
 				break;
-			case ChannelTypes.ANNOUNCEMENT_THREAD:
-			case ChannelTypes.PUBLIC_THREAD:
-			case ChannelTypes.PRIVATE_THREAD: {
-				const parent = channel.parentId ? Channels.getChannel(channel.parentId) : undefined;
-				const guild = channel.guildId ? Guilds.getGuild(channel.guildId) : null;
-				const context =
-					formatNewPostNotificationSuffix(i18n, channel, message.id) ??
-					[`#${channel.name}`, parent ? `#${parent.name}` : null, guild?.name ?? null]
-						.filter((part) => part != null)
-						.join(', ');
-				if (useMacOSNotificationPresentation) {
-					subtitle = context;
-				} else {
-					title = `${title} (${context})`;
-				}
-				break;
-			}
 			case ChannelTypes.GROUP_DM: {
 				const groupDmName = channel.name || i18n._(GROUP_DM_DESCRIPTOR);
 				if (useMacOSNotificationPresentation) {
@@ -385,7 +363,6 @@ class NotificationState {
 				icon: getNotificationIconURL(user, channel.guildId),
 				url: notificationUrl,
 				playSound: false,
-				accountKey: Accounts.currentAccountKey,
 			});
 			notificationTracker.track(channel.id, {
 				browserNotification: result.browserNotification,
@@ -552,7 +529,6 @@ class NotificationState {
 			body,
 			icon: getNotificationIconURL(user),
 			url: Routes.ME,
-			accountKey: Accounts.currentAccountKey,
 		}).catch((error) => {
 			logger.error('Failed to show relationship notification', {cacheKey}, error);
 		});

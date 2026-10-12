@@ -84,10 +84,10 @@ import {
 	VERIFICATION_LEVEL_LOW_LABEL,
 	VERIFICATION_LEVEL_MEDIUM_LABEL,
 	VERIFICATION_LEVEL_NONE_LABEL,
+	VERIFICATION_LEVEL_VERY_HIGH_LABEL,
 } from '@app/features/guild/utils/guild_tabs/audit_log/AuditLogSharedMessages';
 import {
 	actorPlaceholder,
-	channelPlaceholder,
 	featureDelta,
 	readBitfield,
 	readBoolean,
@@ -97,7 +97,6 @@ import {
 	readString,
 	readStringArray,
 	readTimestamp,
-	textPlaceholder,
 } from '@app/features/guild/utils/guild_tabs/audit_log/AuditLogValues';
 import {
 	ContentWarningLevel,
@@ -163,13 +162,12 @@ const DEFAULT_NOTIFICATIONS_LABELS: ReadonlyMap<number, MessageDescriptor> = new
 	[MessageNotifications.ALL_MESSAGES, DEFAULT_NOTIFICATIONS_ALL_MESSAGES_LABEL],
 	[MessageNotifications.ONLY_MENTIONS, DEFAULT_NOTIFICATIONS_MENTIONS_ONLY_LABEL],
 ]);
-const RETIRED_TOP_VERIFICATION_LEVEL = 4;
 const VERIFICATION_LEVEL_LABELS: ReadonlyMap<number, MessageDescriptor> = new Map([
 	[GuildVerificationLevel.NONE, VERIFICATION_LEVEL_NONE_LABEL],
 	[GuildVerificationLevel.LOW, VERIFICATION_LEVEL_LOW_LABEL],
 	[GuildVerificationLevel.MEDIUM, VERIFICATION_LEVEL_MEDIUM_LABEL],
 	[GuildVerificationLevel.HIGH, VERIFICATION_LEVEL_HIGH_LABEL],
-	[RETIRED_TOP_VERIFICATION_LEVEL, VERIFICATION_LEVEL_HIGH_LABEL],
+	[GuildVerificationLevel.VERY_HIGH, VERIFICATION_LEVEL_VERY_HIGH_LABEL],
 ]);
 const EXPLICIT_CONTENT_FILTER_LABELS: ReadonlyMap<number, MessageDescriptor> = new Map([
 	[GuildExplicitContentFilterTypes.DISABLED, EXPLICIT_CONTENT_FILTER_OFF_LABEL],
@@ -266,6 +264,14 @@ function summarizedChange(
 		row: {id, tone, sentence: {descriptor: rowDescriptor, values}},
 		summary: {descriptor: summaryDescriptor, values: {actor, ...values}},
 	};
+}
+
+function channelPlaceholder(id: string): AuditLogPlaceholder {
+	return {kind: 'channel', id, recordedName: null, fallback: 'channel'};
+}
+
+function textPlaceholder(value: string): AuditLogPlaceholder {
+	return {kind: 'text', value};
 }
 
 function readNullableText(value: unknown): string | null | undefined {

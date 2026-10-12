@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-interface BoundedResponseBodyOptions {
+export interface BoundedResponseBodyOptions {
 	readonly maximumBytes: number;
 	readonly maximumChunks: number;
 	readonly description: string;
@@ -17,7 +17,7 @@ export interface ResponseDeadlineOptions<T> {
 	readonly operation: (signal: AbortSignal) => Promise<T>;
 }
 
-interface CancellableResponseBody {
+export interface CancellableResponseBody {
 	readonly body?: ReadableStream<Uint8Array> | null;
 }
 
@@ -27,14 +27,14 @@ export interface CancelResponseBodyAndThrowRequest {
 	readonly response: CancellableResponseBody;
 }
 
-const BoundedResponseBodyLimit = Object.freeze({
+export const BoundedResponseBodyLimit = Object.freeze({
 	BYTES: 'bytes',
 	CHUNKS: 'chunks',
 } as const);
 
-type BoundedResponseBodyLimit = (typeof BoundedResponseBodyLimit)[keyof typeof BoundedResponseBodyLimit];
+export type BoundedResponseBodyLimit = (typeof BoundedResponseBodyLimit)[keyof typeof BoundedResponseBodyLimit];
 
-class BoundedResponseBodyLimitError extends Error {
+export class BoundedResponseBodyLimitError extends Error {
 	readonly description: string;
 	readonly limit: BoundedResponseBodyLimit;
 	readonly maximum: number;
@@ -115,7 +115,7 @@ async function readBoundedResponseChunks(request: ReadBoundedResponseBodyRequest
 	return {chunks, totalBytes};
 }
 
-async function readBoundedResponseBytes(request: ReadBoundedResponseBodyRequest): Promise<Uint8Array> {
+export async function readBoundedResponseBytes(request: ReadBoundedResponseBodyRequest): Promise<Uint8Array> {
 	const {chunks, totalBytes} = await readBoundedResponseChunks(request);
 	const bytes = new Uint8Array(totalBytes);
 	let offset = 0;

@@ -8,7 +8,7 @@ import type {
 import type {TrackPublishOptions} from 'livekit-client';
 import {makeAutoObservable} from 'mobx';
 
-interface ActiveScreenShareSourceOptions {
+export interface ActiveScreenShareSourceOptions {
 	readonly isOwnWindow?: boolean;
 }
 

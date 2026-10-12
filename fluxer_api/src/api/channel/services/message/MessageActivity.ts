@@ -2,28 +2,29 @@
 
 import {createInviteCode, type GuildID, type UserID} from '@app/api/BrandedTypes';
 import {emitActivity} from '@app/api/infrastructure/activity/ActivityEvents';
-import type {AttachmentMeta} from '@app/api/infrastructure/activity/Contract.generated';
 import {Logger} from '@app/api/Logger';
 import {getGuildRepository, getInviteRepository} from '@app/api/middleware/ServiceSingletons';
 import type {Channel} from '@app/api/models/Channel';
 import type {Message} from '@app/api/models/Message';
 import type {User} from '@app/api/models/User';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {findInvites} from '@app/api/utils/InviteUtils';
-import {extractLinkHosts} from '@app/api/utils/UrlNormalizer';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 
 const CONTENT_MAX_CHARS = 2000;
 const LIST_MAX = 10;
 const MENTIONS_MAX = 20;
-const WWW_PREFIX_RE = /^www\./u;
+const LINK_PATTERN = /https?:\/\/([^\s/?#<>"']+)/giu;
 
 function linkDomains(content: string): Array<string> {
 	const domains = new Set<string>();
-	for (const host of extractLinkHosts(content)) {
-		const domain = host.replace(WWW_PREFIX_RE, '');
-		if (domain) domains.add(domain);
+	for (const match of content.matchAll(LINK_PATTERN)) {
+		const host = match[1]
+			?.toLowerCase()
+			.replace(/:\d+$/u, '')
+			.replace(/^www\./u, '');
+		if (host) domains.add(host);
 		if (domains.size >= LIST_MAX) break;
 	}
 	return [...domains];
@@ -67,21 +68,10 @@ export interface MessageCreatedActivity {
 	dmRecipientId: UserID | null;
 	channelHadMessages: boolean;
 	delivered: boolean;
-	userRepository: Pick<UserRepository, 'getRelationship'>;
+	userRepository: Pick<IUserRepository, 'getRelationship'>;
 }
 
-function attachmentMeta(message: Message): Array<AttachmentMeta> {
-	return message.attachments.slice(0, LIST_MAX).map((attachment) => ({
-		size: Number(attachment.size),
-		content_type: attachment.contentType || null,
-		hash: attachment.contentHash ? attachment.contentHash.toLowerCase() : null,
-	}));
-}
-
-async function buildAndEmit(
-	kind: 'message_created' | 'message_updated',
-	params: MessageCreatedActivity,
-): Promise<void> {
+async function buildAndEmit(params: MessageCreatedActivity): Promise<void> {
 	const {user, message, channel, guildId, dmRecipientId} = params;
 	const content = Array.from(message.content ?? '')
 		.slice(0, CONTENT_MAX_CHARS)
@@ -97,7 +87,7 @@ async function buildAndEmit(
 		? (await params.userRepository.getRelationship(user.id, dmRecipientId, RelationshipTypes.FRIEND)) !== null
 		: false;
 	await emitActivity(
-		kind,
+		'message_created',
 		user.id.toString(),
 		{
 			user_id: user.id.toString(),
@@ -112,7 +102,6 @@ async function buildAndEmit(
 			content,
 			attachment_count: message.attachments.length,
 			attachment_names: message.attachments.slice(0, LIST_MAX).map((attachment) => attachment.filename),
-			attachments: attachmentMeta(message),
 			link_domains: domains,
 			invite_codes: inviteCodes,
 			invite_guild_ids: targets.map((target) => target.guildId),
@@ -125,20 +114,12 @@ async function buildAndEmit(
 			delivered: params.delivered,
 		},
 		null,
-		kind === 'message_created'
-			? message.id.toString()
-			: `${message.id}:${message.editedTimestamp?.getTime() ?? Date.now()}`,
+		message.id.toString(),
 	);
 }
 
 export function emitMessageCreated(params: MessageCreatedActivity): void {
-	void buildAndEmit('message_created', params).catch((error: unknown) => {
-		Logger.debug({error}, 'Message activity event could not be built');
-	});
-}
-
-export function emitMessageUpdated(params: MessageCreatedActivity): void {
-	void buildAndEmit('message_updated', params).catch((error: unknown) => {
+	void buildAndEmit(params).catch((error: unknown) => {
 		Logger.debug({error}, 'Message activity event could not be built');
 	});
 }

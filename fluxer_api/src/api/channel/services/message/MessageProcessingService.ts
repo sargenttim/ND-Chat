@@ -2,13 +2,13 @@
 
 import {type ChannelID, createChannelID, createGuildID, type MessageID, type UserID} from '@app/api/BrandedTypes';
 import {mapChannelToResponse} from '@app/api/channel/ChannelMappers';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
 import type {MessageRequest, MessageUpdateRequest} from '@app/api/channel/MessageTypes';
-import {dispatchMessageUpdateBroadcast} from '@app/api/channel/services/message/MessageGatewayDispatch';
+import type {IChannelRepositoryAggregate} from '@app/api/channel/repositories/IChannelRepositoryAggregate';
+import type {MessageDispatchService} from '@app/api/channel/services/message/MessageDispatchService';
+import {isPersonalNotesChannel} from '@app/api/channel/services/message/MessageHelpers';
 import type {MessageMentionService} from '@app/api/channel/services/message/MessageMentionService';
 import type {MessagePersistenceService} from '@app/api/channel/services/message/MessagePersistenceService';
 import {incrementDmMentionCounts} from '@app/api/channel/services/message/ReadStateHelpers';
-import {isPersonalNotesChannelId} from '@app/api/channel/services/PersonalNotesChannelRepair';
 import type {GatewayChannelMention, IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import {Logger} from '@app/api/Logger';
@@ -17,8 +17,8 @@ import {Channel} from '@app/api/models/Channel';
 import type {Message} from '@app/api/models/Message';
 import type {User} from '@app/api/models/User';
 import type {ReadStateService} from '@app/api/read_state/ReadStateService';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {ChannelTypes, MessageFlags} from '@fluxer/constants/src/ChannelConstants';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
+import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {CannotEditOtherUserMessageError} from '@fluxer/errors/src/domains/channel/CannotEditOtherUserMessageError';
 import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
 import type {AllowedMentionsRequest} from '@fluxer/schema/src/domains/message/SharedMessageSchemas';
@@ -42,8 +42,8 @@ function channelWithLastMessageId(channel: Channel, messageId: MessageID): Chann
 
 export class MessageProcessingService {
 	constructor(
-		private channelRepository: ChannelRepository,
-		private userRepository: UserRepository,
+		private channelRepository: IChannelRepositoryAggregate,
+		private userRepository: IUserRepository,
 		private userCacheService: UserCacheService,
 		private gatewayService: IGatewayService,
 		private readStateService: ReadStateService,
@@ -166,7 +166,7 @@ export class MessageProcessingService {
 	}): Promise<MentionProcessingResult> {
 		const {channel, message, referencedMessageOnSend, allowedMentions, guild, canMentionEveryone, canMentionRoles} =
 			params;
-		if (message.authorId != null && isPersonalNotesChannelId({userId: message.authorId, channelId: channel.id})) {
+		if (message.authorId != null && isPersonalNotesChannel({userId: message.authorId, channelId: channel.id})) {
 			return {message, mentionChannels: []};
 		}
 		const content = message.content ?? '';
@@ -204,9 +204,6 @@ export class MessageProcessingService {
 	}
 
 	async repairMentionsOnRead(message: Message, sourceChannel?: Channel): Promise<Message> {
-		if ((message.flags & MessageFlags.IS_CROSSPOST) !== 0) {
-			return message;
-		}
 		if (
 			message.mentionedUserIds.size === 0 &&
 			message.mentionedRoleIds.size === 0 &&
@@ -219,7 +216,7 @@ export class MessageProcessingService {
 			}
 		}
 		const referencedMessage =
-			message.reference?.messageId && message.mentionedUserIds.size > 0
+			message.reference && message.mentionedUserIds.size > 0
 				? await this.channelRepository.messages.getMessage(message.reference.channelId, message.reference.messageId)
 				: null;
 		const repair = await this.mentionService.buildReadRepairMentionData({message, referencedMessage});
@@ -271,8 +268,9 @@ export class MessageProcessingService {
 		channel: Channel;
 		requestCache: RequestCache;
 		persistenceService: MessagePersistenceService;
+		dispatchService: MessageDispatchService;
 	}): Promise<Message> {
-		const {message, data, guild, hasPermission, channel, persistenceService} = params;
+		const {message, data, guild, hasPermission, channel, requestCache, persistenceService, dispatchService} = params;
 		const editResult = await persistenceService.handleNonAuthorEdit({
 			message,
 			data,
@@ -288,7 +286,7 @@ export class MessageProcessingService {
 				updatedRowData.attachments = editResult.updatedAttachments;
 			}
 			const updatedMessage = await this.channelRepository.messages.upsertMessage(updatedRowData, message.toRow());
-			await dispatchMessageUpdateBroadcast({gatewayService: this.gatewayService, channel, message: updatedMessage});
+			await dispatchService.dispatchMessageUpdate({channel, message: updatedMessage, requestCache});
 			return updatedMessage;
 		}
 		throw new CannotEditOtherUserMessageError();

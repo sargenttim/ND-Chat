@@ -10,4 +10,8 @@ export class NoopWorkerService implements IWorkerService {
 	async cancelJob(_jobId: bigint): Promise<boolean> {
 		return false;
 	}
+
+	async retryDeadLetterJob(_jobId: bigint): Promise<boolean> {
+		return false;
+	}
 }

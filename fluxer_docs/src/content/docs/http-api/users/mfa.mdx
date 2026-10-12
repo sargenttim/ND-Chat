@@ -10,7 +10,7 @@ Multi-factor authentication asks for a second proof of identity after the accoun
 
 Registering a WebAuthn credential does not make passkeys a second factor. A registered credential answers a [sudo mode](#sudo-mode) challenge and a passwordless login on its own, and only [Set WebAuthn two-factor authentication](#set-webauthn-two-factor-authentication) adds the WebAuthn [authenticator type](/http-api/users/#authenticator-types) that makes a passkey a required second factor at password login.
 
-Every route here requires a non-bot user session.
+Every route here requires a non-bot user session. Fluxer rejects an account in suspicious activity state with 403 `ACCOUNT_SUSPICIOUS_ACTIVITY`, including on the sudo routes.
 
 :::caution[A challenge is one-use and context-bound]
 Fluxer consumes a backup code, a WebAuthn registration challenge, and a WebAuthn sudo challenge on first use. A challenge is bound to the user it was issued to and to the operation it was issued for. The operations are registration, sudo, MFA login, discoverable login, the passkey bridge, and the passkey update. It expires after five minutes, so a registration challenge cannot be redeemed as a sudo assertion.
@@ -53,8 +53,6 @@ Keep the TOTP secret and every backup code out of logs, analytics, URLs, and oth
 An account that lost its saved backup codes reads the set back through an emailed challenge. [Start MFA backup codes challenge](#start-mfa-backup-codes-challenge) opens a ticket and emails a code. [Verify MFA backup codes challenge code](#verify-mfa-backup-codes-challenge-code) exchanges that code for the current set and a proof. [Regenerate MFA backup codes](#regenerate-mfa-backup-codes) then presents the ticket and the proof to replace the set. [Resend MFA backup codes challenge code](#resend-mfa-backup-codes-challenge-code) sends a fresh code any time before verification.
 
 [Sudo mode](#sudo-mode) applies to none of the four, so a user who no longer has the authenticator app still reaches the codes through the email address. The account needs a verified email address and TOTP enabled. Only [Start MFA backup codes challenge](#start-mfa-backup-codes-challenge) checks the address, and [Regenerate MFA backup codes](#regenerate-mfa-backup-codes) checks TOTP a second time.
-
-An instance where members sign in with a username keeps no email address, and all four return 400 `EMAIL_UNAVAILABLE_ON_INSTANCE` there. An account on such an instance reads and replaces its set through [List MFA backup codes](#list-mfa-backup-codes) under sudo mode.
 
 A ticket is a version 4 UUID valid for 30 minutes after the challenge starts, the code is resent, or the code is verified. Regeneration does not extend it. An expired, unknown, or another account's ticket fails with `INVALID_OR_EXPIRED_TICKET`.
 
@@ -245,7 +243,7 @@ The options name the chosen domain in `rpId` and list only the chosen passkeys. 
 
 ## Replaced passkeys
 
-A [passkey update](#passkey-updates) keeps the old `fluxer.app` credential as a replaced passkey, so the mobile apps and `web.fluxer.app` still accept it. A replaced passkey appears in no list, no [Ready](/gateway/events/#ready) payload, and no [WebAuthn Credentials Update](/gateway/events/#webauthn-credentials-update), and it does not count towards the 10-credential limit.
+A [passkey update](#passkey-updates) keeps the old `fluxer.app` credential as a replaced passkey, so the mobile apps and `web.fluxer.app` still accept it. A replaced passkey appears in no list, no [Ready](/gateway/events/#ready) payload, and no [WebAuthn Credentials Update](/gateway/events/#webauthn-credentials-update), and it does not count toward the 10-credential limit.
 
 A replaced passkey works only on requests that are not new-origin requests. It never works on a new origin or through the passkey bridge. Renaming or deleting it by ID returns 404 `UNKNOWN_WEBAUTHN_CREDENTIAL`. Deleting the passkey that replaced it deletes it too, and deleting the account's last listed passkey deletes every replaced one.
 

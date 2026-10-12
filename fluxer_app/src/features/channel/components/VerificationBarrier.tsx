@@ -3,6 +3,7 @@
 import {
 	AccountTooNewBarrier,
 	DefaultBarrier,
+	NoPhoneNumberBarrier,
 	NotMemberLongEnoughBarrier,
 	SendMessageDisabledBarrier,
 	TimeoutBarrier,
@@ -46,6 +47,8 @@ export const VerificationBarrier = observer(({channel}: Props) => {
 					data-flx="channel.verification-barrier.not-member-long-enough-barrier"
 				/>
 			);
+		case VerificationFailureReason.NO_PHONE_NUMBER:
+			return <NoPhoneNumberBarrier data-flx="channel.verification-barrier.no-phone-number-barrier" />;
 		case VerificationFailureReason.SEND_MESSAGE_DISABLED:
 			return <SendMessageDisabledBarrier data-flx="channel.verification-barrier.send-message-disabled-barrier" />;
 		case VerificationFailureReason.TIMED_OUT:

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 
 const TOTP_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const getRandomBytes = (length = 20): Uint8Array => {
@@ -34,7 +34,7 @@ export function encodeTotpSecret(secret: string) {
 	return secret.replace(/[\s._-]+/g, '').toUpperCase();
 }
 
-export function encodeTotpSecretAsURL(accountName: string, secret: string, issuer = RuntimeConfig.productName) {
+export function encodeTotpSecretAsURL(accountName: string, secret: string, issuer = PRODUCT_NAME) {
 	const url = new URL('otpauth://totp');
 	url.pathname = `/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}`;
 	url.searchParams.set('secret', encodeTotpSecret(secret));

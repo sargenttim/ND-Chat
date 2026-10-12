@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-interface MuteWindow {
+export interface MuteWindow {
 	end_time?: string | null;
 	selected_time_window?: number;
 }
 
 export type MuteConfig = Readonly<MuteWindow> | null;
 
-interface ChannelOverrideShape {
+export interface ChannelOverrideShape {
 	collapsed: boolean;
 	message_notifications: number;
 	muted: boolean;
@@ -15,9 +15,9 @@ interface ChannelOverrideShape {
 	unread_badges?: number | null;
 }
 
-type ChannelOverride = Readonly<ChannelOverrideShape>;
+export type ChannelOverride = Readonly<ChannelOverrideShape>;
 
-interface UserGuildSettingsShape {
+export interface UserGuildSettingsShape {
 	guild_id: string | null;
 	message_notifications: number;
 	muted: boolean;
@@ -31,4 +31,5 @@ interface UserGuildSettingsShape {
 	version: number;
 }
 
+export type UserGuildSettings = Readonly<UserGuildSettingsShape>;
 export type UserGuildSettingsPartial = Partial<Omit<UserGuildSettingsShape, 'guild_id' | 'version'>>;

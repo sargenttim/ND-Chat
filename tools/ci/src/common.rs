@@ -37,16 +37,6 @@ pub(crate) struct CalverEnv {
     pub(crate) fluxer_build_date: Option<String>,
 }
 
-impl CalverEnv {
-    pub(crate) fn from_process() -> Self {
-        Self {
-            build_version: trim_option(env::var("BUILD_VERSION").ok()),
-            fluxer_build_version: trim_option(env::var("FLUXER_BUILD_VERSION").ok()),
-            fluxer_build_date: trim_option(env::var("FLUXER_BUILD_DATE").ok()),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CommandSpec {
     pub(crate) program: OsString,
@@ -249,7 +239,7 @@ fn append_key_values(path_env_name: &str, pairs: &[(&str, &str)]) -> Result<()> 
 }
 
 pub(crate) fn run_command(spec: CommandSpec) -> Result<()> {
-    println!("+ {}", display_command(&spec.program, &spec.args));
+    println!("+ {}", display_command(&spec));
     let status = spec
         .to_command()
         .status()
@@ -258,7 +248,7 @@ pub(crate) fn run_command(spec: CommandSpec) -> Result<()> {
         status.success(),
         "Command failed with exit code {}: {}",
         status.code().unwrap_or(1),
-        display_command(&spec.program, &spec.args)
+        display_command(&spec)
     );
     Ok(())
 }
@@ -284,7 +274,7 @@ fn output(spec: CommandSpec) -> Result<CapturedOutput> {
         bail!(
             "Command failed with exit code {}: {}\n{}{}",
             captured.status,
-            display_command(&spec.program, &spec.args),
+            display_command(&spec),
             stdout,
             stderr
         );
@@ -292,7 +282,7 @@ fn output(spec: CommandSpec) -> Result<CapturedOutput> {
 }
 
 pub(crate) fn capture(spec: CommandSpec) -> Result<CapturedOutput> {
-    println!("+ {}", display_command(&spec.program, &spec.args));
+    println!("+ {}", display_command(&spec));
     let output = spec
         .to_command()
         .stdout(Stdio::piped())
@@ -316,9 +306,9 @@ pub(crate) fn command_succeeds(spec: CommandSpec) -> bool {
         .is_ok_and(|status| status.success())
 }
 
-pub(crate) fn display_command(program: impl AsRef<OsStr>, args: &[impl AsRef<OsStr>]) -> String {
-    std::iter::once(program.as_ref().to_string_lossy().to_string())
-        .chain(args.iter().map(|arg| quote_arg(arg.as_ref())))
+fn display_command(spec: &CommandSpec) -> String {
+    std::iter::once(spec.program.to_string_lossy().to_string())
+        .chain(spec.args.iter().map(|arg| quote_arg(arg)))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -572,12 +562,7 @@ pub(crate) fn split_append_only_upload_plan(
     let mut skipped = Vec::new();
     for item in plan {
         if let Some(remote) = existing_objects.get(&item.key) {
-            if let Err(error) = ensure_existing_s3_object_matches_local(bucket, &item, remote) {
-                if !item.key.ends_with(".map") {
-                    return Err(error);
-                }
-                println!("Keeping the published source map: {error}");
-            }
+            ensure_existing_s3_object_matches_local(bucket, &item, remote)?;
             skipped.push(item);
         } else {
             pending.push(item);
@@ -1064,33 +1049,6 @@ pub(crate) fn count_files(root: &Path) -> Result<usize> {
     Ok(collect_files(root)?.len())
 }
 
-pub(crate) fn remove_empty_dirs_below(root: &Path) -> Result<usize> {
-    if !root.exists() {
-        return Ok(0);
-    }
-    let mut dirs = WalkDir::new(root)
-        .min_depth(1)
-        .into_iter()
-        .collect::<std::result::Result<Vec<_>, _>>()?
-        .into_iter()
-        .filter(|entry| entry.file_type().is_dir())
-        .map(|entry| entry.into_path())
-        .collect::<Vec<_>>();
-    dirs.sort();
-    let mut removed = 0usize;
-    for dir in dirs.into_iter().rev() {
-        let is_empty = fs::read_dir(&dir)
-            .with_context(|| format!("Failed to read {}", dir.display()))?
-            .next()
-            .is_none();
-        if is_empty {
-            fs::remove_dir(&dir).with_context(|| format!("Failed to remove {}", dir.display()))?;
-            removed += 1;
-        }
-    }
-    Ok(removed)
-}
-
 pub(crate) fn title_case(value: &str) -> String {
     let mut chars = value.chars();
     match chars.next() {
@@ -1102,6 +1060,42 @@ pub(crate) fn title_case(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn dt(year: i32, month: u32, day: u32, hour: u32, minute: u32, second: u32) -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(year, month, day, hour, minute, second)
+            .single()
+            .unwrap()
+    }
+
+    #[test]
+    fn resolves_generated_calver_from_date_override() {
+        let calver_env = CalverEnv {
+            fluxer_build_date: Some("2026-05-20T01:02:03Z".to_string()),
+            ..CalverEnv::default()
+        };
+        assert_eq!(
+            resolve_calver(&calver_env, dt(2026, 1, 1, 0, 0, 0)).unwrap(),
+            "2026.520.10203"
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_explicit_time() {
+        assert_eq!(
+            parse_version_instant("2026.520.246000")
+                .unwrap_err()
+                .to_string(),
+            "Invalid build version date/time: 2026.520.246000"
+        );
+    }
+
+    #[test]
+    fn s3_key_helpers_are_platform_neutral() {
+        assert_eq!(
+            path_to_s3_key(Path::new("assets").join("chunks").join("a.js").as_path()),
+            "assets/chunks/a.js"
+        );
+    }
 
     #[test]
     fn append_only_plan_skips_existing_keys_without_reordering_pending_uploads() {
@@ -1166,35 +1160,6 @@ mod tests {
     }
 
     #[test]
-    fn append_only_plan_keeps_a_published_source_map_that_differs() {
-        let temp = tempfile::tempdir().unwrap();
-        let path = temp.path().join("abc.worker.js.map");
-        fs::write(&path, "local").unwrap();
-        let plan = vec![S3UploadPlanItem::new(
-            path,
-            "assets/abc.worker.js.map".to_string(),
-        )];
-        let existing = BTreeMap::from([(
-            "assets/abc.worker.js.map".to_string(),
-            S3ObjectMetadata {
-                e_tag: Some("\"00000000000000000000000000000000\"".to_string()),
-                size: Some(9),
-            },
-        )]);
-
-        let (pending, skipped) = split_append_only_upload_plan("bucket", plan, &existing).unwrap();
-
-        assert!(pending.is_empty());
-        assert_eq!(
-            skipped
-                .iter()
-                .map(|item| item.key.as_str())
-                .collect::<Vec<_>>(),
-            vec!["assets/abc.worker.js.map"]
-        );
-    }
-
-    #[test]
     fn append_only_plan_rejects_existing_key_without_comparable_etag() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("asset.bin");
@@ -1225,6 +1190,115 @@ mod tests {
                 .unwrap_err()
                 .to_string(),
             "Duplicate S3 upload key in local plan: same/key"
+        );
+    }
+
+    #[test]
+    fn s3_conditional_put_errors_are_treated_as_existing_objects() {
+        assert!(is_existing_object_error(Some("PreconditionFailed"), None));
+        assert!(is_existing_object_error(
+            Some("ConditionalRequestConflict"),
+            None
+        ));
+        assert!(is_existing_object_error(Some("Error"), Some(412)));
+        assert!(is_existing_object_error(None, Some(409)));
+        assert!(!is_existing_object_error(Some("AccessDenied"), Some(403)));
+        assert!(!is_existing_object_error(None, None));
+    }
+
+    #[test]
+    fn s3_retryable_errors_include_unmodeled_429s() {
+        assert!(is_retryable_s3_error(Some("Error"), Some(429)));
+        assert!(is_retryable_s3_error(Some("TooManyRequests"), None));
+        assert!(is_retryable_s3_error(Some("RateLimitExceeded"), None));
+        assert!(!is_retryable_s3_error(None, Some(503)));
+        assert!(!is_retryable_s3_error(Some("AccessDenied"), Some(403)));
+        assert!(!is_retryable_s3_error(None, None));
+    }
+
+    #[test]
+    fn s3_etag_md5_accepts_only_single_part_md5_values() {
+        assert_eq!(
+            s3_etag_md5("\"D41D8CD98F00B204E9800998ECF8427E\"").as_deref(),
+            Some("d41d8cd98f00b204e9800998ecf8427e")
+        );
+        assert!(s3_etag_md5("\"d41d8cd98f00b204e9800998ecf8427e-2\"").is_none());
+        assert!(s3_etag_md5("\"not-md5\"").is_none());
+    }
+
+    #[test]
+    fn s3_list_prefixes_group_planned_keys_by_top_level_prefix() {
+        let plan = vec![
+            S3UploadPlanItem::new(PathBuf::from("index.html"), "index.html".to_string()),
+            S3UploadPlanItem::new(PathBuf::from("emoji/a.svg"), "emoji/a.svg".to_string()),
+            S3UploadPlanItem::new(
+                PathBuf::from("emoji/nested/b.svg"),
+                "emoji/nested/b.svg".to_string(),
+            ),
+            S3UploadPlanItem::new(PathBuf::from("assets/app.js"), "assets/app.js".to_string()),
+        ];
+
+        assert_eq!(
+            s3_list_prefixes_for_plan(&plan),
+            BTreeSet::from([
+                "assets/".to_string(),
+                "emoji/".to_string(),
+                "index.html".to_string()
+            ])
+        );
+    }
+
+    #[test]
+    fn s3_error_summary_includes_available_metadata() {
+        assert_eq!(
+            s3_error_summary(Some("Error"), Some(404)),
+            " (S3 code Error, HTTP status 404)"
+        );
+        assert_eq!(s3_error_summary(None, Some(500)), " (HTTP status 500)");
+    }
+
+    #[test]
+    fn s3_content_type_for_key_covers_browser_module_assets() {
+        assert_eq!(
+            s3_content_type_for_key("assets/app.js"),
+            Some("application/javascript; charset=utf-8")
+        );
+        assert_eq!(
+            s3_content_type_for_key("assets/app.mjs"),
+            Some("application/javascript; charset=utf-8")
+        );
+        assert_eq!(
+            s3_content_type_for_key("assets/voice_bg.wasm"),
+            Some("application/wasm")
+        );
+        assert_eq!(
+            s3_content_type_for_key("assets/app.css"),
+            Some("text/css; charset=utf-8")
+        );
+        assert_eq!(s3_content_type_for_key("assets/blob.unknown"), None);
+    }
+
+    #[test]
+    fn collect_and_copy_dir_contents_are_sorted_and_recursive() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let dest = temp.path().join("dest");
+        fs::create_dir_all(source.join("b")).unwrap();
+        fs::write(source.join("b").join("two.txt"), "2").unwrap();
+        fs::write(source.join("one.txt"), "1").unwrap();
+
+        let relative_files = collect_files(&source)
+            .unwrap()
+            .into_iter()
+            .map(|path| path_to_s3_key(path.strip_prefix(&source).unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(relative_files, vec!["b/two.txt", "one.txt"]);
+
+        copy_dir_contents(&source, &dest).unwrap();
+        assert_eq!(fs::read_to_string(dest.join("one.txt")).unwrap(), "1");
+        assert_eq!(
+            fs::read_to_string(dest.join("b").join("two.txt")).unwrap(),
+            "2"
         );
     }
 }

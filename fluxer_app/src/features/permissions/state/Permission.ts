@@ -5,10 +5,8 @@ import Channels from '@app/features/channel/state/Channels';
 import type {Guild as GuildModel} from '@app/features/guild/models/Guild';
 import Guilds from '@app/features/guild/state/Guilds';
 import * as PermissionUtils from '@app/features/permissions/utils/PermissionUtils';
-import ChannelThreads from '@app/features/threads/state/ChannelThreads';
 import type {User as UserModel} from '@app/features/user/models/User';
 import Users from '@app/features/user/state/Users';
-import {threadViewPermissions} from '@fluxer/constants/src/ThreadPermissionUtils';
 import type {ChannelId, GuildId, UserId} from '@fluxer/schema/src/branded/WireIds';
 import type {Channel as WireChannel} from '@fluxer/schema/src/domains/channel/ChannelSchemas';
 import type {Guild as WireGuild} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
@@ -37,6 +35,10 @@ class Permission {
 
 	getGuildPermissions(guildId: string): bigint | undefined {
 		return this.guildPermissions.get(guildId as GuildId);
+	}
+
+	getGuildVersion(guildId: string): number | undefined {
+		return this.guildVersions.get(guildId as GuildId);
 	}
 
 	get version(): number {
@@ -87,6 +89,13 @@ class Permission {
 		this.rebuildPermissions();
 	}
 
+	handleConnectionClose(): void {
+		this.guildPermissions.clear();
+		this.channelPermissions.clear();
+		this.guildVersions.clear();
+		this.bumpGlobalVersion();
+	}
+
 	handleGuild(): void {
 		this.rebuildPermissions();
 	}
@@ -109,33 +118,11 @@ class Permission {
 		}
 		const currentUser = Users.currentUser;
 		if (!currentUser) return;
-		if (channel.isThread()) {
-			this.setThreadPermissions(channel);
-		} else {
-			this.channelPermissions.set(
-				channel.id as ChannelId,
-				PermissionUtils.computePermissions(currentUser, channel.toJSON()),
-			);
-			this.refreshChildThreads(channel.id);
-		}
-		this.bumpGuildVersion(channel.guildId);
-	}
-
-	private setThreadPermissions(thread: ChannelModel): void {
-		const parentPermissions = thread.parentId ? this.channelPermissions.get(thread.parentId as ChannelId) : undefined;
 		this.channelPermissions.set(
-			thread.id as ChannelId,
-			parentPermissions === undefined ? PermissionUtils.NONE : threadViewPermissions(parentPermissions),
+			channel.id as ChannelId,
+			PermissionUtils.computePermissions(currentUser, channel.toJSON()),
 		);
-	}
-
-	private refreshChildThreads(parentId: string): void {
-		const threadIds = ChannelThreads.getThreadIdsForParent(parentId);
-		if (threadIds.length === 0) return;
-		for (const threadId of threadIds) {
-			const thread = Channels.getChannel(threadId);
-			if (thread?.isThread()) this.setThreadPermissions(thread);
-		}
+		this.bumpGuildVersion(channel.guildId);
 	}
 
 	handleChannelDelete(channelId: string, guildId?: string): void {
@@ -149,21 +136,13 @@ class Permission {
 		const guild = Guilds.getGuild(guildId);
 		if (!guild) return;
 		this.guildPermissions.set(guildId as GuildId, PermissionUtils.computePermissions(currentUser, guild.toJSON()));
-		const threads: Array<ChannelModel> = [];
 		for (const channel of Channels.channels) {
 			if (channel.guildId === guildId) {
-				if (channel.isThread()) {
-					threads.push(channel);
-					continue;
-				}
 				this.channelPermissions.set(
 					channel.id as ChannelId,
 					PermissionUtils.computePermissions(currentUser, channel.toJSON()),
 				);
 			}
-		}
-		for (const thread of threads) {
-			this.setThreadPermissions(thread);
 		}
 		this.bumpGuildVersion(guildId);
 	}
@@ -183,12 +162,7 @@ class Permission {
 			this.guildPermissions.set(guild.id as GuildId, PermissionUtils.computePermissions(user, guild.toJSON()));
 			this.bumpGuildVersion(guild.id);
 		}
-		const threads: Array<ChannelModel> = [];
 		for (const channel of Channels.channels) {
-			if (channel.isThread()) {
-				threads.push(channel);
-				continue;
-			}
 			if (Object.keys(channel.permissionOverwrites).length === 0) {
 				if (channel.guildId != null) {
 					const guildPerms = this.guildPermissions.get(channel.guildId as GuildId) ?? PermissionUtils.NONE;
@@ -203,9 +177,6 @@ class Permission {
 				);
 			}
 			this.bumpGuildVersion(channel.guildId);
-		}
-		for (const thread of threads) {
-			this.setThreadPermissions(thread);
 		}
 		this.bumpGlobalVersion();
 	}

@@ -10,7 +10,6 @@ import {RecentMentionsPage} from '@app/features/messaging/components/pages/Recen
 import {SavedMessagesPage} from '@app/features/messaging/components/pages/SavedMessagesPage';
 import {useLocation, useParams} from '@app/features/platform/components/router/RouterReact';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
-import Users from '@app/features/user/state/Users';
 import VoiceCallFullscreen from '@app/features/voice/state/VoiceCallFullscreen';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
@@ -26,7 +25,6 @@ export const DMLayout = observer(({children}: DMLayoutProps) => {
 	const mobileLayout = MobileLayout;
 	const directMessagesDisabled = RuntimeConfig.directMessagesDisabled;
 	const isVoiceCallFullscreenActive = VoiceCallFullscreen.isActive;
-	const viewAccountKey = Users.viewAccountKey;
 	const renderContent = () => {
 		if (location.pathname === Routes.BOOKMARKS) {
 			return <SavedMessagesPage data-flx="channel.direct-message.dm-layout.render-content.saved-messages-page" />;
@@ -48,9 +46,7 @@ export const DMLayout = observer(({children}: DMLayoutProps) => {
 		if (directMessagesDisabled) {
 			return null;
 		}
-		return (
-			<DMFriendsView key={viewAccountKey} data-flx="channel.direct-message.dm-layout.render-content.dm-friends-view" />
-		);
+		return <DMFriendsView data-flx="channel.direct-message.dm-layout.render-content.dm-friends-view" />;
 	};
 	if (isVoiceCallFullscreenActive) {
 		return (

@@ -4,7 +4,9 @@ import {createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import {
 	getAppStoreApp,
+	getAppStoreConfig,
 	getAppStoreProductSlot,
+	getGooglePlayConfig,
 	getGooglePlayOneTimeProductSlot,
 	getGooglePlaySubscriptionSlot,
 	isAppStoreConfigured,
@@ -52,6 +54,13 @@ describe('store billing config', () => {
 		Object.assign(Config.googlePlay, savedGooglePlay);
 		Object.assign(Config.storeBilling, savedStoreBilling);
 		Config.instance.selfHosted = savedSelfHosted;
+	});
+
+	it('treats both stores as configured with the test credentials', () => {
+		expect(getAppStoreConfig().enabled).toBe(true);
+		expect(getGooglePlayConfig().packages).toEqual(['com.fluxer']);
+		expect(isAppStoreConfigured()).toBe(true);
+		expect(isGooglePlayConfigured()).toBe(true);
 	});
 
 	it('treats a store as not configured when disabled', () => {

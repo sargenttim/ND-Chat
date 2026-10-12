@@ -9,17 +9,15 @@ import {
 	verifyRenewalInfo,
 	verifyTransaction,
 } from '@app/api/store_billing/app_store/AppStoreJwsVerifier';
-import {hasText, normalizePem} from '@app/api/store_billing/StoreBillingCredentials';
 import type {StoreEnvironment} from '@app/api/store_billing/StoreBillingTypes';
-import {parseJsonOrNull} from '@app/api/utils/JsonBoundaryUtils';
 import {ms, seconds} from 'itty-time';
 import {type CryptoKey, importPKCS8, SignJWT} from 'jose';
 import {z} from 'zod';
 
 export const APP_STORE_PRODUCTION_BASE_URL = 'https://api.storekit.apple.com';
 export const APP_STORE_SANDBOX_BASE_URL = 'https://api.storekit-sandbox.apple.com';
-const APP_STORE_API_AUDIENCE = 'appstoreconnect-v1';
-const APP_STORE_TRANSACTION_ID_NOT_FOUND_ERROR = 4040010;
+export const APP_STORE_API_AUDIENCE = 'appstoreconnect-v1';
+export const APP_STORE_TRANSACTION_ID_NOT_FOUND_ERROR = 4040010;
 const APP_STORE_RETRYABLE_ERROR_CODES: ReadonlySet<number> = new Set([4040002, 4040004, 4040006, 5000001, 4290000]);
 const APP_STORE_TOKEN_TTL_SECONDS = seconds('1 hour');
 const APP_STORE_TOKEN_REUSE_SECONDS = seconds('50 minutes');
@@ -59,6 +57,10 @@ const NotificationHistoryResponseSchema = z.object({
 	paginationToken: z.string().nullish(),
 });
 
+const TestNotificationResponseSchema = z.object({
+	testNotificationToken: z.string().min(1),
+});
+
 export class AppStoreServerApiError extends Error {
 	constructor(
 		message: string,
@@ -83,7 +85,7 @@ export interface AppStoreLastTransaction {
 	renewalInfo: AppStoreRenewalInfoPayload | null;
 }
 
-interface AppStoreSubscriptionGroup {
+export interface AppStoreSubscriptionGroup {
 	subscriptionGroupIdentifier: string;
 	lastTransactions: Array<AppStoreLastTransaction>;
 }
@@ -147,12 +149,31 @@ interface AppStoreServerApiClientOptions {
 	timeoutMs?: number;
 }
 
+function normalizePem(value: string): string {
+	return value.replaceAll('\\n', '\n');
+}
+
+function hasText(value: string | undefined): value is string {
+	return value !== undefined && value.trim().length > 0;
+}
+
 function parseRetryAfter(value: string | null): Date | null {
 	if (!value || !/^\d+$/.test(value.trim())) {
 		return null;
 	}
 	const epochMs = Number.parseInt(value.trim(), 10);
 	return Number.isSafeInteger(epochMs) ? new Date(epochMs) : null;
+}
+
+function parseJsonOrNull(raw: string): unknown {
+	if (raw.length === 0) {
+		return null;
+	}
+	try {
+		return JSON.parse(raw);
+	} catch {
+		return null;
+	}
 }
 
 function invalidResponse(path: string, status: number): AppStoreServerApiError {
@@ -258,6 +279,16 @@ export class AppStoreServerApiClient {
 			signedPayloads: (parsed.data.notificationHistory ?? []).map((item) => item.signedPayload),
 			paginationToken: parsed.data.hasMore ? (parsed.data.paginationToken ?? null) : null,
 		};
+	}
+
+	async requestTestNotification(request: {environment: StoreEnvironment; bundleId: string}): Promise<string> {
+		const path = '/inApps/v1/notifications/test';
+		const body = await this.send({environment: request.environment, bundleId: request.bundleId, method: 'POST', path});
+		const parsed = TestNotificationResponseSchema.safeParse(body);
+		if (!parsed.success) {
+			throw invalidResponse(path, 200);
+		}
+		return parsed.data.testNotificationToken;
 	}
 
 	private async withEnvironmentFallback<T>(

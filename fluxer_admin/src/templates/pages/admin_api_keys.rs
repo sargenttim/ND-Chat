@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::utils::timestamps::format_admin_timestamp;
 use crate::{
     api::types::{CreateAdminApiKeyResponse, FlashMessage, ListAdminApiKeyEntry},
     config::AdminConfig,
@@ -128,14 +127,14 @@ fn api_key_item(base: &str, csrf_token: &str, key: &ListAdminApiKeyEntry) -> Mar
                         "Key ID: " (key_id)
                     }
                     p class="text-sm text-neutral-500" {
-                        "Created: " (format_admin_timestamp(created_at))
+                        "Created: " (created_at)
                     }
                     p class="text-sm text-neutral-500" {
                         "Created by: " (key.created_by_user_id)
                     }
                     @if let Some(ref expires_at) = key.expires_at {
                         p class="text-sm text-neutral-500" {
-                            "Expires: " (format_admin_timestamp(expires_at))
+                            "Expires: " (expires_at)
                         }
                     }
                     @if !key.acls.is_empty() {

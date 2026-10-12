@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::{
-    config::AdminConfig,
-    middleware::auth::AuthContext,
-    templates::components::media::user_avatar_url,
-    utils::{bigint::format_discriminator, user_tag::user_tag},
+    config::AdminConfig, middleware::auth::AuthContext,
+    templates::components::media::user_avatar_url, utils::bigint::format_discriminator,
 };
 use maud::{Markup, html};
 
@@ -34,7 +32,7 @@ pub fn render_header(config: &AdminConfig, auth: &AuthContext, csrf_token: &str)
                                 (display)
                             }
                             div class="truncate text-neutral-500 text-xs" {
-                                (user_tag(&admin.username, &format_discriminator(&admin.discriminator), admin.bot))
+                                (admin.username) "#" (format_discriminator(&admin.discriminator))
                             }
                         }
                     }

@@ -6,16 +6,15 @@ import type {ChannelID, MemeID, MessageID, UserID} from '@app/api/BrandedTypes';
 import {createAttachmentID, createMemeID, userIdToChannelId} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
-import {attachmentStorageChannelId, makeAttachmentCdnKey} from '@app/api/channel/services/message/MessageHelpers';
-import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
+import {makeAttachmentCdnKey} from '@app/api/channel/services/message/MessageHelpers';
 import {mapFavoriteMemeToResponse} from '@app/api/favorite_meme/FavoriteMemeModel';
-import type {FavoriteMemeRepository} from '@app/api/favorite_meme/FavoriteMemeRepository';
+import type {IFavoriteMemeRepository} from '@app/api/favorite_meme/IFavoriteMemeRepository';
 import {
 	isOptionalGifProviderError,
 	type ResolvedGifProviderSlug,
 	tryExtractGifProviderSlug,
 } from '@app/api/gif/GifProviderUtils';
-import type {NatsGifProvider} from '@app/api/gif/NatsGifProvider';
+import type {GifService} from '@app/api/gif/GifService';
 import type {MediaProxyMetadataResponse} from '@app/api/infrastructure/IMediaService';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
 import type {IUnfurlerService} from '@app/api/infrastructure/IUnfurlerService';
@@ -96,17 +95,16 @@ function resolveFavoriteMemeAnimationFlag(
 export class FavoriteMemeService {
 	constructor(
 		private readonly apiContext: ApiContext,
-		private readonly favoriteMemeRepository: FavoriteMemeRepository,
+		private readonly favoriteMemeRepository: IFavoriteMemeRepository,
 		private readonly channelService: ChannelService,
 		private readonly storageService: IStorageService,
 		private readonly unfurlerService: IUnfurlerService,
 		private readonly limitConfigService: LimitConfigService,
-		private readonly gifService: NatsGifProvider,
+		private readonly gifService: GifService,
 	) {}
 
 	async createFromMessage({
 		user,
-		viewer,
 		channelId,
 		messageId,
 		attachmentId,
@@ -116,7 +114,6 @@ export class FavoriteMemeService {
 		tags,
 	}: {
 		user: User;
-		viewer: ThreadViewer;
 		channelId: ChannelID;
 		messageId: MessageID;
 		attachmentId?: string;
@@ -131,13 +128,8 @@ export class FavoriteMemeService {
 		if (count >= maxMemes) {
 			throw new MaxFavoriteMemesError(maxMemes);
 		}
-		await this.channelService.channelData.auth.getChannelAuthenticated({userId: user.id, channelId, viewer});
-		const message = await this.channelService.messages.retrieval.getMessage({
-			userId: user.id,
-			viewer,
-			channelId,
-			messageId,
-		});
+		await this.channelService.channelData.auth.getChannelAuthenticated({userId: user.id, channelId});
+		const message = await this.channelService.messages.retrieval.getMessage({userId: user.id, channelId, messageId});
 		if (!message) {
 			throw new UnknownMessageError();
 		}
@@ -491,14 +483,14 @@ export class FavoriteMemeService {
 		url: string;
 	}): Promise<ResolvedGifProviderSlug | null> {
 		if (slug && providerName) {
-			const provider = this.gifService.meta.name === providerName ? this.gifService : null;
+			const provider = this.gifService.getByName(providerName);
 			const trimmed = slug.trim();
 			if (provider && trimmed) {
 				const normalized = (await tryExtractGifProviderSlug(provider, trimmed)) ?? trimmed;
 				return {provider, slug: normalized};
 			}
 		}
-		const provider = this.gifService;
+		const provider = this.gifService.getProvider();
 		const extracted = await tryExtractGifProviderSlug(provider, url);
 		return extracted ? {provider, slug: extracted} : null;
 	}
@@ -559,11 +551,7 @@ export class FavoriteMemeService {
 					embedCount: embeds.length,
 				});
 			}
-			return this.mediaFromEmbed(
-				embeds[preferredEmbedIndex],
-				`embed_${preferredEmbedIndex}`,
-				attachmentStorageChannelId(message),
-			);
+			return this.mediaFromEmbed(embeds[preferredEmbedIndex], `embed_${preferredEmbedIndex}`, message.channelId);
 		}
 		if (attachments.length > 0) {
 			let attachment: MessageAttachmentCandidate | undefined;
@@ -585,7 +573,7 @@ export class FavoriteMemeService {
 			}
 		}
 		for (const embed of embeds) {
-			const media = await this.mediaFromEmbed(embed, 'media', attachmentStorageChannelId(message));
+			const media = await this.mediaFromEmbed(embed, 'media', message.channelId);
 			if (media) return media;
 		}
 		return null;
@@ -606,8 +594,8 @@ export class FavoriteMemeService {
 		const isGifv = isAnimatedAttachment(attachment.contentType, attachment.flags);
 		return {
 			isExternal: false,
-			url: makeSignedAttachmentCdnUrl(attachmentStorageChannelId(message), attachment.id, attachment.filename),
-			sourceKey: makeAttachmentCdnKey(attachmentStorageChannelId(message), attachment.id, attachment.filename),
+			url: makeSignedAttachmentCdnUrl(message.channelId, attachment.id, attachment.filename),
+			sourceKey: makeAttachmentCdnKey(message.channelId, attachment.id, attachment.filename),
 			filename: attachment.filename,
 			contentType: attachment.contentType,
 			size: attachment.size,

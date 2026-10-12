@@ -2,13 +2,12 @@
 
 import type {ChannelID, UserID} from '@app/api/BrandedTypes';
 import {createChannelID} from '@app/api/BrandedTypes';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
 import {
 	type DmSearchScope,
 	getDmChannelIdsForScope,
 	isDmScopeChannelForUser,
 } from '@app/api/channel/services/message/DmScopeUtils';
-import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
@@ -20,7 +19,7 @@ import type {IMessageSearchService} from '@app/api/search/IMessageSearchService'
 import {MessageSearchResponseMapper} from '@app/api/search/MessageSearchResponseMapper';
 import {searchExistingMessages} from '@app/api/search/MessageSearchResultReconciler';
 import {channelRequiresAgeVerification} from '@app/api/search/SearchNsfwUtils';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {canUserAccessNsfwContent} from '@app/api/utils/AgeUtils';
 import {mapWithConcurrency} from '@app/api/utils/ConcurrencyUtils';
 import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
@@ -40,9 +39,9 @@ export class GlobalSearchService {
 	private readonly responseMapper: MessageSearchResponseMapper;
 
 	constructor(
-		private readonly channelRepository: ChannelRepository,
+		private readonly channelRepository: IChannelRepository,
 		private readonly guildService: GuildService,
-		private readonly userRepository: UserRepository,
+		private readonly userRepository: IUserRepository,
 		private readonly userCacheService: UserCacheService,
 		private readonly workerService: IWorkerService<WorkerTaskName>,
 	) {
@@ -59,7 +58,6 @@ export class GlobalSearchService {
 
 	async searchAcrossDms(params: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		scope: DmSearchScope;
 		searchParams: MessageSearchRequest;
 		requestCache: RequestCache;
@@ -89,12 +87,11 @@ export class GlobalSearchService {
 		if (needsIndexing) {
 			return {indexing: true};
 		}
-		return this.runSearch(finalChannelIds, params.userId, params.viewer, params.searchParams, params.requestCache);
+		return this.runSearch(finalChannelIds, params.userId, params.searchParams, params.requestCache);
 	}
 
 	async searchAcrossGuildsAndDms(params: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		dmScope: DmSearchScope;
 		searchParams: MessageSearchRequest;
 		requestCache: RequestCache;
@@ -102,15 +99,15 @@ export class GlobalSearchService {
 		requestedChannelIds?: Array<ChannelID>;
 	}): Promise<MessageSearchResponse> {
 		const [guildAccess, includeChannel] = await Promise.all([
-			this.guildService.search.collectAccessibleGuildChannels(params.userId, params.viewer, params.requestedChannelIds),
+			this.guildService.search.collectAccessibleGuildChannels(params.userId),
 			this.findDmScopeContextChannel(params.userId, params.includeChannelId),
 		]);
-		const {accessibleChannels, unindexedChannelIds, guildNsfwLevels, parentCategories, threadParents} = guildAccess;
+		const {accessibleChannels, unindexedChannelIds, guildNsfwLevels, parentCategories} = guildAccess;
 		if (unindexedChannelIds.size > 0) {
 			await this.queueIndexingChannels(unindexedChannelIds);
 			return {indexing: true};
 		}
-		const guildChannelIds = [...accessibleChannels.keys(), ...threadParents.keys()];
+		const guildChannelIds = Array.from(accessibleChannels.keys());
 		const dmChannelIds = await getDmChannelIdsForScope({
 			scope: params.dmScope,
 			userId: params.userId,
@@ -128,7 +125,7 @@ export class GlobalSearchService {
 			canIncludeNsfw = await this.getCanUserAccessNsfw(params.userId);
 		}
 		const finalChannelIds = validatedChannelIds.filter((channelIdStr) => {
-			const channel = accessibleChannels.get(channelIdStr) ?? threadParents.get(channelIdStr);
+			const channel = accessibleChannels.get(channelIdStr);
 			if (!channel) {
 				return true;
 			}
@@ -153,13 +150,11 @@ export class GlobalSearchService {
 				page,
 			};
 		}
-		const needsIndexing = await this.ensureChannelsIndexed(
-			threadParents.size > 0 ? finalChannelIds.filter((id) => !threadParents.has(id)) : finalChannelIds,
-		);
+		const needsIndexing = await this.ensureChannelsIndexed(finalChannelIds);
 		if (needsIndexing) {
 			return {indexing: true};
 		}
-		return this.runSearch(finalChannelIds, params.userId, params.viewer, params.searchParams, params.requestCache);
+		return this.runSearch(finalChannelIds, params.userId, params.searchParams, params.requestCache);
 	}
 
 	private filterRequestedChannelIds(available: Array<string>, requested?: Array<ChannelID>): Array<string> {
@@ -180,7 +175,7 @@ export class GlobalSearchService {
 		if (!channelId) {
 			return null;
 		}
-		const channel = await this.channelRepository.channelData.findUnique(channelId);
+		const channel = await this.channelRepository.findUnique(channelId);
 		if (!channel || !isDmScopeChannelForUser(channel, userId)) {
 			return null;
 		}
@@ -190,7 +185,7 @@ export class GlobalSearchService {
 	private async ensureChannelsIndexed(channelIds: Array<string>): Promise<boolean> {
 		const channelBrandedIds = channelIds.map((id) => createChannelID(BigInt(id)));
 		const channels = await mapWithConcurrency(channelBrandedIds, CHANNEL_INDEX_CHECK_CONCURRENCY, (id) =>
-			this.channelRepository.channelData.findUnique(id),
+			this.channelRepository.findUnique(id),
 		);
 		const personalNotesIds = channelBrandedIds.filter((_id, i) => channels[i]?.type === ChannelTypes.DM_PERSONAL_NOTES);
 		const personalNotesData =
@@ -240,7 +235,6 @@ export class GlobalSearchService {
 	private async runSearch(
 		channelIds: Array<string>,
 		userId: UserID,
-		viewer: ThreadViewer,
 		searchParams: MessageSearchRequest,
 		requestCache: RequestCache,
 	): Promise<MessageSearchResponse> {
@@ -259,12 +253,7 @@ export class GlobalSearchService {
 			page,
 			cursor,
 		});
-		const mappedResponses = await this.responseMapper.mapSearchResultToResponses(
-			result.messages,
-			userId,
-			viewer,
-			requestCache,
-		);
+		const mappedResponses = await this.responseMapper.mapSearchResultToResponses(result.messages, userId, requestCache);
 		return {
 			messages: mappedResponses.messages,
 			channels: mappedResponses.channels,
@@ -272,7 +261,6 @@ export class GlobalSearchService {
 			hits_per_page: hitsPerPage,
 			page,
 			cursor: result.cursor,
-			...(mappedResponses.threads ? {threads: mappedResponses.threads, members: mappedResponses.members} : {}),
 		};
 	}
 

@@ -52,7 +52,7 @@ interface FormInputs {
 	pin: string;
 }
 
-const PasskeyPinModal = observer(
+export const PasskeyPinModal = observer(
 	({onSubmit, onDismiss}: {onSubmit: (pin: string) => Promise<void>; onDismiss: () => void}) => {
 		const {i18n} = useLingui();
 		const form = useForm<FormInputs>();

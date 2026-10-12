@@ -13,7 +13,7 @@ export type SyncedFieldFailureReason =
 	| 'initialize-reactions'
 	| 'machine-loop';
 
-interface SyncedFieldFailure {
+export interface SyncedFieldFailure {
 	readonly reason: SyncedFieldFailureReason;
 	readonly message: string;
 	readonly error?: unknown;
@@ -82,7 +82,7 @@ export type SyncedFieldMachineEvent =
 			type: 'sync.reset';
 	  };
 
-type SyncedFieldMachineState =
+export type SyncedFieldMachineState =
 	| 'idle'
 	| 'comparingRemote'
 	| 'applyingRemote'
@@ -110,7 +110,7 @@ function createEmptyContext(): SyncedFieldMachineContext {
 	};
 }
 
-const syncedFieldStateMachine = setup({
+export const syncedFieldStateMachine = setup({
 	types: {} as {
 		context: SyncedFieldMachineContext;
 		events: SyncedFieldMachineEvent;

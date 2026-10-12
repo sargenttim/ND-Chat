@@ -7,12 +7,6 @@ import {Logger} from '@app/features/platform/utils/AppLogger';
 import {getFluxerDebugObject} from '@app/features/platform/utils/FluxerDebugGlobal';
 import {getElectronAPI, isDesktop} from '@app/features/ui/utils/NativeUtils';
 import type {DesktopInfo} from '@app/types/electron.d';
-import {
-	ARCHITECTURE_PATTERNS,
-	formatDesktopOsName,
-	formatReleaseChannelLabel,
-	normalizeArchitectureValue,
-} from '@fluxer/desktop_ipc/src/DesktopLabels';
 import Bowser from 'bowser';
 import {isE2EESupported} from 'livekit-client';
 
@@ -47,6 +41,35 @@ type NavigatorUADataLike = NavigatorHighEntropyHints & {
 
 function normalize<T>(value: T | null | undefined): T | undefined {
 	return value ?? undefined;
+}
+
+export function formatReleaseChannelLabel(value: string): string {
+	const normalized = value.trim().toLowerCase();
+	return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+const ARCHITECTURE_PATTERNS: ReadonlyArray<{
+	pattern: RegExp;
+	label: string;
+}> = [
+	{pattern: /\barm64\b|\baarch64\b|\barmv8\b|\barm64e\b/i, label: 'arm64'},
+	{pattern: /\barm\b|\barmv7\b|\barmv6\b/i, label: 'arm'},
+	{pattern: /MacIntel/i, label: 'x64'},
+	{pattern: /\bx86_64\b|\bx64\b|\bamd64\b|\bwin64\b|\bwow64\b/i, label: 'x64'},
+	{pattern: /\bx86\b|\bi[3-6]86\b/i, label: 'x86'},
+];
+
+export function normalizeArchitectureValue(value: string | null | undefined): string | undefined {
+	if (!value) {
+		return undefined;
+	}
+	const trimmed = value.trim();
+	for (const entry of ARCHITECTURE_PATTERNS) {
+		if (entry.pattern.test(trimmed)) {
+			return entry.label;
+		}
+	}
+	return trimmed || undefined;
 }
 
 const detectAppleSiliconViaWebGL = (): string | undefined => {
@@ -171,6 +194,19 @@ function getDesktopContextFromInfo(desktopInfo: DesktopInfo): Partial<ClientInfo
 	};
 }
 
+function getWindowsVersionName(osVersion: string): string {
+	const parts = osVersion.split('.');
+	const majorVersion = parseInt(parts[0], 10);
+	const buildNumber = parseInt(parts[2], 10);
+	if (majorVersion === 10) {
+		if (buildNumber >= 22000) {
+			return 'Windows 11';
+		}
+		return 'Windows 10';
+	}
+	return 'Windows';
+}
+
 const detectArchitectureFromClientHints = async (): Promise<string | undefined> => {
 	const userAgentData = (
 		navigator as Navigator & {
@@ -207,7 +243,20 @@ const detectArchitectureFromClientHints = async (): Promise<string | undefined> 
 };
 
 function getOsContextFromInfo(desktopInfo: DesktopInfo): Partial<ClientInfo> {
-	const osName = formatDesktopOsName(desktopInfo);
+	let osName: string | undefined;
+	switch (desktopInfo.os) {
+		case 'darwin':
+			osName = 'macOS';
+			break;
+		case 'win32':
+			osName = desktopInfo.osVersion ? getWindowsVersionName(desktopInfo.osVersion) : 'Windows';
+			break;
+		case 'linux':
+			osName = 'Linux';
+			break;
+		default:
+			osName = desktopInfo.os;
+	}
 	const osVersion = normalize(desktopInfo.systemVersion ?? desktopInfo.osVersion);
 	return {
 		osName,
@@ -319,7 +368,7 @@ function isLiveKitE2EECapable(): boolean {
 }
 
 export async function getGatewayClientProperties(geo?: {latitude?: string | null; longitude?: string | null}) {
-	const info = await preloadClientInfo();
+	const info = await getClientInfo();
 	return {
 		os: info.osName ?? 'unknown',
 		os_version: info.osVersion ?? '',

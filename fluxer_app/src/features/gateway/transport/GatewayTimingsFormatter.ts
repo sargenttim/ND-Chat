@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-interface RpcTimingStep {
+export interface RpcTimingStep {
 	duration_us: number;
 	steps?: Record<string, RpcTimingStep>;
 }
@@ -14,7 +14,7 @@ export interface RpcTimings {
 	unit?: string;
 }
 
-interface GatewayTraceNode {
+export interface GatewayTraceNode {
 	name: string;
 	duration_us: number;
 	children?: Array<GatewayTraceNode>;

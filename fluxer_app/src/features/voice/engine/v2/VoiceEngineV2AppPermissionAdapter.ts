@@ -22,12 +22,19 @@ import {
 } from '@app/features/voice/engine/VoiceTrackPublicationUtils';
 import {asVoiceTrackSource, VoiceTrackSource} from '@app/features/voice/engine/VoiceTrackSource';
 import {clearCameraVideoProcessor} from '@app/features/voice/utils/VideoBackgroundProcessor';
+import {removeVoiceInputProcessor} from '@app/features/voice/utils/VoiceInputProcessor';
 import {getVoiceChannelPermissions, type VoiceChannelPermissions} from '@app/features/voice/utils/VoicePermissionUtils';
 import type {LocalAudioTrack, LocalVideoTrack, Room} from 'livekit-client';
 
+export {
+	createVoiceEngineV2AppSystemPermissionAdapter,
+	VoiceEngineV2AppSystemPermissionAdapter,
+	type VoiceEngineV2SystemPermissionsApi,
+} from '@app/features/voice/engine/v2/VoiceEngineV2AppSystemPermissionAdapter';
+
 const logger = new Logger('VoiceEngineV2AppPermissionAdapter');
 
-type VoiceEngineV2AppPermissionTrackSource = 'audio' | 'video' | 'screenShare';
+export type VoiceEngineV2AppPermissionTrackSource = 'audio' | 'video' | 'screenShare';
 
 type RemotePublicationAdapter = {
 	isDesired?: boolean;
@@ -209,6 +216,21 @@ class VoiceEngineV2AppPermissionAdapter extends Store {
 		});
 	}
 
+	handlePermissionChange(permission: 'speak' | 'stream' | 'video', allowed: boolean): void {
+		const room = this.currentRoom;
+		if (!room) {
+			logger.warn('No active media session');
+			return;
+		}
+		const previousSnapshot = this.snapshot;
+		this.sendPermissionEvent({type: 'permission.change', permission, allowed, roomPresent: true}, {room});
+		if (this.snapshot.context.permissions === previousSnapshot.context.permissions) {
+			logger.debug('Permission unchanged, skipping', {permission, allowed});
+			return;
+		}
+		logger.info('Processing permission change', {permission, allowed});
+	}
+
 	initializeSubscriptions(room: Room): void {
 		if (!room) {
 			logger.warn('No room provided');
@@ -255,6 +277,36 @@ class VoiceEngineV2AppPermissionAdapter extends Store {
 		logger.info('Complete', {deafened, participantCount: room.remoteParticipants.size});
 	}
 
+	updateSubscriptionsForPermissionChange(room: Room, permissions: VoiceChannelPermissions): void {
+		if (!room) {
+			logger.warn('No room provided');
+			return;
+		}
+		const oldPermissions = this.snapshot.context.permissions;
+		this.sendPermissionEvent({type: 'permission.update', permissions, roomPresent: true}, {room});
+		if (this.snapshot.context.permissions === oldPermissions) {
+			logger.debug('Permissions unchanged, skipping update');
+			return;
+		}
+		logger.debug('Permissions updated', {
+			old: oldPermissions,
+			new: permissions,
+		});
+		logger.info('Complete', {permissions});
+	}
+
+	canPublishAudio(): boolean {
+		return this.snapshot.context.permissions.canSpeak;
+	}
+
+	canPublishVideo(): boolean {
+		return this.snapshot.context.permissions.canUseVideo;
+	}
+
+	canPublishScreenShare(): boolean {
+		return this.snapshot.context.permissions.canStream;
+	}
+
 	private async handlePermissionRevoked(source: VoiceEngineV2AppPermissionTrackSource, room: Room): Promise<void> {
 		if (!room?.localParticipant) {
 			logger.warn('No local participant');
@@ -270,6 +322,7 @@ class VoiceEngineV2AppPermissionAdapter extends Store {
 						.map((pub) => pub.track)
 						.filter((track): track is LocalAudioTrack => Boolean(track));
 					if (tracks.length > 0) {
+						await removeVoiceInputProcessor();
 						await Promise.allSettled(tracks.map((track) => localParticipant.unpublishTrack(track)));
 					}
 					break;
@@ -300,12 +353,37 @@ class VoiceEngineV2AppPermissionAdapter extends Store {
 		syncLocalVoiceStateWithServer(canSpeak ? {} : {self_mute: true});
 	}
 
+	getPermissions(): VoiceChannelPermissions {
+		return {...this.snapshot.context.permissions};
+	}
+
+	setPermissions(permissions: Partial<VoiceChannelPermissions>): void {
+		const hasChanges = Object.entries(permissions).some(
+			([key, value]) => this.snapshot.context.permissions[key as keyof VoiceChannelPermissions] !== value,
+		);
+		if (!hasChanges) {
+			logger.debug('No changes detected, skipping update');
+			return;
+		}
+		this.sendPermissionEvent({type: 'permission.set', permissions});
+		logger.debug('Updated', {permissions: this.snapshot.context.permissions});
+	}
+
+	getDeafened(): boolean {
+		return this.snapshot.context.deafened;
+	}
+
 	reset(): void {
 		this.sendPermissionEvent({type: 'permission.reset'});
 		this.update(() => {
 			this.currentRoom = null;
 		});
 		logger.debug('Permissions reset to defaults');
+	}
+
+	extractUserIdFromIdentity(identity: string): string | null {
+		const match = identity.match(/^user_(\d+)(?:_(.+))?$/);
+		return match ? match[1] : null;
 	}
 }
 

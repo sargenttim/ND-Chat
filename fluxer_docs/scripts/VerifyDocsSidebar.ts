@@ -3,13 +3,22 @@
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {DOCS_ROOT, listDraftMarkdownFiles, listMarkdownFiles, pageSlug, slugifyHeading} from './DocsSource.ts';
+import {DOCS_ROOT, listMarkdownFiles, slugifyHeading} from './DocsSource.ts';
 
 const ASTRO_CONFIG = fileURLToPath(new URL('../astro.config.ts', import.meta.url));
 
 const SIDEBAR_START = 'sidebar: [';
 const QUOTED_ENTRY = /'([^']+)'/gu;
 const LINK_ENTRY = /link:\s*'([^']+)'/gu;
+
+function slugOf(file: string): string {
+	const relative = path.relative(DOCS_ROOT, file);
+	const withoutExtension = relative.replace(/\.(mdx|md)$/u, '');
+	if (withoutExtension === 'index') {
+		return '';
+	}
+	return withoutExtension.replace(/\/index$/u, '');
+}
 
 function sidebarBlock(source: string): string {
 	const start = source.indexOf(SIDEBAR_START);
@@ -61,14 +70,13 @@ for (const match of block.matchAll(QUOTED_ENTRY)) {
 }
 
 const files = await listMarkdownFiles(DOCS_ROOT);
-const actual = new Set(files.map((file) => pageSlug(path.relative(DOCS_ROOT, file))));
+const actual = new Set(files.map(slugOf));
 
 const missingPages = [...referenced].filter((slug) => !actual.has(slug)).sort();
 const orphanPages = [...actual].filter((slug) => !referenced.has(slug)).sort();
 
 console.log(`sidebar entries: ${referenced.size.toString()}`);
 console.log(`content pages: ${actual.size.toString()}`);
-console.log(`draft pages withheld from the build: ${(await listDraftMarkdownFiles(DOCS_ROOT)).length.toString()}`);
 
 let failures = 0;
 if (missingPages.length > 0) {
@@ -98,7 +106,7 @@ const anchorable = new Set(actual);
 const anchorsByPage = new Map<string, Set<string>>();
 const ambiguousByPage = new Map<string, Set<string>>();
 for (const file of files) {
-	const slug = pageSlug(path.relative(DOCS_ROOT, file));
+	const slug = slugOf(file);
 	const source = await readFile(file, 'utf8');
 	const anchors = new Set<string>();
 	const counts = new Map<string, number>();
@@ -125,7 +133,7 @@ for (const file of files) {
 
 for (const file of files) {
 	const relative = path.relative(DOCS_ROOT, file);
-	const selfSlug = pageSlug(path.relative(DOCS_ROOT, file));
+	const selfSlug = slugOf(file);
 	const source = await readFile(file, 'utf8');
 	for (const match of source.matchAll(INTERNAL_LINK)) {
 		const target = match[1].replace(/^\//u, '').replace(/\/$/u, '');

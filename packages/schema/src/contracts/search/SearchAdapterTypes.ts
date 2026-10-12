@@ -9,7 +9,7 @@ export interface SearchOptions {
 	facets?: Array<string>;
 }
 
-type SearchFacetCounts = Readonly<Record<string, Readonly<Record<string, number>>>>;
+export type SearchFacetCounts = Readonly<Record<string, Readonly<Record<string, number>>>>;
 
 export interface SearchResult<TResult> {
 	hits: Array<TResult>;

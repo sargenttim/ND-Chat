@@ -12,26 +12,45 @@ interface MediaViewerOpenOptions {
 	allowAttachmentDelete?: boolean;
 }
 
+type MediaViewerIntent =
+	| {kind: 'open'; items: ReadonlyArray<MediaViewerItem>; currentIndex: number; options?: MediaViewerOpenOptions}
+	| {kind: 'close'}
+	| {kind: 'navigate'; index: number};
+
+function dispatchMediaViewerIntent(intent: MediaViewerIntent): void {
+	switch (intent.kind) {
+		case 'open':
+			MediaViewer.open(
+				intent.items,
+				intent.currentIndex,
+				intent.options?.channelId,
+				intent.options?.messageId,
+				intent.options?.message,
+				intent.options?.sourceChannel,
+				intent.options?.allowAttachmentDelete,
+			);
+			return;
+		case 'close':
+			MediaViewer.close();
+			return;
+		case 'navigate':
+			MediaViewer.navigate(intent.index);
+			return;
+	}
+}
+
 export function openMediaViewer(
 	items: ReadonlyArray<MediaViewerItem>,
 	currentIndex: number,
 	options?: MediaViewerOpenOptions,
 ): void {
-	MediaViewer.open(
-		items,
-		currentIndex,
-		options?.channelId,
-		options?.messageId,
-		options?.message,
-		options?.sourceChannel,
-		options?.allowAttachmentDelete,
-	);
+	dispatchMediaViewerIntent({kind: 'open', items, currentIndex, options});
 }
 
 export function closeMediaViewer(): void {
-	MediaViewer.close();
+	dispatchMediaViewerIntent({kind: 'close'});
 }
 
 export function navigateMediaViewer(index: number): void {
-	MediaViewer.navigate(index);
+	dispatchMediaViewerIntent({kind: 'navigate', index});
 }

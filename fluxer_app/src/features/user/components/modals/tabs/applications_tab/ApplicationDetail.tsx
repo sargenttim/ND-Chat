@@ -4,7 +4,6 @@ import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
 import {StatusSlate} from '@app/features/app/components/dialogs/shared/StatusSlate';
 import {Endpoints} from '@app/features/app/constants/Endpoints';
 import {useFormSubmit} from '@app/features/app/hooks/useFormSubmit';
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {useSudo} from '@app/features/auth/hooks/useSudo';
 import type {DeveloperApplication} from '@app/features/devtools/models/DeveloperApplication';
 import {TRY_AGAIN_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
@@ -12,7 +11,6 @@ import {formatBotPermissionsQuery, getAllBotPermissions} from '@app/features/per
 import {http} from '@app/features/platform/transport/RestTransport';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
-import ThreadGuilds from '@app/features/threads/state/ThreadGuilds';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
@@ -29,7 +27,6 @@ import {BotProfileSection} from '@app/features/user/components/modals/tabs/appli
 import {OAuthBuilderSection} from '@app/features/user/components/modals/tabs/applications_tab/application_detail/OAuthBuilderSection';
 import {SecretsSection} from '@app/features/user/components/modals/tabs/applications_tab/application_detail/SecretsSection';
 import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
-import {REGENERATE_DESCRIPTOR} from '@app/features/user/utils/UserMessageDescriptors';
 import {pushApiErrorModal} from '@app/lib/forms';
 import {useRemoteFormReset} from '@app/lib/forms/RemoteFormReset';
 import {OAuth2Scopes} from '@fluxer/constants/src/OAuth2Constants';
@@ -78,7 +75,10 @@ const REGENERATE_BOT_TOKEN_DESCRIPTOR = msg({
 	message: 'Regenerate bot token?',
 	comment: 'Confirmation prompt in the application detail. Keep the tone plain and specific.',
 });
-
+const REGENERATE_DESCRIPTOR = msg({
+	message: 'Regenerate',
+	comment: 'Short label in the application detail. Keep it concise.',
+});
 const COPIED_URL_TO_CLIPBOARD_DESCRIPTOR = msg({
 	message: 'Copied URL to clipboard',
 	comment: 'Label in the application detail.',
@@ -497,21 +497,19 @@ export const ApplicationDetail: React.FC<ApplicationDetailProps> = observer(
 					.map(([scope]) => scope),
 			[builderScopes],
 		);
-		const threadsActive = ThreadGuilds.anyActive;
-		const botPermissionsList = useMemo(
-			() => getAllBotPermissions(i18n, {threads: threadsActive}),
-			[i18n.locale, threadsActive],
-		);
+		const botPermissionsList = useMemo(() => getAllBotPermissions(i18n), [i18n.locale]);
 		const builderUrl = useMemo(() => {
 			if (!application) return '';
-			const authorizeUrl = new URL(`${RuntimeConfig.webAppBaseUrl}${Endpoints.OAUTH_AUTHORIZE}`);
+			const authorizeUrl = new URL(Endpoints.OAUTH_AUTHORIZE, window.location.origin);
 			authorizeUrl.searchParams.set('client_id', application.id);
 			if (builderScopeList.length > 0) {
 				authorizeUrl.searchParams.set('scope', builderScopeList.join(' '));
 			}
 			const isBotOnly = builderScopeList.length === 1 && builderScopeList[0] === 'bot';
 			const requireRedirectUri = builderScopeList.length > 0 && (!isBotOnly || botRequireCodeGrant);
-			const botPerms = botPermissionsList.filter((perm) => builderPermissions[perm.id]).map((perm) => perm.id);
+			const botPerms = Object.entries(builderPermissions)
+				.filter(([, enabled]) => enabled)
+				.map(([perm]) => perm);
 			if (builderScopeList.includes('bot') && botPerms.length > 0) {
 				authorizeUrl.searchParams.set('permissions', formatBotPermissionsQuery(botPerms));
 			}
@@ -527,14 +525,7 @@ export const ApplicationDetail: React.FC<ApplicationDetailProps> = observer(
 				return '';
 			}
 			return authorizeUrl.toString();
-		}, [
-			application,
-			builderScopeList,
-			builderPermissions,
-			botPermissionsList,
-			builderRedirectUri,
-			botRequireCodeGrant,
-		]);
+		}, [application, builderScopeList, builderPermissions, builderRedirectUri, botRequireCodeGrant]);
 		const redirectOptions = useMemo(() => {
 			const normalized = Array.from(new Set((redirectInputs ?? []).map((u) => u.trim()).filter(Boolean)));
 			const current = builderRedirectUri?.trim();

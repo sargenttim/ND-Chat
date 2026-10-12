@@ -4,10 +4,11 @@ import {Logger} from '@app/features/platform/utils/AppLogger';
 import {getElectronAPI, isDesktop} from '@app/features/ui/utils/NativeUtils';
 import {
 	hasVoiceEngineV2NativeHardwareEncoder,
+	hasVoiceEngineV2NativeNvencEncoder,
 	normalizeVoiceEngineV2HardwareEncoderCapabilities,
 	unavailableVoiceEngineV2HardwareEncoderCapabilities,
-} from '@fluxer/voice_engine_v2/src/policies/hardwareEncoderCapabilities';
-import type {VoiceEngineV2HardwareEncoderCapabilities} from '@fluxer/voice_engine_v2/src/protocol/types';
+	type VoiceEngineV2HardwareEncoderCapabilities,
+} from '@fluxer/voice_engine_v2';
 import type {VideoCodec} from 'livekit-client';
 
 const logger = new Logger('NativeHardwareEncoderCapabilities');
@@ -44,6 +45,10 @@ export function loadNativeHardwareEncoderCapabilities(): Promise<VoiceEngineV2Ha
 
 export function getNativeHardwareEncoderCapabilitiesSync(): VoiceEngineV2HardwareEncoderCapabilities | null {
 	return cachedCapabilities;
+}
+
+export function hasNativeNvencEncoder(codec: VideoCodec): boolean {
+	return hasVoiceEngineV2NativeNvencEncoder(getNativeHardwareEncoderCapabilitiesSync(), codec);
 }
 
 export function hasNativeHardwareEncoder(codec: VideoCodec): boolean {

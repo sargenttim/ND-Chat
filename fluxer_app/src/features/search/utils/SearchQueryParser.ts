@@ -1,13 +1,16 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import Channels from '@app/features/channel/state/Channels';
-import {fuzzySearch} from '@app/features/search/utils/SearchTextMatching';
 import type {MessageSearchParams} from '@app/features/search/utils/SearchUtils';
 import Users from '@app/features/user/state/Users';
 import {MS_PER_DAY, MS_PER_HOUR, MS_PER_MINUTE, MS_PER_SECOND} from '@fluxer/date_utils/src/DateConstants';
 import {fromTimestamp, isProbablyAValidSnowflake} from '@fluxer/snowflake/src/SnowflakeUtils';
 import {DateTime} from 'luxon';
+
+export interface ParserContext {
+	usersByTag?: Record<string, string>;
+	channelsByName?: Record<string, string>;
+}
 
 export interface SearchHints {
 	usersByTag?: Record<string, string>;
@@ -78,7 +81,6 @@ const KNOWN_KEYS = new Set([
 	'scope',
 ]);
 const USER_TAG_RE = /^([A-Za-z0-9_]+)#(\d{4})$/;
-const BARE_USERNAME_RE = /^[A-Za-z0-9_]+$/;
 const normalizeSpaces = (s: string) => s.replace(/\s+/g, ' ').trim();
 
 type HasFilter = NonNullable<MessageSearchParams['has']>[number];
@@ -349,8 +351,7 @@ const tryResolveUser = (tag: string, hints?: SearchHints): string | null => {
 		return getCurrentUserId();
 	}
 	if (hints?.usersByTag?.[trimmedTag]) return hints.usersByTag[trimmedTag];
-	const isBareUsername = RuntimeConfig.usesUniqueUsernames && BARE_USERNAME_RE.test(trimmedTag);
-	if (!USER_TAG_RE.test(trimmedTag) && !isBareUsername) return null;
+	if (!USER_TAG_RE.test(trimmedTag)) return null;
 	const user = Users.getUserByTag(trimmedTag);
 	return user?.id ?? null;
 };
@@ -390,7 +391,7 @@ export interface ParseContext {
 
 const toSnowflakeAt = (dt: DateTime) => fromTimestamp(dt.toMillis()).toString();
 
-function parseCompactDateTime(input: string, now: DateTime = DateTime.local()): DateTime | null {
+export function parseCompactDateTime(input: string, now: DateTime = DateTime.local()): DateTime | null {
 	const trimmed = input['trim']();
 	if (trimmed.length === 0) return null;
 	if (trimmed.toLowerCase() === 'now') return now;
@@ -420,7 +421,7 @@ function parseCompactDateTime(input: string, now: DateTime = DateTime.local()): 
 	return null;
 }
 
-interface SearchDatePeriod {
+export interface SearchDatePeriod {
 	readonly start: DateTime;
 	readonly end: DateTime;
 }
@@ -458,12 +459,28 @@ const MONTH_NAMES: ReadonlyArray<string> = [
 
 const RELATIVE_DATE_WORDS: ReadonlyArray<string> = ['today', 'yesterday', ...Object.keys(RELATIVE_PERIOD_UNITS)];
 
-function getSearchDateWords(now: DateTime = DateTime.local()): Array<string> {
+export function getSearchDateWords(now: DateTime = DateTime.local()): Array<string> {
 	const years: Array<string> = [];
 	for (let year = now.year; year >= SEARCH_DATE_YEAR_FLOOR; year -= 1) {
 		years.push(String(year));
 	}
 	return [...RELATIVE_DATE_WORDS, ...years, ...MONTH_NAMES, ...WEEKDAY_NAMES];
+}
+
+function isSubsequence(needle: string, haystack: string): boolean {
+	const haystackLength = haystack.length;
+	const needleLength = needle.length;
+	if (needleLength > haystackLength) return false;
+	if (needleLength === haystackLength) return needle === haystack;
+	let haystackIndex = 0;
+	outer: for (let needleIndex = 0; needleIndex < needleLength; needleIndex += 1) {
+		const code = needle.charCodeAt(needleIndex);
+		while (haystackIndex < haystackLength) {
+			if (haystack.charCodeAt(haystackIndex++) === code) continue outer;
+		}
+		return false;
+	}
+	return true;
 }
 
 export function matchSearchDateWords(term: string, limit: number, now: DateTime = DateTime.local()): Array<string> {
@@ -477,7 +494,7 @@ export function matchSearchDateWords(term: string, limit: number, now: DateTime 
 			exact.push(word);
 		} else if (candidate.startsWith(needle)) {
 			prefixed.push(word);
-		} else if (fuzzySearch(needle, candidate)) {
+		} else if (isSubsequence(needle, candidate)) {
 			scattered.push(word);
 		}
 	}
@@ -522,7 +539,7 @@ function resolveSearchDateWord(word: string, now: DateTime): SearchDatePeriod | 
 	return {start: floor, end: floor.plus({years: 1})};
 }
 
-function resolveSearchDatePeriod(input: string, now: DateTime = DateTime.local()): SearchDatePeriod | null {
+export function resolveSearchDatePeriod(input: string, now: DateTime = DateTime.local()): SearchDatePeriod | null {
 	const word = input.trim().toLowerCase();
 	if (word.length === 0) return null;
 	const wordPeriod = resolveSearchDateWord(word, now);
@@ -563,7 +580,7 @@ const normalizeSearchFilterKey = (key: string): string => {
 
 const NON_MUTABLE_VALUE_KEYS: ReadonlySet<string> = new Set(['has', 'pinned', 'author-type']);
 
-function isSearchFilterValueMutable(key: string): boolean {
+export function isSearchFilterValueMutable(key: string): boolean {
 	return !NON_MUTABLE_VALUE_KEYS.has(normalizeSearchFilterKey(key));
 }
 
@@ -595,7 +612,7 @@ const SEARCH_FILTER_VALUE_VALIDATORS: Record<string, (value: string) => boolean>
 	during: isSearchDateValue,
 };
 
-function isSearchFilterValueChippable(key: string, value: string): boolean {
+export function isSearchFilterValueChippable(key: string, value: string): boolean {
 	const trimmed = value.trim();
 	if (trimmed.length === 0) return false;
 	const validator = SEARCH_FILTER_VALUE_VALIDATORS[normalizeSearchFilterKey(key)];

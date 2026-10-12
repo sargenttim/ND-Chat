@@ -1,11 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {ComposerAtomicPresentation} from '@app/features/lexical/composer/nodes/ComposerAtomicPresentation';
-import {ComposerAtomicTokenNode} from '@app/features/lexical/composer/nodes/ComposerAtomicTokenNode';
 import styles from '@app/features/lexical/composer/nodes/ComposerInline.module.css';
 import {ComposerMentionPill} from '@app/features/lexical/composer/nodes/ComposerMentionPill';
 import type {MentionSegment} from '@app/features/messaging/utils/TextareaSegmentManager';
-import type {DOMExportOutput, EditorConfig, LexicalNode, NodeKey, SerializedLexicalNode, Spread} from 'lexical';
+import {
+	DecoratorNode,
+	type DOMExportOutput,
+	type EditorConfig,
+	type LexicalNode,
+	type NodeKey,
+	type SerializedLexicalNode,
+	type Spread,
+} from 'lexical';
 import type {CSSProperties, JSX} from 'react';
 
 export type ComposerMentionType = 'user' | 'role' | 'channel' | 'special';
@@ -33,9 +40,10 @@ export type SerializedComposerMentionNode = Spread<
 	SerializedLexicalNode
 >;
 
-export class ComposerMentionNode extends ComposerAtomicTokenNode {
+export class ComposerMentionNode extends DecoratorNode<JSX.Element> {
 	__mentionType: ComposerMentionType;
 	__mentionId: string;
+	__display: string;
 	__wire: string;
 
 	static override getType(): string {
@@ -67,6 +75,8 @@ export class ComposerMentionNode extends ComposerAtomicTokenNode {
 		);
 	}
 
+	__literal: boolean;
+	__spoiler: boolean;
 	__presentation: ComposerMentionPresentationFormat;
 
 	constructor(
@@ -79,10 +89,13 @@ export class ComposerMentionNode extends ComposerAtomicTokenNode {
 		presentation: ComposerMentionPresentationFormat = ComposerMentionPresentation.none,
 		key?: NodeKey,
 	) {
-		super(display, literal, spoiler, key);
+		super(key);
 		this.__mentionType = mentionType;
 		this.__mentionId = mentionId;
+		this.__display = display;
 		this.__wire = wire;
+		this.__literal = literal;
+		this.__spoiler = spoiler;
 		this.__presentation = presentation;
 	}
 
@@ -113,11 +126,19 @@ export class ComposerMentionNode extends ComposerAtomicTokenNode {
 		return span;
 	}
 
+	override updateDOM(): boolean {
+		return false;
+	}
+
 	override exportDOM(): DOMExportOutput {
 		const element = document.createElement('span');
 		element.setAttribute('data-lexical-composer-mention', this.__mentionType);
 		element.textContent = this.__wire;
 		return {element};
+	}
+
+	override getTextContent(): string {
+		return this.getLatest().__display;
 	}
 
 	getWireText(): string {
@@ -132,6 +153,24 @@ export class ComposerMentionNode extends ComposerAtomicTokenNode {
 		return this.getLatest().__mentionId;
 	}
 
+	isLiteral(): boolean {
+		return this.getLatest().__literal;
+	}
+
+	setLiteral(literal: boolean): this {
+		this.getWritable().__literal = literal;
+		return this;
+	}
+
+	isSpoiler(): boolean {
+		return this.getLatest().__spoiler;
+	}
+
+	setSpoiler(spoiler: boolean): this {
+		this.getWritable().__spoiler = spoiler;
+		return this;
+	}
+
 	getPresentation(): ComposerMentionPresentationFormat {
 		return this.getLatest().__presentation;
 	}
@@ -139,6 +178,14 @@ export class ComposerMentionNode extends ComposerAtomicTokenNode {
 	setPresentation(presentation: ComposerMentionPresentationFormat): this {
 		this.getWritable().__presentation = presentation;
 		return this;
+	}
+
+	override isInline(): true {
+		return true;
+	}
+
+	override isKeyboardSelectable(): false {
+		return false;
 	}
 
 	override decorate(): JSX.Element {

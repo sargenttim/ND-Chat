@@ -8,27 +8,29 @@ import {AdminGuildUpdatePropagator} from '@app/api/admin/services/guild/AdminGui
 import {AdminGuildUpdateService} from '@app/api/admin/services/guild/AdminGuildUpdateService';
 import {AdminGuildVanityService} from '@app/api/admin/services/guild/AdminGuildVanityService';
 import {createGuildID, createUserID} from '@app/api/BrandedTypes';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
-import type {GuildDiscoveryRepository} from '@app/api/guild/repositories/GuildDiscoveryRepository';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
+import type {IGuildDiscoveryRepository} from '@app/api/guild/repositories/GuildDiscoveryRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
 import type {EntityAssetService} from '@app/api/infrastructure/EntityAssetService';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
+import type {InstanceConfigRepository} from '@app/api/instance/InstanceConfigRepository';
 import type {InviteRepository} from '@app/api/invite/InviteRepository';
 import {createRequestCache} from '@app/api/middleware/RequestCacheMiddleware';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import type {ListGuildAuditLogsRequest} from '@fluxer/schema/src/domains/admin/AdminGuildSchemas';
 
 interface AdminGuildServiceDeps {
-	guildRepository: GuildRepository;
-	userRepository: UserRepository;
-	channelRepository: ChannelRepository;
+	guildRepository: IGuildRepositoryAggregate;
+	userRepository: IUserRepository;
+	channelRepository: IChannelRepository;
 	inviteRepository: InviteRepository;
 	guildService: GuildService;
 	gatewayService: IGatewayService;
 	entityAssetService: EntityAssetService;
 	auditService: AdminAuditService;
-	discoveryRepository: GuildDiscoveryRepository;
+	discoveryRepository: IGuildDiscoveryRepository;
+	instanceConfigRepository: InstanceConfigRepository;
 }
 
 export class AdminGuildService {
@@ -57,7 +59,7 @@ export class AdminGuildService {
 			entityAssetService: deps.entityAssetService,
 			auditService: deps.auditService,
 			updatePropagator: this.updatePropagator,
-			guildService: deps.guildService,
+			instanceConfigRepository: deps.instanceConfigRepository,
 		});
 		this.vanityService = new AdminGuildVanityService({
 			guildRepository: deps.guildRepository,

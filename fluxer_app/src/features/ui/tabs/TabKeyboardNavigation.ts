@@ -17,6 +17,10 @@ export function getTabNavigationDirection(key: string, orientation: TabListOrien
 	return null;
 }
 
+export function isTabNavigationKey(key: string, orientation: TabListOrientation): boolean {
+	return getTabNavigationDirection(key, orientation) != null;
+}
+
 export function getNextTabIndex(
 	currentIndex: number,
 	itemCount: number,

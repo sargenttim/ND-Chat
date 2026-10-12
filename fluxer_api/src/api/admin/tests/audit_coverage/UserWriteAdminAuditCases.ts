@@ -19,20 +19,15 @@ import {
 	type WebAuthnRegistrationOptions,
 } from '@app/api/auth/tests/WebAuthnTestUtils';
 import {createUserID} from '@app/api/BrandedTypes';
-import {Config} from '@app/api/Config';
+import {createTestBadge} from '@app/api/badge/tests/BadgeTestUtils';
 import {createFriendship} from '@app/api/channel/tests/ChannelTestUtils';
-import {
-	getAdminRepository,
-	getInstanceConfigRepository,
-	getUserRepository,
-} from '@app/api/middleware/ServiceSingletons';
+import {getAdminRepository, getUserRepository} from '@app/api/middleware/ServiceSingletons';
 import type {User} from '@app/api/models/User';
 import {createBuilder} from '@app/api/test/TestRequestBuilder';
-import {AccountIdentityModes} from '@fluxer/constants/src/AccountIdentityConstants';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
 import {DeletionReasons} from '@fluxer/constants/src/Core';
-import {PremiumFlags, UserFlags} from '@fluxer/constants/src/UserConstants';
-import {expect, onTestFinished} from 'vitest';
+import {PremiumFlags, SuspiciousActivityFlags, UserFlags} from '@fluxer/constants/src/UserConstants';
+import {expect} from 'vitest';
 
 async function loadUser(account: TestAccount): Promise<User> {
 	const user = await getUserRepository().findUnique(createUserID(BigInt(account.userId)));
@@ -311,50 +306,6 @@ export const UserWriteAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase> = [
 		},
 	},
 	{
-		method: 'POST',
-		route: '/admin/users/:user_id/password-reset-link',
-		async prepare({harness}) {
-			const target = await createTestAccount(harness);
-			const originalSelfHosted = Config.instance.selfHosted;
-			onTestFinished(() => {
-				Config.instance.selfHosted = originalSelfHosted;
-			});
-			Config.instance.selfHosted = true;
-			await getInstanceConfigRepository().setAccountIdentityMode(AccountIdentityModes.USERNAME, 'setup');
-			return {
-				request: {path: `/admin/users/${target.userId}/password-reset-link`},
-				expected: {
-					action: 'create_password_reset_link',
-					targetType: 'user',
-					targetId: target.userId,
-					metadata: {},
-				},
-			};
-		},
-	},
-	{
-		method: 'DELETE',
-		route: '/admin/users/:user_id/recovery-kit',
-		async prepare({harness}) {
-			const target = await createTestAccount(harness);
-			const originalSelfHosted = Config.instance.selfHosted;
-			onTestFinished(() => {
-				Config.instance.selfHosted = originalSelfHosted;
-			});
-			Config.instance.selfHosted = true;
-			await getInstanceConfigRepository().setAccountIdentityMode(AccountIdentityModes.USERNAME, 'setup');
-			return {
-				request: {path: `/admin/users/${target.userId}/recovery-kit`, expectStatus: 204},
-				expected: {
-					action: 'revoke_recovery_kit',
-					targetType: 'user',
-					targetId: target.userId,
-					metadata: {},
-				},
-			};
-		},
-	},
-	{
 		method: 'PUT',
 		route: '/admin/users/:user_id/ban',
 		async prepare({harness}) {
@@ -561,6 +512,23 @@ export const UserWriteAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase> = [
 	},
 	{
 		method: 'PATCH',
+		route: '/admin/users/:user_id/badges',
+		async prepare({harness, admin}) {
+			const target = await createTestAccount(harness);
+			const badge = await createTestBadge(harness, admin.token);
+			return {
+				request: {path: `/admin/users/${target.userId}/badges`, body: {badge_ids: [badge.id]}},
+				expected: {
+					action: 'update_badges',
+					targetType: 'user',
+					targetId: target.userId,
+					metadata: {badge_ids: badge.id},
+				},
+			};
+		},
+	},
+	{
+		method: 'PATCH',
 		route: '/admin/users/:user_id/premium-flags',
 		async prepare({harness}) {
 			const target = await createTestAccount(harness);
@@ -584,6 +552,34 @@ export const UserWriteAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase> = [
 		},
 	},
 	{
+		method: 'PUT',
+		route: '/admin/users/:user_id/phone-verification',
+		async prepare(context) {
+			const target = await createTestAccount(context.harness);
+			const flags = SuspiciousActivityFlags.REQUIRE_VERIFIED_EMAIL | SuspiciousActivityFlags.REQUIRE_VERIFIED_PHONE;
+			await adminBuilder(context)
+				.put(`/admin/users/${target.userId}/suspicious-activity-flags`)
+				.body({flags})
+				.execute();
+			return {
+				request: {
+					path: `/admin/users/${target.userId}/phone-verification`,
+					body: {has_verified_phone: true},
+				},
+				expected: {
+					action: 'update_has_verified_phone',
+					targetType: 'user',
+					targetId: target.userId,
+					metadata: {
+						has_verified_phone: 'true',
+						suspicious_activity_flags_before: flags.toString(),
+						suspicious_activity_flags_after: SuspiciousActivityFlags.REQUIRE_VERIFIED_EMAIL.toString(),
+					},
+				},
+			};
+		},
+	},
+	{
 		method: 'PATCH',
 		route: '/admin/users/:user_id/date-of-birth',
 		async prepare({harness}) {
@@ -595,6 +591,40 @@ export const UserWriteAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase> = [
 					targetType: 'user',
 					targetId: target.userId,
 					metadata: {old_dob: (await loadUser(target)).dateOfBirth!, new_dob: '1995-06-15'},
+				},
+			};
+		},
+	},
+	{
+		method: 'PUT',
+		route: '/admin/users/:user_id/suspicious-activity-flags',
+		async prepare({harness}) {
+			const target = await createTestAccount(harness);
+			const flags = SuspiciousActivityFlags.REQUIRE_VERIFIED_EMAIL | SuspiciousActivityFlags.REQUIRE_VERIFIED_PHONE;
+			return {
+				request: {path: `/admin/users/${target.userId}/suspicious-activity-flags`, body: {flags}},
+				expected: {
+					action: 'update_suspicious_activity_flags',
+					targetType: 'user',
+					targetId: target.userId,
+					metadata: {flags: flags.toString()},
+				},
+			};
+		},
+	},
+	{
+		method: 'PUT',
+		route: '/admin/users/:user_id/suspicious-activity-disablement',
+		async prepare({harness}) {
+			const target = await createTestAccount(harness);
+			const flags = SuspiciousActivityFlags.REQUIRE_VERIFIED_PHONE;
+			return {
+				request: {path: `/admin/users/${target.userId}/suspicious-activity-disablement`, body: {flags}},
+				expected: {
+					action: 'disable_suspicious_activity',
+					targetType: 'user',
+					targetId: target.userId,
+					metadata: {flags: flags.toString(), notify_user: 'true', notification_sent: 'true'},
 				},
 			};
 		},

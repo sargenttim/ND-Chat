@@ -3,7 +3,7 @@
 -module(gateway_rpc_error).
 -typing([eqwalizer]).
 
--export([raise/1]).
+-export([message/1, raise/1]).
 
 -type reason() :: {gateway_rpc_error, term()}.
 
@@ -12,3 +12,7 @@
 -spec raise(term()) -> no_return().
 raise(Message) ->
     erlang:error({gateway_rpc_error, Message}).
+
+-spec message(reason()) -> term().
+message({gateway_rpc_error, Message}) ->
+    Message.

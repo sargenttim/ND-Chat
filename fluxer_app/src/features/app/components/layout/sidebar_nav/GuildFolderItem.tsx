@@ -29,7 +29,6 @@ import GuildReadState from '@app/features/guild/state/GuildReadState';
 import {getInitialsFromName, truncateInitials} from '@app/features/guild/utils/GuildInitialsUtils';
 import {MENTION_COUNT_ARIA_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {isKeyboardActivationKey} from '@app/features/input/utils/KeyboardUtils';
-import {useRecoveringBackgroundImageURL} from '@app/features/messaging/hooks/useImageRecovery';
 import {useLocation} from '@app/features/platform/components/router/RouterReact';
 import Theme from '@app/features/theme/state/Theme';
 import {Edge} from '@app/features/ui/AxisOrientation';
@@ -40,7 +39,7 @@ import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import {AnimePresence, AnimeSpan, createAnimeFlxElement} from '@app/features/ui/motion/AnimeElement';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {Tooltip} from '@app/features/ui/tooltip/Tooltip';
-import * as AvatarSourceUtils from '@app/features/user/utils/AvatarUtils';
+import * as AvatarSourceUtils from '@app/features/user/utils/AvatarSourceUtils';
 import MediaEngine from '@app/features/voice/engine/MediaEngineFacade';
 import {flxElementClassName} from '@app/lib/react';
 import {
@@ -767,8 +766,8 @@ interface MiniGuildIconProps {
 }
 
 const MiniGuildIcon = observer(({guild}: MiniGuildIconProps) => {
-	const iconURL = useRecoveringBackgroundImageURL(AvatarSourceUtils.getGuildIconURL(guild, false));
-	if (iconURL != null) {
+	const iconURL = AvatarSourceUtils.getGuildIconURL(guild, false);
+	if (iconURL !== '') {
 		return (
 			<flx-app-mini-guild-icon
 				className={flxElementClassName(styles.miniGuildIcon)}

@@ -27,11 +27,10 @@ interface RateLimitedConfirmModalProps {
 	retryAfter?: number;
 	onRetry?: () => void;
 	hideCloseButton?: boolean;
-	describe?: (duration: string | undefined) => string;
 }
 
 export const RateLimitedConfirmModal = observer(
-	({title, retryAfter, onRetry, hideCloseButton, describe}: RateLimitedConfirmModalProps) => {
+	({title, retryAfter, onRetry, hideCloseButton}: RateLimitedConfirmModalProps) => {
 		const {i18n} = useLingui();
 		const hasRetryAfter = retryAfter != null;
 		const formatRateLimitTime = (totalSeconds: number): string => {
@@ -49,13 +48,11 @@ export const RateLimitedConfirmModal = observer(
 			<ConfirmModal
 				title={title}
 				description={
-					describe
-						? describe(hasRetryAfter ? formatRateLimitTime(retryAfter) : undefined)
-						: hasRetryAfter
-							? i18n._(RATE_LIMITED_DURATION_BODY_DESCRIPTOR, {
-									duration: formatRateLimitTime(retryAfter),
-								})
-							: i18n._(RATE_LIMITED_FALLBACK_BODY_DESCRIPTOR)
+					hasRetryAfter
+						? i18n._(RATE_LIMITED_DURATION_BODY_DESCRIPTOR, {
+								duration: formatRateLimitTime(retryAfter),
+							})
+						: i18n._(RATE_LIMITED_FALLBACK_BODY_DESCRIPTOR)
 				}
 				secondaryText={hasRetryAfter ? i18n._(TRY_AGAIN_DESCRIPTOR) : i18n._(CLOSE_DESCRIPTOR)}
 				onSecondary={onRetry}

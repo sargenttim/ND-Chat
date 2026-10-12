@@ -4,31 +4,31 @@ import cameraShareEncodingPlanFixtures from '@fluxer/voice_engine_v2/fixtures/po
 import hardwareEncoderCapabilityFixtures from '@fluxer/voice_engine_v2/fixtures/policies/hardware_encoder_capabilities.json';
 import microphoneFailureFixtures from '@fluxer/voice_engine_v2/fixtures/policies/microphone_failure_action.json';
 import screenShareEncodingPlanFixtures from '@fluxer/voice_engine_v2/fixtures/policies/screen_share_encoding_plan.json';
-
+import voiceStatsCoercionFixtures from '@fluxer/voice_engine_v2/fixtures/policies/voice_stats_coercion.json';
 import voiceStatsSummaryFixtures from '@fluxer/voice_engine_v2/fixtures/policies/voice_stats_summary.json';
 import voiceTrackClassificationFixtures from '@fluxer/voice_engine_v2/fixtures/policies/voice_track_classification.json';
-import {planVoiceEngineV2CameraEncodingChange} from '@fluxer/voice_engine_v2/src/policies/cameraShare';
-import {normalizeVoiceEngineV2HardwareEncoderCapabilities} from '@fluxer/voice_engine_v2/src/policies/hardwareEncoderCapabilities';
-import {
-	getVoiceEngineV2MicrophoneOperationFailureAction,
-	type VoiceEngineV2MicrophoneFailureContext,
-	type VoiceEngineV2OperationResultLike,
-} from '@fluxer/voice_engine_v2/src/policies/microphoneFailureAction';
-import {planVoiceEngineV2ScreenEncodingChange} from '@fluxer/voice_engine_v2/src/policies/screenShare';
 import {
 	classifyVoiceEngineV2TrackStats,
+	coerceVoiceEngineV2Stats,
+	getVoiceEngineV2MicrophoneOperationFailureAction,
+	hasVoiceEngineV2NativeNvencEncoder,
+	normalizeVoiceEngineV2HardwareEncoderCapabilities,
+	planVoiceEngineV2CameraEncodingChange,
+	planVoiceEngineV2ScreenEncodingChange,
 	summarizeVoiceEngineV2Stats,
+	type VoiceEngineV2MicrophoneFailureContext,
+	type VoiceEngineV2OperationResultLike,
 	type VoiceEngineV2StatsSummary,
 	type VoiceEngineV2StatsTrackClassificationInput,
 	type VoiceEngineV2StatsTrackRoleSelection,
-} from '@fluxer/voice_engine_v2/src/policies/voiceStats';
+} from '@fluxer/voice_engine_v2/src/policies/index';
 import type {
 	VoiceEngineV2CameraEncodingOptions,
 	VoiceEngineV2CameraOptions,
 	VoiceEngineV2ScreenEncodingOptions,
 	VoiceEngineV2ScreenOptions,
 	VoiceEngineV2Stats,
-} from '@fluxer/voice_engine_v2/src/protocol/types';
+} from '@fluxer/voice_engine_v2/src/protocol';
 import {describe, expect, it} from 'vitest';
 
 interface MicrophoneFailureFixture {
@@ -44,6 +44,7 @@ interface HardwareEncoderCapabilityFixture {
 	input: unknown;
 	codec: string;
 	expectedCapabilities: Record<string, unknown>;
+	expectedNativeNvenc: boolean;
 }
 
 interface ScreenShareEncodingPlanFixture {
@@ -84,6 +85,12 @@ interface VoiceStatsSummaryFixture {
 	expectedSummary: Partial<VoiceEngineV2StatsSummary>;
 }
 
+interface VoiceStatsCoercionFixture {
+	name: string;
+	input: Record<string, unknown>;
+	expected: VoiceEngineV2Stats;
+}
+
 interface VoiceTrackClassificationFixture {
 	name: string;
 	input: VoiceEngineV2StatsTrackClassificationInput;
@@ -100,9 +107,10 @@ describe('voice engine v2 policies', () => {
 
 	it.each(hardwareEncoderCapabilityFixtures as Array<HardwareEncoderCapabilityFixture>)(
 		'replays hardware encoder capability fixture: $name',
-		({input, expectedCapabilities}) => {
+		({input, codec, expectedCapabilities, expectedNativeNvenc}) => {
 			const capabilities = normalizeVoiceEngineV2HardwareEncoderCapabilities(input);
 			expect(capabilities).toMatchObject(expectedCapabilities);
+			expect(hasVoiceEngineV2NativeNvencEncoder(capabilities, codec)).toBe(expectedNativeNvenc);
 		},
 	);
 
@@ -151,6 +159,13 @@ describe('voice engine v2 policies', () => {
 			if (fixture.expectedErrorCode !== undefined) {
 				expect(plan.error?.code).toBe(fixture.expectedErrorCode);
 			}
+		},
+	);
+
+	it.each(voiceStatsCoercionFixtures as Array<VoiceStatsCoercionFixture>)(
+		'replays voice stats coercion fixture: $name',
+		({input, expected}) => {
+			expect(coerceVoiceEngineV2Stats(input)).toMatchObject(expected);
 		},
 	);
 

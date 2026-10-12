@@ -1,24 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {WorkerDependencies} from '@app/api/worker/WorkerDependencies';
-
-let workerDependencies: WorkerDependencies | null = null;
+import {
+	clearWorkerDependencies as clearWorkerDependenciesBase,
+	getWorkerDependencies as getWorkerDependenciesBase,
+	setWorkerDependencies as setWorkerDependenciesBase,
+} from '@pkgs/worker/src/context/WorkerContext';
 
 export function setWorkerDependencies(dependencies: WorkerDependencies): void {
-	workerDependencies = dependencies;
+	setWorkerDependenciesBase(dependencies);
 }
 
 export function setWorkerDependenciesForTest(dependencies: Partial<WorkerDependencies>): void {
-	workerDependencies = dependencies as WorkerDependencies;
+	setWorkerDependenciesBase(dependencies);
 }
 
 export function getWorkerDependencies(): WorkerDependencies {
-	if (!workerDependencies) {
-		throw new Error('Worker dependencies have not been initialized. Call setWorkerDependencies() first.');
-	}
-	return workerDependencies;
+	return getWorkerDependenciesBase<WorkerDependencies>();
 }
 
 export function clearWorkerDependencies(): void {
-	workerDependencies = null;
+	clearWorkerDependenciesBase();
 }

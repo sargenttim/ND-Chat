@@ -1,28 +1,27 @@
 ---
 # SPDX-License-Identifier: AGPL-3.0-or-later
 title: Instance
-description: Instance discovery, client geolocation, the limit key registry, the served OpenAPI document, and the setup sign-in method.
+description: Instance discovery, client geolocation, the limit key registry, and the served OpenAPI document.
 ---
 
 import RouteHeader from '@/components/RouteHeader.astro';
 
-Discover a deployment's endpoints, available features, and [limits](#limit-keys), look up the client's approximate location, download its OpenAPI document, or choose how members of a new deployment sign in.
+Discover a deployment's endpoints, available features, and [limits](#limit-keys), look up the client's approximate location, or download its OpenAPI document.
 
 [Get instance discovery](#get-instance-discovery) is the entry point of the API. A client that knows only a Fluxer origin reads `/.well-known/fluxer` first, and that one unauthenticated response has every field of the [instance discovery object](#instance-discovery-object). Those values include the API base URLs, the [main Gateway](/gateway/overview/) WebSocket URL, and the [Media Proxy](/media-proxy/overview/) base URL. They override the [endpoint path defaults](#instance-endpoints-object) a deployment would otherwise serve from its canonical public origin.
 
 Every route here is unauthenticated. A credential changes no response body. One that resolves to an account moves the [rate limit bucket](/topics/rate-limits/) from the client IP address onto that account.
 
-Each `GET` route answers with `Access-Control-Allow-Origin: *`, replaced by the request `Origin` when the deployment-wide [cross-origin policy](/http-api/#cross-origin-requests) allows that origin. The [Admin Instance API](/admin-api/instance/) defines the operator side of the same configuration.
+Each of the routes answers with `Access-Control-Allow-Origin: *`, replaced by the request `Origin` when the deployment-wide [cross-origin policy](/http-api/#cross-origin-requests) allows that origin. The [Admin Instance API](/admin-api/instance/) defines the operator side of the same configuration.
 
 ## Instance discovery object
 
-The discovery document is the complete public description of one deployment. Every field without a `?` is always present. This server never sends `codename` or `age_policy`, and `domain_migration` and `endpoints.upload_relay` are absent only from a server older than this version.
+The discovery document is the complete public description of one deployment. Every field is always present. The one optional field, `domain_migration`, is absent only from a server older than this version.
 
 ### Structure
 
 | Field | Type | Description |
 | --- | --- | --- |
-| codename? | string | The protocol generation the deployment speaks |
 | api_code_version<sup>1</sup> | integer | The version of the API server code this deployment runs |
 | endpoints | [instance endpoints](#instance-endpoints-object) object | Public service endpoints for this deployment |
 | captcha | [captcha configuration](#captcha-configuration-object) object | Public CAPTCHA configuration |
@@ -35,8 +34,8 @@ The discovery document is the complete public description of one deployment. Eve
 | limits | [limit configuration](#limit-configuration-object) object | Ordered limit rules and the trait names the deployment declares |
 | push | [push configuration](#push-configuration-object) object | Public Web Push identity |
 | app_public | [public application configuration](#public-application-configuration-object) object | Public client configuration |
-| age_policy? | [age policy](#age-policy-object) object | Regional age policy for the deployment |
 | domain_migration? | [domain migration](#domain-migration-object) object | Web domain migration switch and logged-out rollout |
+| badges? | [badges](#badges-object) object | Badges defined on the instance and the overrides for built-in badge icons |
 
 <sup>1</sup> The value is a plain integer that increases when the API introduces a change a client is expected to notice, and the current value is `1`
 
@@ -52,15 +51,13 @@ Each value is an absolute URL supplied by the operator. A value can be a bare or
 | api_client<sup>1</sup> | string | Base URL for client API requests |
 | api_public | string | Base URL for public API requests |
 | gateway<sup>2</sup> | string | The [main Gateway](/gateway/overview/) WebSocket URL |
-| media | string | [Media Proxy](/media-proxy/overview/) base URL |
-| upload_relay? | string | Attachment [upload relay](/media-proxy/upload-relay/) base URL |
+| media | string | [Media Proxy](/media-proxy/overview/) base URL, also used as the attachment [upload relay](/media-proxy/upload-relay/) base |
 | static_cdn<sup>3</sup> | string | Static asset base URL |
 | marketing | string | Marketing site base URL |
 | admin | string | Admin application base URL |
 | invite | string | Invite link base URL |
 | gift | string | Gift link base URL |
 | webapp | string | Web application base URL |
-| docs? | string | Documentation website base URL |
 
 <sup>1</sup> Both fields are the same configured client API endpoint, which the first-party web application reads. `api_public` is the separately configured public API endpoint, which a bot, a library, or any other third-party client reads. A deployment can point the two at one origin, and the instance Fluxer hosts does not
 
@@ -142,14 +139,8 @@ Deployment-wide switches a client reads before it offers a feature, plus whether
 | self_hosted | boolean | Whether this deployment identifies itself as self-hosted |
 | presigned_attachment_uploads | boolean | Whether a client can request presigned attachment upload URLs |
 | emails_enabled<sup>1</sup> | boolean | Whether the deployment sends email |
-| phone_verification_enabled | boolean | Deprecated. Always false |
-| account_identity<sup>5</sup> | string | How members sign in, one of the [account identity modes](#account-identity-modes) |
-| tag_style<sup>6</sup> | string | How usernames are tagged, one of the [tag styles](#tag-styles) |
-| desktop_modules_enabled? | boolean | Whether desktop clients may load downloadable modules |
-| account_deletion_grace_period_hours? | integer | Hours between a deletion request and the permanent deletion of the account (1-8,760) |
-| max_background_gateway_connections? | integer | Maximum Gateway connections a client may keep open for background accounts (0-64) |
 
-<sup>1</sup> The value is true only when email is switched on and the transport is completely configured. It is always false on a `username` deployment
+<sup>1</sup> The value is true only when email is switched on and the transport is completely configured
 
 <sup>2</sup> True only when billing is switched on, a Stripe secret key is set, at least one currency has both a monthly and a yearly price, and `premium_enabled` is true. It is computed on each request
 
@@ -157,27 +148,7 @@ Deployment-wide switches a client reads before it offers a feature, plus whether
 
 <sup>4</sup> On a hosted deployment, true while billing is switched on and a Stripe secret key is set. A self-hosted deployment reports true while a Stripe secret key is set and `premium_enabled` is true, even after billing is switched off
 
-<sup>5</sup> Always `email` on a hosted deployment. A client treats a missing value as `email`, which is what a deployment from before the field existed means
-
-<sup>6</sup> Always `none` on a `username` deployment. Always `random` on a hosted deployment and on an instance that existed before the field. A client treats a missing value as `random`
-
 A deployment that reports `emails_enabled` as false sends no verification, password recovery, or IP authorisation message, and the flows that depend on one are unusable there. [Deployment availability](/http-api/deployment-availability/) states which routes a self-hosted deployment does not serve at all.
-
-### Account identity modes
-
-| Value | Description |
-| --- | --- |
-| email | Members register and sign in with an email address |
-| username | Members register and sign in with a username, and the deployment collects no email address |
-
-### Tag styles
-
-| Value | Description |
-| --- | --- |
-| none | Usernames are unique and shown without a tag. Every account that is not a bot has the discriminator `0000` |
-| random | Every account gets a random tag. Tags are shown and can be changed |
-
-A `username` deployment answers its email routes with 400 `EMAIL_UNAVAILABLE_ON_INSTANCE`. [Authentication](/http-api/authentication/#shared-behaviour) and [Email and password changes](/http-api/users/email-and-password/) list them. Routes that exist only for username sign-in, such as [recover an account](/http-api/authentication/#recover-an-account), answer 400 `USERNAME_SIGN_IN_ONLY` on an `email` deployment.
 
 ## GIF provider object
 
@@ -252,10 +223,6 @@ This deployment's public Web Push identity.
 | Field | Type | Description |
 | --- | --- | --- |
 | public_vapid_key<sup>1</sup> | ?string | The deployment's Web Push VAPID public key, or null |
-| delivery_mode? | string | How push notifications reach devices, one of `direct`, `external_relay`, or `hybrid` |
-| event_resolution_path? | string | API path a client calls to resolve the payload of a push event |
-| external_relay_url? | ?string | URL of the external push relay, or null when there is none |
-| relay_signing_key_hashes? | ?array[string] | Hashes of the keys the external push relay signs with, or null |
 
 <sup>1</sup> Null when the deployment has configured no Web Push identity
 
@@ -346,11 +313,11 @@ Each key names one limit. A key whose name begins with `feature_` is a feature g
 
 | Value | Description |
 | --- | --- |
-| avatar_max_size | Maximum file size for avatar uploads in bytes, effective up to 104857600, in user scope |
-| emoji_max_size | Maximum file size for emoji uploads in bytes, effective up to 104857600, in guild scope |
+| avatar_max_size | Maximum file size for avatar uploads in bytes, in user scope |
+| emoji_max_size | Maximum file size for emoji uploads in bytes, in guild scope |
 | feature_animated_avatar | Allow animated avatar uploads, in user scope |
 | feature_animated_banner | Allow animated banner uploads, in user scope |
-| feature_custom_discriminator | Allow custom discriminator selection, in user scope. Ignored for people on an instance with the `none` tag style |
+| feature_custom_discriminator | Allow custom discriminator selection, in user scope |
 | feature_custom_notification_sounds | Allow custom notification sounds, in user scope |
 | feature_early_access | Access to beta features, in user scope |
 | feature_global_expressions | Use expressions across all guilds, in user scope |
@@ -360,7 +327,7 @@ Each key names one limit. A key whose name begins with `feature_` is a feature g
 | feature_voice_entrance_sounds | Play a sound when joining voice, in user scope |
 | max_attachment_file_size | Maximum size of each attachment file in bytes, in user and guild scope |
 | max_attachments_per_message | Maximum number of file attachments per message, in user and guild scope |
-| max_bio_length | Maximum characters in a user biography, in user scope. At most 320 |
+| max_bio_length | Maximum characters in a user biography, in user scope |
 | max_bookmarks | Maximum bookmarked messages, in user scope |
 | max_channels_per_category | Maximum channels per category, in guild scope |
 | max_custom_backgrounds | Maximum custom profile backgrounds, in user scope |
@@ -385,18 +352,15 @@ Each key names one limit. A key whose name begins with `feature_` is a feature g
 | max_private_channels_per_user | Maximum direct message channels per user, in user scope |
 | max_reactions_per_message | Maximum distinct reactions per message, in guild scope |
 | max_relationships | Maximum friend and blocked relationships, in user scope |
-| max_screen_share_bitrate | Highest screen share video bitrate in bits per second, from 1000000 to 50000000, in user scope |
 | max_users_per_message_reaction | Maximum users who can use the same reaction on a message, in guild scope |
 | max_voice_message_duration | Maximum voice message duration in seconds, in user and guild scope |
 | max_webhooks_per_channel | Maximum webhooks per channel, in guild scope |
 | max_webhooks_per_guild | Maximum webhooks per guild, in guild scope |
-| sticker_max_size | Maximum file size for sticker uploads in bytes, effective up to 104857600, in guild scope |
+| sticker_max_size | Maximum file size for sticker uploads in bytes, in guild scope |
 
 <sup>1</sup> Emoji limits are enforced as one shared total against `max_guild_emojis`, and the aliases exist only for older clients. The default of each alias equals the `max_guild_emojis` default
 
 <sup>2</sup> Sticker limits are enforced as one shared total against `max_guild_stickers`
-
-No key sets a thread or forum limit. [Thread lifecycle](/http-api/threads/#thread-lifecycle), [Thread members](/http-api/thread-members/), and [Forum channel fields](/http-api/forums/#forum-channel-fields) state those fixed bounds. `max_guild_channels` counts forum and media channels and counts no thread.
 
 Where a rule sets `max_guild_emojis`, `max_guild_stickers`, or one of the compatibility aliases, it republishes that key in its own `overrides` even when the value matches the default.
 
@@ -410,7 +374,7 @@ Branding, setup state, legal documents, and registration fields a client reads b
 | --- | --- | --- |
 | branding | [public branding](#public-branding-object) object | Public instance identity |
 | setup | [public setup state](#public-setup-state-object) object | Initial configuration state |
-| legal | [public legal configuration](#public-legal-configuration-object) object | Legal and policy document URLs |
+| legal | [public legal configuration](#public-legal-configuration-object) object | Registration legal document URLs |
 | registration | [public registration fields](#public-registration-fields-object) object | Registration field collection policy |
 
 ## Public branding object
@@ -427,7 +391,7 @@ The instance identity a client renders: its name, its images, its theme colour, 
 | logo_url | ?string | Application logo URL, or null |
 | wordmark_url | ?string | Application wordmark URL, or null |
 | favicon_url | ?string | Browser favicon URL, or null |
-| theme_color | ?string | Brand and browser theme colour as lowercase `#rrggbb`, or null |
+| theme_color | ?string | Browser theme colour, or null |
 | status_page_url | ?string | Public status page URL, or null |
 | status_page_incident_history_url | ?string | Status page incident history URL, or null |
 | premium_product_name | string | Name of the premium tier a client displays. A self-hosted deployment reports `Premium` until the operator sets a name |
@@ -443,15 +407,12 @@ Whether the deployment has finished its initial configuration, and where an oper
 | --- | --- | --- |
 | configured | boolean | Whether initial deployment configuration is complete |
 | admin_url<sup>1</sup> | ?string | The admin application URL used to continue setup, or null |
-| account_identity_locked? | boolean | Whether the sign-in method can no longer change, sent only while a self-hosted deployment is not configured |
 
 <sup>1</sup> The value is the deployment's configured admin endpoint, and it is null when no admin endpoint is configured
 
-`account_identity_locked` is true once the first account exists, and on a deployment stored as already in use. [Set the setup sign-in method](#set-the-setup-sign-in-method) returns 409 there.
-
 ## Public legal configuration object
 
-The public document URLs a client links from its registration form and its report flows.
+The public URLs a client links from its registration form.
 
 ### Structure
 
@@ -459,9 +420,6 @@ The public document URLs a client links from its registration form and its repor
 | --- | --- | --- |
 | terms_url | ?string | Public terms of service URL, or null |
 | privacy_url | ?string | Public privacy policy URL, or null |
-| guidelines_url<sup>1</sup> | ?string | Public community guidelines URL, or null |
-
-<sup>1</sup> The URL the operator set. A [report flow](/http-api/reports/#report-flows) and the account enforcement emails link it. When it is null, a hosted instance links its own guidelines page, and a self-hosted instance hides every guidelines link
 
 ## Public registration fields object
 
@@ -492,26 +450,49 @@ A logged-out device draws its own random ID once and keeps it. The device moves 
 
 While `standalone_forwarding` is false, an installed desktop web app moves its data and stays on the legacy origin. Browser tabs forward either way.
 
-## Age policy object
+## Badges object
 
-The regions where the deployment gates access behind an age check or blocks it.
-
-### Structure
-
-| Field | Type | Description |
-| --- | --- | --- |
-| geos | array[[age policy region](#age-policy-region-object) object] | Regions with an age policy |
-
-## Age policy region object
+The custom badges of the instance.
 
 ### Structure
 
 | Field | Type | Description |
 | --- | --- | --- |
-| country_code | string | The ISO 3166-1 alpha-2 country code |
-| region_code | ?string | The ISO 3166-2 subdivision code, or null when the entry covers the whole country |
-| action | string | `restrict` to require an age check, or `block` to refuse access |
-| card_verification_available | boolean | Whether card age verification is available in the region |
+| version<sup>1</sup> | integer | Version of the badge configuration |
+| badges | array[[badge](#badge-object) object] | User and guild badges |
+| builtin_icons | [built-in badge icons](#built-in-badge-icons-object) object | Icon overrides for the built-in badges |
+
+<sup>1</sup> This value increases every time badges for the instance are updated.
+
+## Badge object
+
+### Structure
+
+| Field | Type | Description |
+| --- | --- | --- |
+| id | snowflake | The ID of the badge |
+| type | string | `user` or `guild` |
+| name | string | The name of the badge |
+| tooltip | string | The text shown when hovering the badge |
+| icon | string | The SVG source for the icon |
+| url | ?string | The URL opened when the badge is clicked, or null |
+| position<sup>1</sup> | integer | The order in which the badge is displayed |
+
+<sup>1</sup> Lower numbers display first. For guilds, only the lowest-position badge is displayed.
+
+## Built-in badge icons object
+
+Each field is the SVG source for an icon replacing the default icon of that badge, or null when the default icon is used.
+
+### Structure
+
+| Field | Type | Description |
+| --- | --- | --- |
+| staff | ?string | Icon of the staff badge |
+| premium | ?string | Icon of the premium badge |
+| verified | ?string | Icon of the verified community badge |
+| partnered | ?string | Icon of the partnered community badge |
+| discoverable | ?string | Icon of the discoverable community badge |
 
 ## Geolocation object
 
@@ -560,17 +541,6 @@ A geo entry names a whole country when its `regionCode` is null and names one su
 | countryCode | string | The ISO 3166-1 alpha-2 country code |
 | regionCode | ?string | The ISO 3166-2 subdivision code within the country, or null when the entry covers the whole country |
 
-## Account identity object
-
-The sign-in method a new deployment uses after [set the setup sign-in method](#set-the-setup-sign-in-method).
-
-### Structure
-
-| Field | Type | Description |
-| --- | --- | --- |
-| mode | string | The [account identity mode](#account-identity-modes) now in effect |
-| tag_style | string | How usernames are tagged, one of the [tag styles](#tag-styles) |
-
 ## Get instance discovery
 
 <RouteHeader method="GET" path="/.well-known/fluxer" unauthenticated />
@@ -589,6 +559,23 @@ The path has no `/v1` prefix.
 
 60 requests per minute for each authenticated user, or for each client IP address when the request has no credential, on the `instance:info` bucket. [Get OpenAPI document](#get-openapi-document) shares this bucket.
 
+## List badges
+
+<RouteHeader method="GET" path="/v1/badges" unauthenticated />
+
+Returns the [badges object](#badges-object).
+
+### Response
+
+| Status | Body | Condition |
+| --- | --- | --- |
+| 200 | [badges](#badges-object) object | The badges were returned |
+| 304 | none | The badges have not changed since the supplied `ETag` |
+
+### Rate limit
+
+60 requests per minute for each authenticated user, or for each client IP address when the request has no credential, on the `instance:info` bucket.
+
 ## Get client geolocation
 
 <RouteHeader method="GET" path="/v1/ip" unauthenticated />
@@ -606,45 +593,6 @@ A lookup that resolves nothing still returns 200 with `countryCode`, `regionCode
 ### Rate limit
 
 30 requests per minute for each authenticated user, or for each client IP address when the request has no credential, on the `ip:geo_lookup` bucket.
-
-## Set the setup sign-in method
-
-<RouteHeader method="PUT" path="/v1/instance/setup/account-identity" unauthenticated />
-
-Chooses how members sign in on a new self-hosted deployment, and on an `email` deployment whether usernames have tags. Returns an [account identity](#account-identity-object) object with the choice now in effect.
-
-The setup wizard calls this before the owner account exists. The choice stays open on a self-hosted deployment until setup is complete or the first account exists. After that, on a deployment that was already in use before username sign-in existed, and on every hosted deployment, the route returns 409 `ACCOUNT_IDENTITY_LOCKED`. The choice and the first registration take turns, so a choice never lands after the first account exists. A repeated call while the choice is open replaces the earlier one.
-
-:::caution[Anyone can call this before the first account exists]
-The route needs no credential, the same as the rule that makes the first registration the instance admin. An operator finishes setup in the same sitting that brings the deployment up.
-:::
-
-### JSON body
-
-| Field | Type | Description |
-| --- | --- | --- |
-| mode | string | The [account identity mode](#account-identity-modes) to use |
-| tag_style?<sup>1</sup> | string | How usernames are tagged, one of the [tag styles](#tag-styles). Defaults to `none` |
-
-<sup>1</sup> A `username` instance always uses `none`. Sending `random` with `username` returns the field code `TAG_STYLE_REQUIRES_EMAIL_SIGN_IN` on `tag_style`
-
-### Response
-
-| Status | Body | Condition |
-| --- | --- | --- |
-| 200 | [account identity](#account-identity-object) object | The mode was stored |
-| 400 | [error response](/http-api/#error-response) | The body is invalid, or `random` tags were requested with `username` |
-| 409 | [error response](/http-api/#error-response) | `ACCOUNT_IDENTITY_LOCKED`, because the sign-in method can no longer change |
-| 423 | [error response](/http-api/#error-response) | `GENERAL_ERROR`, because a registration or another choice held the turn for more than 15 seconds |
-| 429 | [rate limit response](/topics/rate-limits/#rate-limit-response-object) | Route or global bucket denies the request |
-
-### Side effects
-
-The deployment stores the choice, and [instance discovery](#get-instance-discovery) reports it as `account_identity` and `tag_style` from then on. No Gateway Dispatch is emitted.
-
-### Rate limit
-
-10 requests per minute for each authenticated user, or for each client IP address when the request has no credential, on the `instance:setup:account_identity` bucket.
 
 ## Get OpenAPI document
 

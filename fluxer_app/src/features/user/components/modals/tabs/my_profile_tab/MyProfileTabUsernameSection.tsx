@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {PREMIUM_PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {LimitResolver} from '@app/features/app/utils/LimitResolverAdapter';
 import {isLimitToggleEnabled} from '@app/features/app/utils/LimitUtils';
 import * as PremiumModalCommands from '@app/features/premium/commands/PremiumModalCommands';
-import {getPremiumProductName, shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
+import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
@@ -97,11 +97,11 @@ export const UsernameSection = observer(({isClaimed, isEmailVerified, user}: Use
 						<Trans>Change username</Trans>
 					</Button>
 				)}
-				{!RuntimeConfig.usesUniqueUsernames && !hasCustomDiscriminator && shouldShowPremiumFeatures() && (
+				{!hasCustomDiscriminator && shouldShowPremiumFeatures() && (
 					<Tooltip
 						text={i18n._(CUSTOMIZE_YOUR_TAG_TO_YOUR_LIKING_WITH_DESCRIPTOR, {
 							discriminatorLabel,
-							premiumProductName: getPremiumProductName(),
+							premiumProductName: PREMIUM_PRODUCT_NAME,
 						})}
 						data-flx="user.my-profile-tab.username-section.tooltip--3"
 					>
@@ -111,7 +111,7 @@ export const UsernameSection = observer(({isClaimed, isEmailVerified, user}: Use
 								PremiumModalCommands.open();
 							}}
 							className={styles.premiumButton}
-							aria-label={i18n._(GET_TO_CUSTOMIZE_YOUR_TAG_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
+							aria-label={i18n._(GET_TO_CUSTOMIZE_YOUR_TAG_DESCRIPTOR, {premiumProductName: PREMIUM_PRODUCT_NAME})}
 							data-flx="user.my-profile-tab.username-section.premium-button.open"
 						>
 							<CrownIcon

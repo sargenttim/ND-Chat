@@ -3,6 +3,7 @@
 import crypto from 'node:crypto';
 import {promisify} from 'node:util';
 import type {ApiContext} from '@app/api/ApiContext';
+import type {UserID} from '@app/api/BrandedTypes';
 import type {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAccountDeletionQueueService';
 import {Logger} from '@app/api/Logger';
 import type {User} from '@app/api/models/User';
@@ -37,6 +38,10 @@ function base62Encode(buffer: Uint8Array): string {
 		num = num / base;
 	}
 	return encoded;
+}
+
+export async function generateSecureToken(_ctx: ApiContext, length = 64): Promise<string> {
+	return RandomUtils.randomString(length);
 }
 
 export async function generateAuthToken(_ctx: ApiContext): Promise<string> {
@@ -77,6 +82,17 @@ export function assertNonBotUser(_ctx: ApiContext, user: User): void {
 	}
 }
 
+export async function authorizeIpByToken(
+	ctx: ApiContext,
+	token: string,
+): Promise<{
+	userId: UserID;
+	email: string;
+} | null> {
+	const {users} = ctx.services;
+	return users.authorizeIpByToken(token);
+}
+
 function checkAccountBanStatus(_ctx: ApiContext, user: User): AccountBanStatus {
 	const hasTempBan = !!(user.flags & UserFlags.DISABLED && user.tempBannedUntil);
 	const isTempBanned = isTemporarilyBanned(user);
@@ -94,8 +110,14 @@ export async function handleBanStatus(ctx: ApiContext, user: User): Promise<User
 		throw new AccountTemporarilySuspendedError();
 	}
 	if (banStatus.tempBanExpired) {
-		const patched = await users.patchUpsert(user.id, {temp_banned_until: null}, user.toRow());
-		return (await users.updateFlags(user.id, (flags) => flags & ~UserFlags.DISABLED)) ?? patched;
+		return users.patchUpsert(
+			user.id,
+			{
+				flags: user.flags & ~UserFlags.DISABLED,
+				temp_banned_until: null,
+			},
+			user.toRow(),
+		);
 	}
 	return user;
 }
@@ -108,10 +130,15 @@ export async function reactivateOnSignIn(
 	const {users} = ctx.services;
 	let currentUser = user;
 	if ((currentUser.flags & UserFlags.DISABLED) !== 0n && !currentUser.tempBannedUntil) {
-		currentUser = (await users.updateFlags(currentUser.id, (flags) => flags & ~UserFlags.DISABLED)) ?? currentUser;
+		currentUser = await users.patchUpsert(
+			currentUser.id,
+			{flags: currentUser.flags & ~UserFlags.DISABLED},
+			currentUser.toRow(),
+		);
 		Logger.info({userId: currentUser.id}, 'Auto-undisabled user on sign-in');
 	}
 	if ((currentUser.flags & UserFlags.SELF_DELETED) !== 0n) {
+		const pendingDeletionAt = currentUser.pendingDeletionAt;
 		currentUser = await users.updateDeletionSchedule(currentUser, {
 			flags: currentUser.flags & ~UserFlags.SELF_DELETED,
 			pending_deletion_at: null,
@@ -119,6 +146,9 @@ export async function reactivateOnSignIn(
 			deletion_public_reason: null,
 			deletion_audit_log_reason: null,
 		});
+		if (pendingDeletionAt) {
+			await users.removePendingDeletion(currentUser.id, pendingDeletionAt);
+		}
 		await deletionQueue.removeFromQueue(currentUser.id);
 		Logger.info({userId: currentUser.id}, 'Auto-cancelled deletion on sign-in');
 	}

@@ -4,7 +4,7 @@ import type {GatewayHandlerContext} from '@app/features/gateway/events/EventRout
 import GuildList from '@app/features/guild/state/GuildList';
 import UserSettings from '@app/features/user/state/UserSettings';
 
-export interface UserSettingsPayload {
+interface UserSettingsPayload {
 	flags: number;
 	status: string;
 	theme: string;

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {detectWasmSimdSupport} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionBackends';
+import {createVoiceAudioContext} from '@app/features/voice/engine/VoiceSharedAudioContext';
+import {
+	detectWasmSimdSupport,
+	resolveNoiseSuppressionContextSampleRate,
+} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionBackends';
 import type * as NoiseSuppressionWorkletAssets from '@app/features/voice/utils/noise_suppression/NoiseSuppressionWorkletAssets';
 import {
 	NOISE_SUPPRESSION_WORKLET_PROCESSOR_NAMES,
@@ -12,11 +16,12 @@ const logger = new Logger('NoiseSuppressionChain');
 const NOISE_GATE_OPEN_THRESHOLD_DB = -41.6;
 const NOISE_GATE_CLOSE_THRESHOLD_DB = -47.6;
 const NOISE_GATE_HOLD_MS = 180;
-const NOISE_SUPPRESSION_STARTUP_TIMEOUT_MS = 8000;
+export const NOISE_SUPPRESSION_STARTUP_TIMEOUT_MS = 8000;
 
-export interface NoiseSuppressionWorkletNode {
-	node: AudioWorkletNode;
-	dispose: () => void;
+export interface NoiseSuppressionWorkletChain {
+	inputDestination: MediaStreamAudioDestinationNode;
+	processedTrack: MediaStreamTrack;
+	dispose: () => Promise<void>;
 }
 
 interface WorkletSignal {
@@ -24,9 +29,22 @@ interface WorkletSignal {
 	message?: string;
 }
 
-export interface NoiseSuppressionWorkletNodeOptions {
-	signal: AbortSignal;
-	onRuntimeFailure: (error: Error) => void;
+export interface NoiseSuppressionWorkletOptions {
+	audioContext: AudioContext;
+	backend: NoiseSuppressionWorkletBackend;
+	signal?: AbortSignal;
+	onRuntimeFailure?: (error: Error) => void;
+}
+
+interface WorkletResources {
+	inputDestination: MediaStreamAudioDestinationNode;
+	feedTrack: MediaStreamTrack;
+	context: AudioContext;
+	node?: AudioWorkletNode;
+	source?: MediaStreamAudioSourceNode;
+	output?: MediaStreamAudioDestinationNode;
+	processedTrack?: MediaStreamTrack;
+	disposal?: Promise<void>;
 }
 
 function isWorkletSignal(value: unknown): value is WorkletSignal {
@@ -82,6 +100,50 @@ function buildProcessorOptions(
 		};
 	}
 	return {maxChannels: 1, wasmBinary};
+}
+
+function safeDisconnect(node: AudioNode | null | undefined): void {
+	if (!node) return;
+	try {
+		node.disconnect();
+	} catch {}
+}
+
+function safeStopTrack(track: MediaStreamTrack | null | undefined): void {
+	if (!track) return;
+	try {
+		track.stop();
+	} catch {}
+}
+
+export function resolveNoiseSuppressionWorkletContext(
+	backend: NoiseSuppressionWorkletBackend,
+	captureContext: AudioContext,
+	feedTrack: MediaStreamTrack,
+): AudioContext | null {
+	const targetSampleRate = resolveNoiseSuppressionContextSampleRate(backend, captureContext.sampleRate);
+	if (targetSampleRate === captureContext.sampleRate) {
+		return createVoiceAudioContext({latencyHint: 'interactive', sampleRate: captureContext.sampleRate});
+	}
+	const bridged = createVoiceAudioContext({latencyHint: 'interactive', sampleRate: targetSampleRate});
+	if (!bridged) return null;
+	if (bridged.sampleRate !== targetSampleRate) {
+		void bridged.close().catch(() => undefined);
+		return null;
+	}
+	try {
+		bridged.createMediaStreamSource(new MediaStream([feedTrack])).disconnect();
+		return bridged;
+	} catch (error) {
+		logger.info('Noise suppression cannot read the capture graph at the model rate', {
+			backend,
+			targetSampleRate,
+			captureSampleRate: captureContext.sampleRate,
+			error,
+		});
+	}
+	void bridged.close().catch(() => undefined);
+	return null;
 }
 
 function awaitStartupStep<T>(pending: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -140,58 +202,77 @@ function awaitWorkletReady(
 	});
 }
 
-const workletModules = new WeakMap<BaseAudioContext, Map<NoiseSuppressionWorkletBackend, Promise<void>>>();
-
-function addWorkletModule(
-	context: BaseAudioContext,
-	backend: NoiseSuppressionWorkletBackend,
-	url: string,
-): Promise<void> {
-	const modules = workletModules.get(context) ?? new Map<NoiseSuppressionWorkletBackend, Promise<void>>();
-	workletModules.set(context, modules);
-	let pending = modules.get(backend);
-	if (!pending) {
-		pending = context.audioWorklet.addModule(url);
-		modules.set(backend, pending);
-		const added = pending;
-		added.catch(() => {
-			if (modules.get(backend) === added) modules.delete(backend);
-		});
+function createWorkletResources(audioContext: AudioContext, backend: NoiseSuppressionWorkletBackend): WorkletResources {
+	const inputDestination = audioContext.createMediaStreamDestination();
+	inputDestination.channelCount = 1;
+	inputDestination.channelCountMode = 'explicit';
+	inputDestination.channelInterpretation = 'speakers';
+	const feedTrack = inputDestination.stream.getAudioTracks()[0];
+	if (!feedTrack) {
+		safeDisconnect(inputDestination);
+		throw new Error('buildNoiseSuppressionWorkletChain: missing capture feed track');
 	}
-	return pending;
+	const workletContext = resolveNoiseSuppressionWorkletContext(backend, audioContext, feedTrack);
+	if (!workletContext) {
+		safeDisconnect(inputDestination);
+		safeStopTrack(feedTrack);
+		throw new Error(`buildNoiseSuppressionWorkletChain: no usable audio context for "${backend}"`);
+	}
+	return {inputDestination, feedTrack, context: workletContext};
 }
 
-function closeWorkletNode(node: AudioWorkletNode): void {
-	node.port.onmessage = null;
-	node.onprocessorerror = null;
+async function releaseWorkletResources(resources: WorkletResources): Promise<void> {
+	const {node, source, output, inputDestination, feedTrack, processedTrack, context} = resources;
+	if (node) {
+		node.port.onmessage = null;
+		node.onprocessorerror = null;
+		try {
+			node.port.postMessage('destroy');
+			node.port.close();
+		} catch (error) {
+			logger.debug('Failed to close noise suppression worklet port', error);
+		}
+	}
+	safeDisconnect(node);
+	safeDisconnect(source);
+	safeDisconnect(output);
+	safeDisconnect(inputDestination);
+	safeStopTrack(processedTrack);
+	safeStopTrack(feedTrack);
 	try {
-		node.port.postMessage('destroy');
-		node.port.close();
+		await context.close();
 	} catch (error) {
-		logger.debug('Failed to close noise suppression worklet port', error);
+		logger.debug('Failed to close noise suppression audio context', error);
 	}
-	node.disconnect();
 }
 
-async function startWorkletNode(
-	context: AudioContext,
-	backend: NoiseSuppressionWorkletBackend,
+function disposeWorkletResources(resources: WorkletResources): Promise<void> {
+	resources.disposal ??= releaseWorkletResources(resources);
+	return resources.disposal;
+}
+
+async function installWorklet(
+	resources: WorkletResources,
+	options: NoiseSuppressionWorkletOptions,
 	signal: AbortSignal,
-): Promise<AudioWorkletNode> {
+): Promise<void> {
+	const {backend} = options;
 	const assets = await awaitStartupStep(
 		import('@app/features/voice/utils/noise_suppression/NoiseSuppressionWorkletAssets'),
 		signal,
 	);
+	signal.throwIfAborted();
 	const wasmUrl = resolveWasmUrl(assets, backend);
 	const [, wasmBinary] = await awaitStartupStep(
 		Promise.all([
-			addWorkletModule(context, backend, assets.NOISE_SUPPRESSION_WORKLET_MODULE_URLS[backend]),
+			resources.context.audioWorklet.addModule(assets.NOISE_SUPPRESSION_WORKLET_MODULE_URLS[backend]),
 			wasmUrl === null ? Promise.resolve(null) : fetchWasmBinary(wasmUrl, signal),
 		]),
 		signal,
 	);
 	signal.throwIfAborted();
-	const node = new AudioWorkletNode(context, NOISE_SUPPRESSION_WORKLET_PROCESSOR_NAMES[backend], {
+	resources.source = resources.context.createMediaStreamSource(new MediaStream([resources.feedTrack]));
+	const node = new AudioWorkletNode(resources.context, NOISE_SUPPRESSION_WORKLET_PROCESSOR_NAMES[backend], {
 		numberOfInputs: 1,
 		numberOfOutputs: 1,
 		outputChannelCount: [1],
@@ -200,38 +281,25 @@ async function startWorkletNode(
 		channelInterpretation: 'speakers',
 		processorOptions: buildProcessorOptions(backend, wasmBinary),
 	});
-	try {
-		await awaitWorkletReady(node, backend, signal);
-	} catch (error) {
-		closeWorkletNode(node);
-		throw error;
+	resources.node = node;
+	await awaitWorkletReady(node, backend, signal);
+	signal.throwIfAborted();
+	const output = resources.context.createMediaStreamDestination();
+	resources.output = output;
+	resources.processedTrack = output.stream.getAudioTracks()[0];
+	if (!resources.processedTrack) {
+		throw new Error('buildNoiseSuppressionWorkletChain: missing processed output track');
 	}
-	return node;
-}
-
-export async function createNoiseSuppressionWorkletNode(
-	context: AudioContext,
-	backend: NoiseSuppressionWorkletBackend,
-	options: NoiseSuppressionWorkletNodeOptions,
-): Promise<NoiseSuppressionWorkletNode> {
-	options.signal.throwIfAborted();
-	const controller = new AbortController();
-	const onAbort = () => controller.abort(options.signal.reason);
-	options.signal.addEventListener('abort', onAbort, {once: true});
-	const timeoutId = window.setTimeout(() => {
-		controller.abort(new Error(`Noise suppression worklet "${backend}" startup timed out`));
-	}, NOISE_SUPPRESSION_STARTUP_TIMEOUT_MS);
-	let node: AudioWorkletNode;
-	try {
-		node = await startWorkletNode(context, backend, controller.signal);
-	} finally {
-		window.clearTimeout(timeoutId);
-		options.signal.removeEventListener('abort', onAbort);
-	}
-	let disposed = false;
+	output.channelCount = 1;
+	output.channelCountMode = 'explicit';
+	output.channelInterpretation = 'speakers';
+	resources.source.connect(node);
+	node.connect(output);
+	let failed = false;
 	const reportFailure = (error: Error) => {
-		if (disposed) return;
-		options.onRuntimeFailure(error);
+		if (failed || resources.disposal) return;
+		failed = true;
+		options.onRuntimeFailure?.(error);
 	};
 	node.port.onmessage = (event: MessageEvent) => {
 		if (!isWorkletSignal(event.data) || event.data.type !== 'error') return;
@@ -239,12 +307,38 @@ export async function createNoiseSuppressionWorkletNode(
 	};
 	node.onprocessorerror = () =>
 		reportFailure(new Error(`Noise suppression worklet "${backend}" raised a processor error`));
-	return {
-		node,
-		dispose: () => {
-			if (disposed) return;
-			disposed = true;
-			closeWorkletNode(node);
-		},
-	};
+}
+
+export async function buildNoiseSuppressionWorkletChain(
+	options: NoiseSuppressionWorkletOptions,
+): Promise<NoiseSuppressionWorkletChain> {
+	options.signal?.throwIfAborted();
+	const controller = new AbortController();
+	const onAbort = () => controller.abort(options.signal?.reason);
+	options.signal?.addEventListener('abort', onAbort, {once: true});
+	const timeoutId = window.setTimeout(() => {
+		controller.abort(new Error(`Noise suppression worklet "${options.backend}" startup timed out`));
+	}, NOISE_SUPPRESSION_STARTUP_TIMEOUT_MS);
+	let resources: WorkletResources | undefined;
+	try {
+		resources = createWorkletResources(options.audioContext, options.backend);
+		await installWorklet(resources, options, controller.signal);
+		const {inputDestination, processedTrack} = resources;
+		if (!processedTrack) {
+			throw new Error('buildNoiseSuppressionWorkletChain: missing processed output track');
+		}
+		const readyResources = resources;
+		return {
+			inputDestination,
+			processedTrack,
+			dispose: () => disposeWorkletResources(readyResources),
+		};
+	} catch (error) {
+		controller.abort(error);
+		if (resources) void disposeWorkletResources(resources);
+		throw error;
+	} finally {
+		window.clearTimeout(timeoutId);
+		options.signal?.removeEventListener('abort', onAbort);
+	}
 }

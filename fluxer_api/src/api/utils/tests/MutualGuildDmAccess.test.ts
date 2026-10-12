@@ -29,6 +29,7 @@ function createGuild(overrides: Partial<GuildRow> = {}): Guild {
 		embed_splash_width: null,
 		embed_splash_height: null,
 		features: null,
+		badge_ids: null,
 		verification_level: 0,
 		mfa_level: 0,
 		nsfw_level: 0,
@@ -47,7 +48,6 @@ function createGuild(overrides: Partial<GuildRow> = {}): Guild {
 		audit_logs_indexed_at: null,
 		members_indexed_at: null,
 		message_history_cutoff: null,
-		invites_paused_until: null,
 		version: 1,
 		...overrides,
 	});

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import GatewayConnection from '@app/features/gateway/transport/GatewayConnection';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
@@ -14,7 +14,7 @@ import {useEffect, useRef} from 'react';
 const logger = new Logger('VoiceReconnectionManager');
 const AutoReconnectHandler = observer(() => {
 	useMediaEngineVersion();
-	const socket = GatewaySessions.foregroundConnection.socket;
+	const socket = GatewayConnection.socket;
 	const hasAttemptedReconnection = useRef(false);
 	const lastChannel = MediaEngine.getLastConnectedChannel();
 	const shouldReconnect = MediaEngine.getShouldReconnect();

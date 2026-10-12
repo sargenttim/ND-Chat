@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {generateKeyPairSync} from 'node:crypto';
-import {loadConfig, resetConfig} from '@fluxer/config/src/ConfigLoader';
+import {getConfig, loadConfig, resetConfig} from '@fluxer/config/src/ConfigLoader';
 import {afterEach, beforeEach, describe, expect, test, vi} from 'vitest';
 
 const MINIMAL_ENV: Record<string, string> = {
@@ -25,7 +25,6 @@ const MINIMAL_ENV: Record<string, string> = {
 	FLUXER_GATEWAY_RPC_AUTH_TOKEN: 'test-gateway-token',
 	FLUXER_SUDO_MODE_SECRET: 'test-sudo-secret',
 	FLUXER_CONNECTION_INITIATION_SECRET: 'test-connection-secret',
-	FLUXER_PROFILE_PSEUDONYM_SECRET: 'test-profile-pseudonym-secret',
 	FLUXER_VAPID_PUBLIC_KEY: 'BB76bTFIuoqmxJtTfZX0yGTn1f_qu9H03B_nkj8OyExJFkN7Y-HBZZzShnHZoEhXKc5ZRy3jFu7OkBbnaQG-4aw',
 	FLUXER_VAPID_PRIVATE_KEY: 'Xgi-3P8J-I3Q6U1HlCcXMuc_tKLGAM9nIfznX3Hz68o',
 };
@@ -78,6 +77,25 @@ describe('ConfigLoader', () => {
 
 		vi.stubEnv('FLUXER_BASE_DOMAIN', 'changed.example');
 		expect((await loadConfig()).domain.base_domain).toBe('localhost');
+	});
+
+	test('getConfig throws when config is not loaded', () => {
+		expect(() => getConfig()).toThrow('Config not loaded');
+	});
+
+	test('resetConfig clears the cache', async () => {
+		stubMinimalEnv();
+		await loadConfig();
+		expect(() => getConfig()).not.toThrow();
+		resetConfig();
+		expect(() => getConfig()).toThrow('Config not loaded');
+	});
+
+	test('derives endpoints from domain config', async () => {
+		stubMinimalEnv();
+		const config = await loadConfig();
+		expect(config.endpoints.api).toBe('http://localhost:8088/api');
+		expect(config.endpoints.gateway).toBe('ws://localhost:8088/gateway');
 	});
 
 	test('endpoint overrides take precedence over derived endpoints', async () => {
@@ -266,19 +284,11 @@ describe('ConfigLoader', () => {
 		const config = await loadConfig();
 
 		expect(config.services.api.port).toBe(8080);
-		expect(config.integrations.email.from_name).toBe('');
+		expect(config.integrations.email.from_name).toBe('Fluxer');
 		expect(config.internal.kv).toBe('redis://localhost:6379/0');
 		expect(config.s3?.force_path_style).toBe(false);
 		expect(config.services.api.storage_change_feed?.skip_buckets).toBeUndefined();
 	});
-
-	test.each(['support', 'Support <support@example.com>', 'a@example.com,b@example.com', ' support@example.com'])(
-		'rejects %j as the email reply-to address',
-		async (value) => {
-			stubMinimalEnv({FLUXER_EMAIL_REPLY_TO_EMAIL: value});
-			await expect(loadConfig()).rejects.toThrow('FLUXER_EMAIL_REPLY_TO_EMAIL must be a single email address');
-		},
-	);
 
 	test('keeps explicit passkey relying party values', async () => {
 		stubMinimalEnv({
@@ -325,14 +335,37 @@ describe('ConfigLoader', () => {
 		expect(config.integrations.voice.default_region?.id).toBe('local');
 	});
 
-	test('rejects an unknown worker lane', async () => {
-		stubMinimalEnv({FLUXER_API_WORKER_MODE: 'single_lane', FLUXER_API_WORKER_LANE: 'publishing'});
-		await expect(loadConfig()).rejects.toThrow('FLUXER_API_WORKER_LANE');
+	test('ignores FLUXER_GATEWAY_PUSH_ENABLED, which only the gateway reads', async () => {
+		stubMinimalEnv({FLUXER_GATEWAY_PUSH_ENABLED: 'false'});
+
+		const config = await loadConfig();
+
+		expect(config.services.gateway).not.toHaveProperty('push_enabled');
 	});
 
 	test('rejects single task worker mode without task env', async () => {
 		stubMinimalEnv({FLUXER_API_WORKER_MODE: 'single_task'});
 		await expect(loadConfig()).rejects.toThrow('FLUXER_API_WORKER_TASK');
+	});
+
+	test('leaves the storage change feed disabled by default', async () => {
+		stubMinimalEnv();
+		const config = await loadConfig();
+		expect(config.services.api.storage_change_feed).toEqual({enabled: false, stream: 'STORAGE_CHANGES'});
+	});
+
+	test('maps the storage change feed environment variables', async () => {
+		stubMinimalEnv({
+			FLUXER_API_STORAGE_CHANGE_FEED_ENABLED: 'true',
+			FLUXER_API_STORAGE_CHANGE_FEED_STREAM: 'BACKUP_CHANGES',
+			FLUXER_API_STORAGE_CHANGE_FEED_SKIP_BUCKETS: 'fluxer-uploads, fluxer-harvests',
+		});
+		const config = await loadConfig();
+		expect(config.services.api.storage_change_feed).toEqual({
+			enabled: true,
+			stream: 'BACKUP_CHANGES',
+			skip_buckets: ['fluxer-uploads', 'fluxer-harvests'],
+		});
 	});
 
 	test('rejects a storage change feed stream name that JetStream cannot use', async () => {
@@ -348,28 +381,58 @@ describe('ConfigLoader', () => {
 		await expect(loadConfig()).rejects.toThrow('FLUXER_POSTGRES_PORT');
 	});
 
+	test('rejects a non-integer port', async () => {
+		stubMinimalEnv({FLUXER_API_PORT: '80a'});
+		await expect(loadConfig()).rejects.toThrow('FLUXER_API_PORT must be an integer, got "80a"');
+	});
+
+	test('rejects malformed JSON for a JSON-shaped variable', async () => {
+		stubMinimalEnv({FLUXER_LIVEKIT_DEFAULT_REGION: '{bad'});
+		await expect(loadConfig()).rejects.toThrow('FLUXER_LIVEKIT_DEFAULT_REGION must be valid JSON');
+	});
+
+	test('keeps Postgres prepared statements on by default', async () => {
+		stubMinimalEnv();
+		expect((await loadConfig()).database.postgres.prepared_statements).toBe(true);
+	});
+
 	test('rejects a non-boolean Postgres prepared statements value', async () => {
 		stubMinimalEnv({FLUXER_POSTGRES_PREPARED_STATEMENTS: 'maybe'});
 		await expect(loadConfig()).rejects.toThrow('FLUXER_POSTGRES_PREPARED_STATEMENTS');
 	});
 
-	test('reads the profile pseudonym secret and requires it in production', async () => {
+	test('keeps the api http timeouts at their defaults', async () => {
 		stubMinimalEnv();
-		expect((await loadConfig()).auth.profile_pseudonym_secret).toBe('test-profile-pseudonym-secret');
-		resetConfig();
-		stubMinimalEnv({FLUXER_PROFILE_PSEUDONYM_SECRET: ''});
-		expect((await loadConfig()).auth.profile_pseudonym_secret).toBe('fluxer-dev-profile-pseudonym-secret');
-		resetConfig();
-		stubMinimalEnv({
-			FLUXER_ENV: 'production',
-			FLUXER_POSTGRES_HOST: 'postgres.internal',
-			FLUXER_POSTGRES_DATABASE: 'fluxer_prod',
-			FLUXER_POSTGRES_USERNAME: 'fluxer_app',
-			FLUXER_POSTGRES_PASSWORD: 'prod-postgres-secret',
-			FLUXER_POSTGRES_SSL: 'true',
-			FLUXER_PROFILE_PSEUDONYM_SECRET: '',
-		});
-		await expect(loadConfig()).rejects.toThrow('FLUXER_PROFILE_PSEUDONYM_SECRET is required');
+		const config = await loadConfig();
+		expect(config.services.api.headers_timeout_ms).toBe(30_000);
+		expect(config.services.api.request_timeout_ms).toBe(120_000);
+	});
+
+	test('reads the api http timeouts from the environment', async () => {
+		stubMinimalEnv({FLUXER_API_HEADERS_TIMEOUT_MS: '45000', FLUXER_API_REQUEST_TIMEOUT_MS: '600000'});
+		const config = await loadConfig();
+		expect(config.services.api.headers_timeout_ms).toBe(45_000);
+		expect(config.services.api.request_timeout_ms).toBe(600_000);
+	});
+
+	test('rejects a non-numeric api header timeout', async () => {
+		stubMinimalEnv({FLUXER_API_HEADERS_TIMEOUT_MS: 'soon'});
+		await expect(loadConfig()).rejects.toThrow('FLUXER_API_HEADERS_TIMEOUT_MS');
+	});
+
+	test('rejects a non-numeric api request timeout', async () => {
+		stubMinimalEnv({FLUXER_API_REQUEST_TIMEOUT_MS: 'soon'});
+		await expect(loadConfig()).rejects.toThrow('FLUXER_API_REQUEST_TIMEOUT_MS');
+	});
+
+	test('applies the KV mode from the environment', async () => {
+		stubMinimalEnv({FLUXER_KV_MODE: 'cluster'});
+		expect((await loadConfig()).internal.kv_mode).toBe('cluster');
+	});
+
+	test('rejects an unknown KV mode', async () => {
+		stubMinimalEnv({FLUXER_KV_MODE: 'sentinel'});
+		await expect(loadConfig()).rejects.toThrow('Invalid FLUXER_KV_MODE: sentinel');
 	});
 
 	test('rejects unsafe production Postgres defaults', async () => {
@@ -423,53 +486,55 @@ describe('ConfigLoader', () => {
 		await expect(loadConfig()).rejects.toThrow('FLUXER_POSTGRES_SSL must be true');
 	});
 
-	test.each([
-		['email', 'email'],
-		['username', 'username'],
-		[' Username ', 'username'],
-	])('parses FLUXER_ACCOUNT_IDENTITY=%j', async (raw, expected) => {
-		stubMinimalEnv({FLUXER_ACCOUNT_IDENTITY: raw});
+	test('parses self-host branding, setup, and search engine environment variables', async () => {
+		stubMinimalEnv({
+			FLUXER_SEARCH_ENGINE: 'meilisearch',
+			FLUXER_SEARCH_URL: 'http://meilisearch:7700',
+			FLUXER_SEARCH_API_KEY: 'meili-key',
+			FLUXER_SELF_HOSTED: 'true',
+			FLUXER_APP_PRODUCT_NAME: 'Example Chat',
+			FLUXER_APP_ICON_URL: 'https://assets.example/icon.png',
+			FLUXER_APP_SYMBOL_URL: 'https://assets.example/symbol.png',
+			FLUXER_APP_LOGO_URL: 'https://assets.example/logo.png',
+			FLUXER_APP_WORDMARK_URL: 'https://assets.example/wordmark.png',
+			FLUXER_APP_FAVICON_URL: 'https://assets.example/favicon.png',
+			FLUXER_APP_THEME_COLOR: '#123456',
+			FLUXER_APP_STATUS_PAGE_URL: 'https://status.example',
+			FLUXER_APP_STATUS_PAGE_INCIDENT_HISTORY_URL: 'https://status.example/history',
+			FLUXER_INSTANCE_SETUP_CONFIGURED: 'true',
+		});
+
 		const config = await loadConfig();
-		expect(config.instance.account_identity).toBe(expected);
+
+		expect(config.integrations.search.engine).toBe('meilisearch');
+		expect(config.integrations.search.url).toBe('http://meilisearch:7700');
+		expect(config.integrations.search.api_key).toBe('meili-key');
+		expect(config.instance.self_hosted).toBe(true);
+		expect(config.instance.branding).toEqual({
+			product_name: 'Example Chat',
+			icon_url: 'https://assets.example/icon.png',
+			symbol_url: 'https://assets.example/symbol.png',
+			logo_url: 'https://assets.example/logo.png',
+			wordmark_url: 'https://assets.example/wordmark.png',
+			favicon_url: 'https://assets.example/favicon.png',
+			theme_color: '#123456',
+			status_page_url: 'https://status.example',
+			status_page_incident_history_url: 'https://status.example/history',
+		});
+		expect(config.instance.setup.configured).toBe(true);
 	});
 
-	test.each([
-		['none', 'none'],
-		[' Random ', 'random'],
-		['', null],
-	])('parses FLUXER_TAG_STYLE=%j', async (raw, expected) => {
-		stubMinimalEnv({FLUXER_TAG_STYLE: raw});
+	test('leaves both stores off with no apps, packages or products by default', async () => {
+		stubMinimalEnv();
 		const config = await loadConfig();
-		expect(config.instance.tag_style).toBe(expected);
-	});
-
-	test.each([
-		['implicit', 'implicit'],
-		[' StartTLS ', 'starttls'],
-		['opportunistic', 'opportunistic'],
-		['none', 'none'],
-		['', undefined],
-	])('parses FLUXER_EMAIL_SMTP_TLS_MODE=%j', async (raw, expected) => {
-		stubMinimalEnv({FLUXER_EMAIL_SMTP_HOST: 'smtp.example.com', FLUXER_EMAIL_SMTP_TLS_MODE: raw});
-		const config = await loadConfig();
-		expect(config.integrations.email.smtp?.tls_mode).toBe(expected);
-	});
-
-	test.each(['tls', 'true'])('rejects the SMTP TLS mode %j', async (raw) => {
-		stubMinimalEnv({FLUXER_EMAIL_SMTP_TLS_MODE: raw});
-		await expect(loadConfig()).rejects.toThrow(
-			'FLUXER_EMAIL_SMTP_TLS_MODE must be implicit, starttls, opportunistic or none',
-		);
-	});
-
-	test.each(['sequential', 'zero_first'])('rejects the tag style %j', async (raw) => {
-		stubMinimalEnv({FLUXER_TAG_STYLE: raw});
-		await expect(loadConfig()).rejects.toThrow('FLUXER_TAG_STYLE must be none or random');
-	});
-
-	test('rejects an unknown account identity', async () => {
-		stubMinimalEnv({FLUXER_ACCOUNT_IDENTITY: 'phone'});
-		await expect(loadConfig()).rejects.toThrow('FLUXER_ACCOUNT_IDENTITY must be email or username');
+		expect(config.integrations.app_store).toEqual({enabled: false, apps: [], products: {}});
+		expect(config.integrations.google_play).toEqual({
+			enabled: false,
+			packages: [],
+			token_uri: 'https://oauth2.googleapis.com/token',
+			products: {},
+		});
+		expect(config.integrations.store_billing).toEqual({sandbox_user_ids: [], sandbox_entitles_all: false});
 	});
 
 	test('loads a valid store catalogue', async () => {
@@ -539,6 +604,27 @@ describe('ConfigLoader', () => {
 		);
 	});
 
+	test('defaults the cache purge adapter to none', async () => {
+		stubMinimalEnv();
+		expect((await loadConfig()).integrations.cache_purge).toEqual({
+			adapter: 'none',
+			http: {endpoint: '', token: '', timeout_ms: 10_000},
+		});
+	});
+
+	test('reads the http cache purge settings from the environment', async () => {
+		stubMinimalEnv({
+			FLUXER_CACHE_PURGE_ADAPTER: 'http',
+			FLUXER_CACHE_PURGE_HTTP_ENDPOINT: 'https://purge.internal/purge',
+			FLUXER_CACHE_PURGE_HTTP_TOKEN: 'purge-token',
+			FLUXER_CACHE_PURGE_HTTP_TIMEOUT_MS: '5000',
+		});
+		expect((await loadConfig()).integrations.cache_purge).toEqual({
+			adapter: 'http',
+			http: {endpoint: 'https://purge.internal/purge', token: 'purge-token', timeout_ms: 5000},
+		});
+	});
+
 	test('rejects an unknown cache purge adapter', async () => {
 		stubMinimalEnv({FLUXER_CACHE_PURGE_ADAPTER: 'varnish'});
 		await expect(loadConfig()).rejects.toThrow('Invalid FLUXER_CACHE_PURGE_ADAPTER: varnish');
@@ -566,7 +652,7 @@ describe('ConfigLoader', () => {
 		}
 	});
 
-	test('rejects a cache purge endpoint that contains credentials', async () => {
+	test('rejects a cache purge endpoint that carries credentials', async () => {
 		stubMinimalEnv({
 			FLUXER_CACHE_PURGE_ADAPTER: 'http',
 			FLUXER_CACHE_PURGE_HTTP_ENDPOINT: 'https://purger:secret@purge.internal/purge',
@@ -609,6 +695,63 @@ describe('ConfigLoader', () => {
 			FLUXER_CACHE_PURGE_HTTP_TIMEOUT_MS: '1',
 		});
 		expect((await loadConfig()).integrations.cache_purge.adapter).toBe('none');
+	});
+
+	test('leaves the optional outbound lookups unset by default', async () => {
+		stubMinimalEnv();
+
+		const config = await loadConfig();
+
+		expect(config.integrations.breached_password_check.enabled).toBeUndefined();
+	});
+
+	test('reads the optional outbound lookup switches from the environment', async () => {
+		stubMinimalEnv({
+			FLUXER_BREACHED_PASSWORD_CHECK_ENABLED: 'false',
+		});
+
+		const config = await loadConfig();
+
+		expect(config.integrations.breached_password_check.enabled).toBe(false);
+	});
+
+	test('leaves Bluesky login off with no legal URLs by default', async () => {
+		stubMinimalEnv();
+
+		const config = await loadConfig();
+
+		expect(config.auth.bluesky.enabled).toBe(false);
+		expect(config.auth.bluesky.tos_uri).toBe('');
+		expect(config.auth.bluesky.policy_uri).toBe('');
+		expect(config.auth.bluesky.keys).toEqual([]);
+	});
+
+	test('applies explicit Bluesky legal URLs from the environment', async () => {
+		stubMinimalEnv({
+			FLUXER_AUTH_BLUESKY_ENABLED: 'true',
+			FLUXER_AUTH_BLUESKY_TOS_URI: 'https://chat.example.com/terms',
+			FLUXER_AUTH_BLUESKY_POLICY_URI: 'https://chat.example.com/privacy',
+		});
+
+		const config = await loadConfig();
+
+		expect(config.auth.bluesky.enabled).toBe(true);
+		expect(config.auth.bluesky.tos_uri).toBe('https://chat.example.com/terms');
+		expect(config.auth.bluesky.policy_uri).toBe('https://chat.example.com/privacy');
+	});
+
+	test('reads the upload relay secret through the override table', async () => {
+		const secret = Buffer.alloc(32, 9).toString('base64');
+		stubMinimalEnv({FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SECRET_BASE64: secret});
+
+		const config = await loadConfig();
+
+		expect(config.services.media_proxy.upload_relay.secret_base64).toBe(secret);
+	});
+
+	test('defaults the upload relay body limit to the media proxy ceiling', async () => {
+		stubMinimalEnv();
+		expect((await loadConfig()).services.media_proxy.upload_relay.max_body_bytes).toBe(524_288_000);
 	});
 
 	test('rejects a missing upload relay secret', async () => {
@@ -673,6 +816,11 @@ describe('ConfigLoader', () => {
 		expect(config.auth.vapid.private_key).toBe(pair.privateKey);
 	});
 
+	test('requires a complete environment', async () => {
+		vi.stubEnv('FLUXER_ENV', 'test');
+		await expect(loadConfig()).rejects.toThrow();
+	});
+
 	test('inserts the public port into the LiveKit url', async () => {
 		stubMinimalEnv({FLUXER_LIVEKIT_URL: 'http://localhost/livekit'});
 
@@ -681,7 +829,7 @@ describe('ConfigLoader', () => {
 		expect(config.integrations.voice.url).toBe('http://localhost:8088/livekit');
 	});
 
-	test('inserts the public port into every other public url the config contains', async () => {
+	test('inserts the public port into every other public url the config carries', async () => {
 		stubMinimalEnv({
 			FLUXER_S3_PUBLIC_ENDPOINT: 'http://localhost/s3',
 			FLUXER_EMAIL_APP_BASE_URL: 'http://localhost',
@@ -704,60 +852,6 @@ describe('ConfigLoader', () => {
 	test('rejects a public port outside the valid range', async () => {
 		stubMinimalEnv({FLUXER_PUBLIC_PORT: '70000'});
 		await expect(loadConfig()).rejects.toThrow('FLUXER_PUBLIC_PORT must be an integer between 1 and 65535');
-	});
-});
-
-describe('report retention settings', () => {
-	beforeEach(() => {
-		resetConfig();
-		clearFluxerEnv();
-	});
-
-	afterEach(() => {
-		resetConfig();
-		vi.unstubAllEnvs();
-	});
-
-	test('deletes reports for real after 365 days with no resolved-report rule by default', async () => {
-		stubMinimalEnv();
-		const config = await loadConfig();
-		expect(config.report_retention).toEqual({days: 365, resolved_days: null, dry_run: false});
-	});
-
-	test('reads both day settings and the dry run switch from the environment', async () => {
-		stubMinimalEnv({
-			FLUXER_REPORT_RETENTION_DAYS: '730',
-			FLUXER_RESOLVED_REPORT_RETENTION_DAYS: ' 90 ',
-			FLUXER_REPORT_RETENTION_DRY_RUN: 'TRUE',
-		});
-		const config = await loadConfig();
-		expect(config.report_retention).toEqual({days: 730, resolved_days: 90, dry_run: true});
-	});
-
-	test('an empty resolved-report setting leaves the rule off', async () => {
-		stubMinimalEnv({FLUXER_RESOLVED_REPORT_RETENTION_DAYS: '', FLUXER_REPORT_RETENTION_DRY_RUN: 'false'});
-		const config = await loadConfig();
-		expect(config.report_retention).toEqual({days: 365, resolved_days: null, dry_run: false});
-	});
-
-	test.each([
-		['FLUXER_REPORT_RETENTION_DAYS', '0', 'FLUXER_REPORT_RETENTION_DAYS must be an integer between 1 and 36500'],
-		['FLUXER_REPORT_RETENTION_DAYS', '36501', 'FLUXER_REPORT_RETENTION_DAYS must be an integer between 1 and 36500'],
-		['FLUXER_REPORT_RETENTION_DAYS', '1.5', 'FLUXER_REPORT_RETENTION_DAYS must be an integer, got "1.5"'],
-		[
-			'FLUXER_RESOLVED_REPORT_RETENTION_DAYS',
-			'0',
-			'FLUXER_RESOLVED_REPORT_RETENTION_DAYS must be an integer between 1 and 36500',
-		],
-		[
-			'FLUXER_RESOLVED_REPORT_RETENTION_DAYS',
-			'-30',
-			'FLUXER_RESOLVED_REPORT_RETENTION_DAYS must be an integer between 1 and 36500',
-		],
-		['FLUXER_REPORT_RETENTION_DRY_RUN', '1', 'FLUXER_REPORT_RETENTION_DRY_RUN must be true or false'],
-	])('refuses %s=%j', async (name, value, message) => {
-		stubMinimalEnv({[name]: value});
-		await expect(loadConfig()).rejects.toThrow(message);
 	});
 });
 

@@ -144,6 +144,12 @@
 	text-align: center;
 }
 
+.statusActions {
+	display: flex;
+	justify-content: center;
+	width: 100%;
+}
+
 .loadMore {
 	display: flex;
 	justify-content: center;

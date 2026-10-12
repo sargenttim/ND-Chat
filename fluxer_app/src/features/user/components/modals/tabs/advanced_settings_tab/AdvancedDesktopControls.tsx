@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {
 	getCachedDesktopTroubleshootingSettings,
 	getDesktopTroubleshootingSettings,
 	setDesktopDisableHardwareAcceleration,
 } from '@app/features/devtools/utils/DesktopTroubleshootingUtils';
 import {CANCEL_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
-import SourceMaps from '@app/features/platform/state/SourceMaps';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import {Switch} from '@app/features/ui/components/form/FormSwitch';
@@ -20,35 +19,16 @@ import {
 	setDesktopWindowBehaviorSettings,
 } from '@app/features/ui/utils/DesktopWindowBehaviorUtils';
 import {getElectronAPI} from '@app/features/ui/utils/NativeUtils';
-import {
-	DOWNLOAD_SOURCE_MAPS_DESCRIPTOR,
-	LATER_DESCRIPTOR,
-	RESTART_NOW_DESCRIPTOR,
-	RESTART_DESCRIPTOR as RESTART_PRODUCT_DESCRIPTOR,
-	USE_NATIVE_TITLE_BAR_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
 import type {DesktopTroubleshootingSettings, DesktopWindowBehaviorSettings} from '@app/types/electron.d';
-import {msg, ph} from '@lingui/core/macro';
+import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
 import {useCallback, useLayoutEffect, useState} from 'react';
 
-export const SourceMapsControl = observer(() => {
-	const {i18n} = useLingui();
-	return (
-		<Switch
-			ariaLabel={i18n._(DOWNLOAD_SOURCE_MAPS_DESCRIPTOR)}
-			value={SourceMaps.enabled}
-			onChange={(value) => {
-				void SourceMaps.setEnabled(value);
-			}}
-			disabled={SourceMaps.downloading}
-			compact
-			data-flx="user.desktop-settings-tab.switch.source-maps"
-		/>
-	);
+const USE_NATIVE_TITLE_BAR_DESCRIPTOR = msg({
+	message: 'Use native title bar',
+	comment: 'Short label for an advanced desktop preference.',
 });
-
 const USE_HARDWARE_ACCELERATION_DESCRIPTOR = msg({
 	message: 'Use hardware acceleration',
 	comment: 'Short label for an advanced desktop troubleshooting preference.',
@@ -61,8 +41,20 @@ const DISABLE_HARDWARE_ACCELERATION_DESCRIPTOR = msg({
 	message: 'Disable hardware acceleration?',
 	comment: 'Confirmation prompt in advanced settings.',
 });
+const RESTART_NOW_DESCRIPTOR = msg({
+	message: 'Restart now',
+	comment: 'Short confirmation button label in advanced settings.',
+});
+const RESTART_PRODUCT_DESCRIPTOR = msg({
+	message: 'Restart {productName}?',
+	comment: 'Confirmation prompt in advanced settings. Preserve {productName}; it is inserted by code.',
+});
+const LATER_DESCRIPTOR = msg({
+	message: 'Later',
+	comment: 'Short confirmation button label in advanced settings.',
+});
 
-export function useDesktopWindowBehaviorSettings() {
+function useDesktopWindowBehaviorSettings() {
 	const cachedDesktopWindowBehavior = getCachedDesktopWindowBehaviorSettings();
 	const [desktopWindowBehavior, setDesktopWindowBehavior] = useState<DesktopWindowBehaviorSettings | null>(
 		cachedDesktopWindowBehavior,
@@ -148,13 +140,8 @@ export const NativeTitleBarControl = observer(() => {
 				ModalCommands.push(
 					modal(() => (
 						<ConfirmModal
-							title={i18n._(RESTART_PRODUCT_DESCRIPTOR, {productName: RuntimeConfig.productName})}
-							description={
-								<Trans>
-									{ph({PRODUCT_NAME: RuntimeConfig.productName})} needs to restart for the title bar change to take
-									effect.
-								</Trans>
-							}
+							title={i18n._(RESTART_PRODUCT_DESCRIPTOR, {productName: PRODUCT_NAME})}
+							description={<Trans>{PRODUCT_NAME} needs to restart for the title bar change to take effect.</Trans>}
 							primaryText={i18n._(RESTART_NOW_DESCRIPTOR)}
 							primaryVariant="primary"
 							secondaryText={i18n._(LATER_DESCRIPTOR)}
@@ -197,14 +184,11 @@ export const HardwareAccelerationControl = observer(() => {
 						}
 						description={
 							value ? (
-								<Trans>
-									{ph({PRODUCT_NAME: RuntimeConfig.productName})} needs to restart for hardware acceleration to take
-									effect.
-								</Trans>
+								<Trans>{PRODUCT_NAME} needs to restart for hardware acceleration to take effect.</Trans>
 							) : (
 								<Trans>
-									{ph({PRODUCT_NAME: RuntimeConfig.productName})} needs to restart to disable Chromium's hardware
-									acceleration. Use this only if you're troubleshooting graphics glitches or high GPU usage.
+									{PRODUCT_NAME} needs to restart to disable Chromium's hardware acceleration. Use this only if you're
+									troubleshooting graphics glitches or high GPU usage.
 								</Trans>
 							)
 						}

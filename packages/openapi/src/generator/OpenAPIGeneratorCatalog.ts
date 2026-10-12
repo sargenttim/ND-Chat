@@ -81,7 +81,6 @@ const BUILT_IN_SCHEMAS: ReadonlyArray<readonly [string, OpenAPISchema]> = [
 	['ThrottledError', THROTTLED_ERROR_SCHEMA],
 	['APIErrorCode', APIErrorCodeSchema],
 ];
-const ALWAYS_PUBLISHED_SCHEMAS: ReadonlyArray<string> = ['APIErrorCode'];
 interface IOpenAPIGeneratorCatalog {
 	readonly excluded: {
 		readonly prefixes: ReadonlyArray<string>;
@@ -93,12 +92,11 @@ interface IOpenAPIGeneratorCatalog {
 	};
 	readonly securitySchemes: Record<string, OpenAPISecurityScheme>;
 	readonly builtInSchemas: ReadonlyArray<readonly [string, OpenAPISchema]>;
-	readonly alwaysPublishedSchemas: ReadonlyArray<string>;
 }
 export const OpenAPIGeneratorCatalog: IOpenAPIGeneratorCatalog = {
 	excluded: {
 		prefixes: ['/test/'],
-		paths: new Set<string>(['/_rpc', '/oauth2/authorize', '/reports/guild', '/reports/message', '/reports/user']),
+		paths: new Set<string>(['/_rpc', '/oauth2/authorize']),
 	},
 	tags: {
 		order: TAG_DEFINITIONS.map(({name}) => name),
@@ -106,7 +104,6 @@ export const OpenAPIGeneratorCatalog: IOpenAPIGeneratorCatalog = {
 	},
 	securitySchemes: SECURITY_SCHEMES,
 	builtInSchemas: BUILT_IN_SCHEMAS,
-	alwaysPublishedSchemas: ALWAYS_PUBLISHED_SCHEMAS,
 };
 export function isExcludedRoutePath(routePath: string): boolean {
 	if (OpenAPIGeneratorCatalog.excluded.paths.has(routePath)) {

@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
-import {SOMETHING_WENT_WRONG_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
-
 import * as GuildMemberCommands from '@app/features/member/commands/GuildMemberCommands';
 import type {GuildMember} from '@app/features/member/models/GuildMember';
+import {showModerationErrorModal} from '@app/features/moderation/components/alerts/ModerationErrorModalUtils';
 import {RemoveTimeoutModal} from '@app/features/moderation/components/modals/RemoveTimeoutModal';
 import {
 	getTimeoutDurationOptions,
@@ -27,7 +25,7 @@ import {
 	type MenuRadioType,
 } from '@app/features/ui/menu_bottom_sheet/MenuBottomSheet';
 import type {User} from '@app/features/user/models/User';
-import * as DisplayNameUtils from '@app/features/user/utils/NicknameUtils';
+import * as DisplayNameUtils from '@app/features/user/utils/DisplayNameUtils';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {ClockIcon, XCircleIcon} from '@phosphor-icons/react';
@@ -73,12 +71,11 @@ export const TimeoutMemberSheet: React.FC<TimeoutMemberSheetProps> = observer(
 				onClose();
 			} catch (error) {
 				logger.error('Failed to time out member:', error);
-				showGenericErrorModal({
-					title: () => i18n._(SOMETHING_WENT_WRONG_DESCRIPTOR),
-					message: <Trans>Failed to time out member. Try again.</Trans>,
-					dataFlx: 'moderation.timeout-member-sheet.timeout-error-modal',
-					defer: false,
-				});
+				showModerationErrorModal(
+					i18n,
+					<Trans>Failed to time out member. Try again.</Trans>,
+					'moderation.timeout-member-sheet.timeout-error-modal',
+				);
 			} finally {
 				setIsSubmitting(false);
 			}

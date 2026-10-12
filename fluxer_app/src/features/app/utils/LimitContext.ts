@@ -12,7 +12,7 @@ export interface LimitContextInput {
 	guildId?: string | null;
 }
 
-interface LimitMatchContext {
+export interface LimitMatchContext {
 	traits: Set<string>;
 	guildFeatures: Set<string>;
 }
@@ -78,6 +78,14 @@ class LimitContextClass {
 
 	restricted(): LimitMatchContext {
 		return this.free();
+	}
+
+	forGuild(guildId: string): LimitMatchContext {
+		return this.build({guildId});
+	}
+
+	forUser(traits: Iterable<string> = []): LimitMatchContext {
+		return this.build({traits});
 	}
 }
 

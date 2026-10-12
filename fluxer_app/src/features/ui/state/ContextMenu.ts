@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import KeyboardMode from '@app/features/ui/state/KeyboardMode';
 import {shouldRestoreFocusToTarget} from '@app/features/ui/utils/PointerActivationFocus';
@@ -9,9 +8,9 @@ import type React from 'react';
 
 const logger = new Logger('ContextMenu');
 
-const CONTEXT_MENU_OPEN_ATTRIBUTE = 'data-context-menu-open';
+export const CONTEXT_MENU_OPEN_ATTRIBUTE = 'data-context-menu-open';
 
-interface FocusableContextMenuTarget {
+export interface FocusableContextMenuTarget {
 	tagName: string;
 	isConnected: boolean;
 	focus: (options?: FocusOptions) => void;
@@ -33,7 +32,7 @@ export function isContextMenuNodeTarget(target: ContextMenuTargetElement | null 
 	return target instanceof HTMLElement;
 }
 
-interface ContextMenuTarget {
+export interface ContextMenuTarget {
 	x: number;
 	y: number;
 	target: ContextMenuTargetElement;
@@ -56,7 +55,7 @@ export interface ContextMenu {
 	config?: ContextMenuConfig;
 }
 
-interface FocusRestoreState {
+export interface FocusRestoreState {
 	target: ContextMenuTargetElement | null;
 	keyboardModeEnabled: boolean;
 	restoreFocus: boolean;
@@ -80,6 +79,10 @@ class ContextMenuState {
 
 	get contextMenu(): ContextMenu | null {
 		return this.currentEntry?.contextMenu ?? null;
+	}
+
+	get contextMenus(): Array<ContextMenu> {
+		return this.currentEntry ? [this.currentEntry.contextMenu] : [];
 	}
 
 	getContextMenu(ownerDocument: Document = document): ContextMenu | null {
@@ -193,8 +196,4 @@ class ContextMenuState {
 	}
 }
 
-const contextMenuState = new ContextMenuState();
-
-AccountScopedWork.registerCancellation(() => contextMenuState.close());
-
-export default contextMenuState;
+export default new ContextMenuState();

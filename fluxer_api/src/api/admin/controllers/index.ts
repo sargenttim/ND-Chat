@@ -5,6 +5,7 @@ import {ApplicationAdminController} from '@app/api/admin/controllers/Application
 import {ArchiveAdminController} from '@app/api/admin/controllers/ArchiveAdminController';
 import {AssetAdminController} from '@app/api/admin/controllers/AssetAdminController';
 import {AuditLogAdminController} from '@app/api/admin/controllers/AuditLogAdminController';
+import {BadgeAdminController} from '@app/api/admin/controllers/BadgeAdminController';
 import {BanAdminController} from '@app/api/admin/controllers/BanAdminController';
 import {BulkAdminController} from '@app/api/admin/controllers/BulkAdminController';
 import {CodesAdminController} from '@app/api/admin/controllers/CodesAdminController';
@@ -19,7 +20,6 @@ import {ReportAdminController} from '@app/api/admin/controllers/ReportAdminContr
 import {SearchAdminController} from '@app/api/admin/controllers/SearchAdminController';
 import {StoreBillingAdminController} from '@app/api/admin/controllers/StoreBillingAdminController';
 import {SystemDmAdminController} from '@app/api/admin/controllers/SystemDmAdminController';
-import {ThreadAdminController} from '@app/api/admin/controllers/ThreadAdminController';
 import {UserAdminController} from '@app/api/admin/controllers/UserAdminController';
 import {VoiceAdminController} from '@app/api/admin/controllers/VoiceAdminController';
 import type {HonoApp} from '@app/api/types/HonoEnv';
@@ -31,7 +31,6 @@ export function registerAdminControllers(app: HonoApp) {
 	StoreBillingAdminController(app);
 	CodesAdminController(app);
 	GuildAdminController(app);
-	ThreadAdminController(app);
 	AssetAdminController(app);
 	BanAdminController(app);
 	InstanceConfigAdminController(app);
@@ -42,6 +41,7 @@ export function registerAdminControllers(app: HonoApp) {
 	ArchiveAdminController(app);
 	ReportAdminController(app);
 	VoiceAdminController(app);
+	BadgeAdminController(app);
 	GatewayAdminController(app);
 	SearchAdminController(app);
 	DiscoveryAdminController(app);

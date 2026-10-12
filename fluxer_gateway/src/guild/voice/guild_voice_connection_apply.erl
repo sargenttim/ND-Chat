@@ -129,7 +129,7 @@ apply_same_channel_update(Update, ParsedViewerKey) ->
     ChannelIdValue = maps:get(channel_id, Update),
     VoicePerms = maps:get(voice_permissions, Update),
     Flags = guild_voice_connection_util:voice_flags_for_permissions(Context, VoicePerms),
-    {reply, Reply, NewState} = guild_voice_state:update_voice_state_data(#{
+    UpdateResult = guild_voice_state:update_voice_state_data(#{
         connection_id => maps:get(connection_id, Update),
         channel_id => integer_to_binary(ChannelIdValue),
         flags => Flags,
@@ -140,7 +140,4 @@ apply_same_channel_update(Update, ParsedViewerKey) ->
         needs_token => false,
         viewer_stream_keys => ParsedViewerKey
     }),
-    case voice_p2p:declined(maps:get(p2p, Context, undefined)) of
-        true -> {reply, Reply, guild_voice_region:switch_to_sfu(ChannelIdValue, NewState)};
-        false -> {reply, Reply, NewState}
-    end.
+    UpdateResult.

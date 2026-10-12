@@ -69,3 +69,9 @@ export function completeUpload(nonce: string): void {
 	if (!inflight.delete(nonce)) return;
 	flushSoon();
 }
+
+export function clearAllUploads(): void {
+	if (inflight.size === 0) return;
+	inflight.clear();
+	flushSoon();
+}

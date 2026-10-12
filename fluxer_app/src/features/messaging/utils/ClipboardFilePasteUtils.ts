@@ -34,7 +34,7 @@ export function getClipboardDataFiles(clipboardData: DataTransfer | null | undef
 	return Array.from(clipboardData.files).filter(isUsableClipboardFile);
 }
 
-function createClipboardImageFile(blob: Blob, index: number, preferredType: string): File {
+export function createClipboardImageFile(blob: Blob, index: number, preferredType: string): File {
 	if (blob instanceof File && blob.name) {
 		return blob;
 	}

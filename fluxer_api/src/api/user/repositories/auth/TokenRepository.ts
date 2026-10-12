@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {PasswordResetToken as PasswordResetTokenBrand, UserID} from '@app/api/BrandedTypes';
-import {createEmailRevertToken, createEmailVerificationToken} from '@app/api/BrandedTypes';
+import {createEmailRevertToken, createEmailVerificationToken, createPasswordResetToken} from '@app/api/BrandedTypes';
 import {BatchBuilder, deleteOneOrMany, fetchMany, fetchOne, upsertOne} from '@app/api/database/CassandraQueryExecution';
 import type {
 	EmailRevertTokenRow,
@@ -30,8 +30,6 @@ const FETCH_PASSWORD_RESET_TOKEN_CQL = PasswordResetTokens.selectCql({
 const FETCH_PASSWORD_RESET_TOKENS_BY_USER_CQL = PasswordResetTokensByUserId.selectCql({
 	where: PasswordResetTokensByUserId.where.eq('user_id'),
 });
-export const PASSWORD_RESET_TOKEN_TTL_SECONDS = seconds('1 hour');
-
 const FETCH_EMAIL_REVERT_TOKEN_CQL = EmailRevertTokens.selectCql({
 	where: EmailRevertTokens.where.eq('token_'),
 	limit: 1,
@@ -63,16 +61,29 @@ export class TokenRepository {
 	}
 
 	async createPasswordResetToken(tokenData: PasswordResetTokenRow): Promise<PasswordResetToken> {
+		const TTL = seconds('1 hour');
 		const batch = new BatchBuilder();
-		batch.addPrepared(PasswordResetTokens.insertWithTtl(tokenData, PASSWORD_RESET_TOKEN_TTL_SECONDS));
+		batch.addPrepared(PasswordResetTokens.insertWithTtl(tokenData, TTL));
 		batch.addPrepared(
-			PasswordResetTokensByUserId.insertWithTtl(
-				{user_id: tokenData.user_id, token_: tokenData.token_},
-				PASSWORD_RESET_TOKEN_TTL_SECONDS,
-			),
+			PasswordResetTokensByUserId.insertWithTtl({user_id: tokenData.user_id, token_: tokenData.token_}, TTL),
 		);
 		await batch.execute();
 		return new PasswordResetToken(tokenData);
+	}
+
+	async deletePasswordResetToken(token: string): Promise<void> {
+		const brandedToken = createPasswordResetToken(token);
+		const tokenRow = await this.getPasswordResetToken(token);
+		if (tokenRow) {
+			const batch = new BatchBuilder();
+			batch.addPrepared(PasswordResetTokens.deleteByPk({token_: brandedToken, user_id: tokenRow.userId}));
+			batch.addPrepared(PasswordResetTokensByUserId.deleteByPk({user_id: tokenRow.userId, token_: brandedToken}));
+			await batch.execute();
+		} else {
+			await deleteOneOrMany(PasswordResetTokens.deleteCql({where: PasswordResetTokens.where.eq('token_')}), {
+				token_: brandedToken,
+			});
+		}
 	}
 
 	async deleteAllPasswordResetTokens(userId: UserID): Promise<void> {

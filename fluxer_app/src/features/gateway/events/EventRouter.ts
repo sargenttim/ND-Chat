@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {handleBadgesUpdate, handleUserBadgesUpdate} from '@app/features/badge/events/BadgesUpdate';
 import {handleChannelCreate} from '@app/features/channel/events/ChannelCreate';
 import {handleChannelDelete} from '@app/features/channel/events/ChannelDelete';
 import {handleChannelPinsAck} from '@app/features/channel/events/ChannelPinsAck';
@@ -55,14 +56,6 @@ import {handlePresenceUpdateBulk} from '@app/features/presence/events/PresenceUp
 import {handleRelationshipAdd} from '@app/features/relationship/events/RelationshipAdd';
 import {handleRelationshipRemove} from '@app/features/relationship/events/RelationshipRemove';
 import {handleRelationshipUpdate} from '@app/features/relationship/events/RelationshipUpdate';
-import {handleForumUnreads} from '@app/features/threads/events/ForumUnreads';
-import {handleThreadCreate} from '@app/features/threads/events/ThreadCreate';
-import {handleThreadDelete} from '@app/features/threads/events/ThreadDelete';
-import {handleThreadListSync} from '@app/features/threads/events/ThreadListSync';
-import {handleThreadMemberListUpdate} from '@app/features/threads/events/ThreadMemberListUpdate';
-import {handleThreadMembersUpdate} from '@app/features/threads/events/ThreadMembersUpdate';
-import {handleThreadMemberUpdate} from '@app/features/threads/events/ThreadMemberUpdate';
-import {handleThreadUpdate} from '@app/features/threads/events/ThreadUpdate';
 import {handleAuthSessionChange} from '@app/features/user/events/AuthSessionChange';
 import {handleUserConnectionsUpdate} from '@app/features/user/events/UserConnectionsUpdate';
 import {handleUserGuildSettingsUpdate} from '@app/features/user/events/UserGuildSettingsUpdate';
@@ -76,7 +69,6 @@ import {handleCallDelete} from '@app/features/voice/events/CallDelete';
 import {handleCallUpdate} from '@app/features/voice/events/CallUpdate';
 import {handleEntranceSoundPlay} from '@app/features/voice/events/EntranceSoundPlay';
 import {handleVoiceServerUpdate} from '@app/features/voice/events/VoiceServerUpdate';
-import {handleVoiceSignal} from '@app/features/voice/events/VoiceSignal';
 import {handleVoiceStateUpdate} from '@app/features/voice/events/VoiceStateUpdate';
 
 export interface GatewayGeoipPayload {
@@ -87,22 +79,22 @@ export interface GatewayGeoipPayload {
 
 export interface GatewayHandlerContext {
 	socket: GatewaySocket | null;
-	accountKey: string | null;
-	expectedUserId: string | null;
 	previousSessionId: string | null;
 	setPreviousSessionId: (id: string) => void;
-	setReady: () => boolean;
+	setReady: () => void;
 	setConnectionGeoip: (data: GatewayGeoipPayload) => void;
 	markGuildSynced: (guildId: string) => void;
 }
 
-type GatewayEventHandler = (data: unknown, context: GatewayHandlerContext) => void;
+export type GatewayEventHandler = (data: unknown, context: GatewayHandlerContext) => void;
 export type GatewayHandlerRegistry = Map<string, GatewayEventHandler>;
 
 export function createHandlerRegistry(): GatewayHandlerRegistry {
 	const registry: GatewayHandlerRegistry = new Map();
 	registry.set('READY', handleReady as GatewayEventHandler);
 	registry.set('AUTH_SESSION_CHANGE', handleAuthSessionChange as GatewayEventHandler);
+	registry.set('BADGES_UPDATE', handleBadgesUpdate as GatewayEventHandler);
+	registry.set('USER_BADGES_UPDATE', handleUserBadgesUpdate as GatewayEventHandler);
 	registry.set('USER_UPDATE', handleUserUpdate as GatewayEventHandler);
 	registry.set('USER_SETTINGS_UPDATE', handleUserSettingsUpdate as GatewayEventHandler);
 	registry.set('USER_GUILD_SETTINGS_UPDATE', handleUserGuildSettingsUpdate as GatewayEventHandler);
@@ -134,14 +126,6 @@ export function createHandlerRegistry(): GatewayHandlerRegistry {
 	registry.set('CHANNEL_UPDATE', handleChannelUpdate as GatewayEventHandler);
 	registry.set('CHANNEL_UPDATE_BULK', handleChannelUpdateBulk as GatewayEventHandler);
 	registry.set('CHANNEL_DELETE', handleChannelDelete as GatewayEventHandler);
-	registry.set('THREAD_CREATE', handleThreadCreate as GatewayEventHandler);
-	registry.set('THREAD_UPDATE', handleThreadUpdate as GatewayEventHandler);
-	registry.set('THREAD_DELETE', handleThreadDelete as GatewayEventHandler);
-	registry.set('THREAD_LIST_SYNC', handleThreadListSync as GatewayEventHandler);
-	registry.set('THREAD_MEMBER_UPDATE', handleThreadMemberUpdate as GatewayEventHandler);
-	registry.set('THREAD_MEMBERS_UPDATE', handleThreadMembersUpdate as GatewayEventHandler);
-	registry.set('THREAD_MEMBER_LIST_UPDATE', handleThreadMemberListUpdate as GatewayEventHandler);
-	registry.set('FORUM_UNREADS', handleForumUnreads as GatewayEventHandler);
 	registry.set('PASSIVE_UPDATES', handlePassiveUpdates as GatewayEventHandler);
 	registry.set('CHANNEL_PINS_UPDATE', handleChannelPinsUpdate as GatewayEventHandler);
 	registry.set('CHANNEL_PINS_ACK', handleChannelPinsAck as GatewayEventHandler);
@@ -165,7 +149,6 @@ export function createHandlerRegistry(): GatewayHandlerRegistry {
 	registry.set('PRESENCE_UPDATE_BULK', handlePresenceUpdateBulk as GatewayEventHandler);
 	registry.set('VOICE_STATE_UPDATE', handleVoiceStateUpdate as GatewayEventHandler);
 	registry.set('VOICE_SERVER_UPDATE', handleVoiceServerUpdate as GatewayEventHandler);
-	registry.set('VOICE_SIGNAL', handleVoiceSignal as GatewayEventHandler);
 	registry.set('CALL_CREATE', handleCallCreate as GatewayEventHandler);
 	registry.set('CALL_UPDATE', handleCallUpdate as GatewayEventHandler);
 	registry.set('CALL_DELETE', handleCallDelete as GatewayEventHandler);

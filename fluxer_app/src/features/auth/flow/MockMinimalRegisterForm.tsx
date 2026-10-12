@@ -4,7 +4,6 @@ import {Routes} from '@app/app/Routes';
 import {ExternalLink} from '@app/features/app/components/shared/ExternalLink';
 import authStyles from '@app/features/auth/flow/AuthPageStyles.module.css';
 import dobStyles from '@app/features/auth/flow/DateOfBirthField.module.css';
-import {WHAT_SHOULD_PEOPLE_CALL_YOU_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {PASSWORD_MANAGER_IGNORE_ATTRIBUTES} from '@app/features/platform/utils/PasswordManagerAutocomplete';
 import {Button} from '@app/features/ui/button/Button';
 import {Checkbox} from '@app/features/ui/checkbox/Checkbox';
@@ -26,6 +25,10 @@ const DAY_DESCRIPTOR = msg({
 const YEAR_DESCRIPTOR = msg({
 	message: 'Year',
 	comment: 'Short label in the authentication mock minimal register form. Keep the tone plain and specific.',
+});
+const WHAT_SHOULD_PEOPLE_CALL_YOU_DESCRIPTOR = msg({
+	message: 'What should people call you?',
+	comment: 'Question prompt in the authentication mock minimal register form. Keep the tone plain and specific.',
 });
 
 type DateFieldType = 'month' | 'day' | 'year';

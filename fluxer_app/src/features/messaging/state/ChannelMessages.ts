@@ -327,6 +327,10 @@ export class ChannelMessages {
 		return ChannelMessages.channelCache.get(channelId);
 	}
 
+	static hasNewestMessages(channelId: string): boolean {
+		return ChannelMessages.get(channelId)?.hasNewestMessages() ?? false;
+	}
+
 	static getOrCreate(channelId: string): ChannelMessages {
 		let instance = ChannelMessages.channelCache.get(channelId);
 		if (!instance) {
@@ -359,10 +363,22 @@ export class ChannelMessages {
 		return ChannelMessages.retainedChannelIds.has(channelId);
 	}
 
+	static dropBuffers(channelId: string): void {
+		const instance = ChannelMessages.channelCache.get(channelId);
+		if (!instance) return;
+		instance.beforeBuffer.clear();
+		instance.afterBuffer.clear();
+		ChannelMessages.save(instance);
+	}
+
 	static commit(instance: ChannelMessages): ChannelMessages {
 		ChannelMessages.channelCache.set(instance.channelId, instance);
 		ChannelMessages.markTouched(instance.channelId);
 		return instance;
+	}
+
+	static save(instance: ChannelMessages): void {
+		ChannelMessages.channelCache.set(instance.channelId, instance);
 	}
 
 	private static markTouched(channelId: string): void {
@@ -444,10 +460,22 @@ export class ChannelMessages {
 		this.messageList.forEach(callback, thisArg);
 	}
 
+	reduce<T>(reducer: (memo: T, message: Message, index: number, array: Array<Message>) => T, initial: T): T {
+		return this.messageList.reduce(reducer, initial);
+	}
+
 	forEachBuffered(callback: (m: Message, idx: number, arr: Array<Message>) => void, thisArg?: unknown): void {
 		this.beforeBuffer.forEach(callback, thisArg);
 		this.messageList.forEach(callback, thisArg);
 		this.afterBuffer.forEach(callback, thisArg);
+	}
+
+	searchFromOldest(predicate: (m: Message) => boolean): Message | undefined {
+		return (
+			this.beforeBuffer.messages.find(predicate) ??
+			this.messageList.find(predicate) ??
+			this.afterBuffer.messages.find(predicate)
+		);
 	}
 
 	searchFromNewest(predicate: (m: Message) => boolean): Message | undefined {
@@ -795,6 +823,14 @@ export class ChannelMessages {
 			return merged.trimNewest(IS_MOBILE_CLIENT ? MAX_MESSAGES_PER_CHANNEL : TRUNCATED_MESSAGE_VIEW_SIZE, false);
 		}
 		return merged;
+	}
+
+	applyPushPreview(message: MessageInput): ChannelMessages {
+		const wire = toWireMessage(message);
+		const possibleNonce = wire.nonce ?? null;
+		const existing = possibleNonce ? this.get(possibleNonce, true) : null;
+		if (existing) return this;
+		return this.cloneAnd({ready: true, cached: true}).merge([hydrateMessage(this, wire, 'preserve')]);
 	}
 
 	beginLoad(jump?: JumpOptions): ChannelMessages {

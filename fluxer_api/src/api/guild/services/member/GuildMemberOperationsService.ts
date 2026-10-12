@@ -1,29 +1,22 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {requireEmailVerified} from '@app/api/auth/EmailVerificationUtils';
-import {
-	createChannelID,
-	createRoleID,
-	type GuildID,
-	type InviteCode,
-	type RoleID,
-	type UserID,
-} from '@app/api/BrandedTypes';
+import type {GuildID, InviteCode, RoleID, UserID} from '@app/api/BrandedTypes';
+import {createChannelID, createRoleID} from '@app/api/BrandedTypes';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
 import {assertMutableUserId} from '@app/api/constants/Core';
 import type {GuildMemberRow} from '@app/api/database/types/GuildTypes';
 import type {GuildAuditLogService} from '@app/api/guild/GuildAuditLogService';
+import type {GuildAuditLogChange} from '@app/api/guild/GuildAuditLogTypes';
 import {resolveMaxGuildMembersLimit} from '@app/api/guild/GuildMemberLimitUtils';
 import {mapGuildMemberToResponse} from '@app/api/guild/GuildModel';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
-import {assertNotBannedFromGuild} from '@app/api/guild/services/GuildBanChecks';
-import {getGuildAuth} from '@app/api/guild/services/GuildMfaEnforcement';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
+import type {GuildMemberAuthService} from '@app/api/guild/services/member/GuildMemberAuthService';
 import type {GuildMemberEventService} from '@app/api/guild/services/member/GuildMemberEventService';
 import type {GuildMemberSearchIndexService} from '@app/api/guild/services/member/GuildMemberSearchIndexService';
 import type {GuildMemberValidationService} from '@app/api/guild/services/member/GuildMemberValidationService';
 import {emitActivity} from '@app/api/infrastructure/activity/ActivityEvents';
 import type {JoinSource} from '@app/api/infrastructure/activity/Contract.generated';
-import {emitGuildMemberRemoved} from '@app/api/infrastructure/activity/GuildEvents';
 import {contentModerationService} from '@app/api/infrastructure/ContentModerationService';
 import type {EntityAssetService, PreparedAssetUpload} from '@app/api/infrastructure/EntityAssetService';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
@@ -38,11 +31,9 @@ import type {GuildMember} from '@app/api/models/GuildMember';
 import type {User} from '@app/api/models/User';
 import type {UserGuildSettings} from '@app/api/models/UserGuildSettings';
 import type {UserSettings} from '@app/api/models/UserSettings';
-import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {dispatchUserGuildSettingsUpdate} from '@app/api/user/UserGuildSettingsThreadView';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {isProfileSubstringExempt} from '@app/api/user/UserHelpers';
-import {mapUserSettingsToResponse} from '@app/api/user/UserMappers';
+import {mapUserGuildSettingsToResponse, mapUserSettingsToResponse} from '@app/api/user/UserMappers';
 import {addGuildToUncategorizedFolder, removeGuildFromUserFolders} from '@app/api/user/utils/GuildFolderUtils';
 import {AuditLogActionType} from '@fluxer/constants/src/AuditLogActionType';
 import {Permissions} from '@fluxer/constants/src/ChannelConstants';
@@ -152,13 +143,14 @@ function joinSourceName(type: JoinSourceType): JoinSource {
 
 export class GuildMemberOperationsService {
 	constructor(
-		private readonly guildRepository: GuildRepository,
+		private readonly guildRepository: IGuildRepositoryAggregate,
 		private readonly channelService: ChannelService,
 		private readonly userCacheService: UserCacheService,
 		private readonly gatewayService: IGatewayService,
 		private readonly entityAssetService: EntityAssetService,
-		private readonly userRepository: UserRepository,
+		private readonly userRepository: IUserRepository,
 		private readonly rateLimitService: IRateLimitService,
+		private readonly authService: GuildMemberAuthService,
 		private readonly validationService: GuildMemberValidationService,
 		private readonly guildAuditLogService: GuildAuditLogService,
 		private readonly limitConfigService: LimitConfigService,
@@ -170,9 +162,10 @@ export class GuildMemberOperationsService {
 		guildId: GuildID;
 		limit?: number;
 		after?: UserID;
+		requestCache: RequestCache;
 	}): Promise<Array<GuildMemberResponse>> {
 		const {userId, guildId, limit = 1, after} = params;
-		await getGuildAuth(this.gatewayService, this.userRepository, {userId, guildId});
+		await this.authService.getGuildAuthenticated({userId, guildId});
 		const cursorResult = await this.gatewayService.listGuildMembersCursor({
 			guildId,
 			limit,
@@ -206,15 +199,50 @@ export class GuildMemberOperationsService {
 			newChannelId: params.newChannelId,
 			previousChannelId: params.previousChannelId,
 		});
-		await this.guildAuditLogService.record({
+		await this.recordGuildAuditLog({
 			guildId: params.guildId,
 			userId: params.userId,
 			action,
-			targetId: params.targetId,
+			targetUserId: params.targetId,
 			auditLogReason: params.auditLogReason,
 			changes,
 			metadata: metadata ?? undefined,
 		});
+	}
+
+	private async recordGuildAuditLog(params: {
+		guildId: GuildID;
+		userId: UserID;
+		action: AuditLogActionType;
+		targetUserId: UserID;
+		auditLogReason?: string | null;
+		metadata?: Record<string, string>;
+		changes?: GuildAuditLogChange | null;
+	}): Promise<void> {
+		const builder = this.guildAuditLogService
+			.createBuilder(params.guildId, params.userId)
+			.withAction(params.action, params.targetUserId.toString())
+			.withReason(params.auditLogReason ?? null);
+		if (params.metadata) {
+			builder.withMetadata(params.metadata);
+		}
+		if (params.changes) {
+			builder.withChanges(params.changes);
+		}
+		try {
+			await builder.commit();
+		} catch (error) {
+			Logger.error(
+				{
+					error,
+					guildId: params.guildId.toString(),
+					userId: params.userId.toString(),
+					action: params.action,
+					targetId: params.targetUserId.toString(),
+				},
+				'Failed to record guild audit log',
+			);
+		}
 	}
 
 	private async fetchCurrentChannelId(guildId: GuildID, userId: UserID): Promise<string | null> {
@@ -229,7 +257,7 @@ export class GuildMemberOperationsService {
 		requestCache: RequestCache;
 	}): Promise<GuildMemberResponse> {
 		const {userId, targetId, guildId, requestCache} = params;
-		await getGuildAuth(this.gatewayService, this.userRepository, {userId, guildId});
+		await this.authService.getGuildAuthenticated({userId, guildId});
 		const member = await this.guildRepository.getMember(guildId, targetId);
 		if (!member) throw new UnknownGuildMemberError();
 		return await mapGuildMemberToResponse(member, this.userCacheService, requestCache);
@@ -244,14 +272,10 @@ export class GuildMemberOperationsService {
 		auditLogReason?: string | null;
 	}): Promise<GuildMemberResponse> {
 		const {userId, targetId, guildId, data, requestCache} = params;
-		const {guildData, canManageRoles, hasPermission, checkTargetMember} = await getGuildAuth(
-			this.gatewayService,
-			this.userRepository,
-			{
-				userId,
-				guildId,
-			},
-		);
+		const {guildData, canManageRoles, hasPermission, checkTargetMember} = await this.authService.getGuildAuthenticated({
+			userId,
+			guildId,
+		});
 		const effectiveData: GuildMemberUpdateRequest | Omit<GuildMemberUpdateRequest, 'roles'> = {...data};
 		const updateData: MemberUpdateData = {};
 		if (effectiveData.nick !== undefined) {
@@ -363,14 +387,10 @@ export class GuildMemberOperationsService {
 
 	async removeMember(params: {userId: UserID; targetId: UserID; guildId: GuildID}): Promise<void> {
 		const {userId, targetId, guildId} = params;
-		const {guildData, checkTargetMember, checkPermission} = await getGuildAuth(
-			this.gatewayService,
-			this.userRepository,
-			{
-				userId,
-				guildId,
-			},
-		);
+		const {guildData, checkTargetMember, checkPermission} = await this.authService.getGuildAuthenticated({
+			userId,
+			guildId,
+		});
 		await checkPermission(Permissions.KICK_MEMBERS);
 		const targetMember = await this.guildRepository.getMember(guildId, targetId);
 		if (!targetMember) throw new UnknownGuildMemberError();
@@ -389,7 +409,6 @@ export class GuildMemberOperationsService {
 			);
 		}
 		await this.gatewayService.leaveGuild({userId: targetId, guildId});
-		await emitGuildMemberRemoved({guildId, userId: targetId, actorId: userId, kind: 'kicked'});
 	}
 
 	async addUserToGuild(
@@ -399,7 +418,6 @@ export class GuildMemberOperationsService {
 			sendJoinMessage?: boolean;
 			skipGuildLimitCheck?: boolean;
 			skipBanCheck?: boolean;
-			skipAccountLimitCheck?: boolean;
 			isTemporary?: boolean;
 			joinSourceType?: JoinSourceType;
 			sourceInviteCode?: InviteCode;
@@ -417,7 +435,6 @@ export class GuildMemberOperationsService {
 				sendJoinMessage = true,
 				skipGuildLimitCheck = false,
 				skipBanCheck = false,
-				skipAccountLimitCheck = false,
 				isTemporary = false,
 				joinSourceType = JoinSourceTypes.INSTANT_INVITE,
 				sourceInviteCode = null,
@@ -432,11 +449,8 @@ export class GuildMemberOperationsService {
 			assertMutableUserId(userId);
 			const user = await this.userRepository.findUnique(userId);
 			if (!user) throw new UnknownGuildError();
-			if (!skipAccountLimitCheck) {
-				assertAccountNotLimited(user);
-			}
 			if (!skipBanCheck) {
-				await assertNotBannedFromGuild(this.guildRepository, this.userRepository, {userId, guildId});
+				await this.validationService.checkUserBanStatus({userId, guildId});
 			}
 			const userGuildsCount = await this.guildRepository.countUserGuilds(userId);
 			if (!skipGuildLimitCheck) {
@@ -498,11 +512,11 @@ export class GuildMemberOperationsService {
 				join_source: joinSourceName(joinSourceType),
 			});
 			if (user.isBot) {
-				await this.guildAuditLogService.record({
+				await this.recordGuildAuditLog({
 					guildId,
 					userId: initiatorId,
 					action: AuditLogActionType.BOT_ADD,
-					targetId: userId,
+					targetUserId: userId,
 					metadata: {
 						temporary: isTemporary ? 'true' : 'false',
 					},
@@ -543,7 +557,6 @@ export class GuildMemberOperationsService {
 			});
 		}
 		await this.gatewayService.leaveGuild({userId, guildId});
-		await emitGuildMemberRemoved({guildId, userId, actorId: null, kind: 'left'});
 	}
 
 	private async validateTimeout(params: {
@@ -693,7 +706,6 @@ export class GuildMemberOperationsService {
 		const {targetId, guildId, targetUser, targetMember, data, updateData, preparedAssets} = params;
 		if (hasSelfProfileCustomizationUpdate(data)) {
 			requireEmailVerified(targetUser, 'profile');
-			assertAccountNotLimited(targetUser);
 		}
 		const ctx = createLimitMatchContext({user: targetUser});
 		const hasGuildProfileCustomization = resolveLimitSafe(
@@ -954,7 +966,19 @@ export class GuildMemberOperationsService {
 		userId: UserID;
 		settings: UserGuildSettings;
 	}): Promise<void> {
-		await dispatchUserGuildSettingsUpdate(this.gatewayService, userId, settings);
+		const payload = mapUserGuildSettingsToResponse(settings);
+		await this.gatewayService.dispatchPresence({
+			userId,
+			event: 'USER_GUILD_SETTINGS_UPDATE',
+			data: payload,
+		});
+		if (payload.guild_id !== null) {
+			await this.gatewayService.syncPushUserGuildSettings({
+				userId,
+				guildId: settings.guildId,
+				settings: payload,
+			});
+		}
 	}
 
 	private async rollbackPreparedAssets(preparedAssets: PreparedMemberAssets): Promise<void> {

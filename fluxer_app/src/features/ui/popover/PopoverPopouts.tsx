@@ -192,13 +192,14 @@ const PopoutItem: React.FC<PopoutItemProps> = observer(
 			state,
 			style,
 			beginManualPositioning,
-		} = useAntiShiftFloating(positionReference, {
+		} = useAntiShiftFloating(positionReference, true, {
 			placement: position,
 			offsetMainAxis,
 			offsetCrossAxis,
 			shouldAutoUpdate: frozenTargetRect ? false : shouldAutoUpdate,
 			shouldObserveFloatingResize: !frozenTargetRect || !constrainHeight,
 			constrainHeight,
+			enableSmartBoundary: true,
 		});
 		const resizePositionController = useMemo(
 			() => ({begin: beginManualPositioning, placement: state.placement}),
@@ -239,21 +240,11 @@ const PopoutItem: React.FC<PopoutItemProps> = observer(
 				setTargetInDOM(true);
 			}
 		}, [target, ownerDocument, keepOpenOnTargetUnmount, beginClose]);
-		const wasClosingRequestedRef = useRef(isClosingRequested);
 		useEffect(() => {
-			const wasClosingRequested = wasClosingRequestedRef.current;
-			wasClosingRequestedRef.current = isClosingRequested;
 			if (isClosingRequested) {
 				beginClose();
-				return;
 			}
-			if (!wasClosingRequested) return;
-			if (closeTimerRef.current != null && ownerWindow != null) {
-				ownerWindow.clearTimeout(closeTimerRef.current);
-				closeTimerRef.current = null;
-			}
-			setIsVisible(true);
-		}, [isClosingRequested, beginClose, ownerWindow]);
+		}, [isClosingRequested, beginClose]);
 		useEffect(() => {
 			return () => {
 				if (closeTimerRef.current != null && ownerWindow != null) {
@@ -469,7 +460,7 @@ export const Popouts: React.FC<PopoutsProps> = observer(({ownerDocument}) => {
 	const portalHost = scopePortalHostToDocument(activePortalHost, scopeDocument);
 	const popouts = PopoutState.getPopouts(scopeDocument);
 	const topPopout = popouts.length ? popouts[popouts.length - 1] : null;
-	const needsBackdrop = PopoutState.requiresBackdrop(scopeDocument);
+	const needsBackdrop = Boolean(topPopout && !topPopout.disableBackdrop);
 	useEffect(() => {
 		const currentKeys = new Set(popouts.map((popout) => popout.key.toString()));
 		const prevKeys = prevPopoutKeysRef.current;

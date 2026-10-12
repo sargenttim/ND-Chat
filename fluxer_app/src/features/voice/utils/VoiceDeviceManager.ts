@@ -4,7 +4,7 @@ import {ensureNativePermission} from '@app/features/permissions/system/utils/Nat
 import {Platform} from '@app/features/platform/types/Platform';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {getNativePlatformSync, isDesktop} from '@app/features/ui/utils/NativeUtils';
-import type {VoiceEngineV2AudioDeviceRole} from '@fluxer/voice_engine_v2/src/protocol/types';
+import type {VoiceEngineV2AudioDeviceRole} from '@fluxer/voice_engine_v2';
 
 const logger = new Logger('VoiceDeviceManager');
 
@@ -57,7 +57,7 @@ const INTERNAL_VIRTUAL_AUDIO_DEVICE_LABELS = [
 	'fluxer direct capture',
 ];
 
-function isInternalVirtualAudioDevice(device: MediaDeviceInfo): boolean {
+export function isInternalVirtualAudioDevice(device: MediaDeviceInfo): boolean {
 	const label = device.label.trim().toLowerCase();
 	return INTERNAL_VIRTUAL_AUDIO_DEVICE_LABELS.some((internalLabel) => label.includes(internalLabel));
 }
@@ -87,7 +87,7 @@ export interface VoiceAudioDeviceMetadata {
 	defaultPlatform?: VoiceAudioDefaultDevicePlatform;
 }
 
-type VoiceMediaDeviceInfo = MediaDeviceInfo & {
+export type VoiceMediaDeviceInfo = MediaDeviceInfo & {
 	isDefault?: boolean;
 	fluxerVoiceAudioDevice?: VoiceAudioDeviceMetadata;
 };
@@ -314,7 +314,7 @@ function createVideoDeviceInfo(deviceId: string, groupId: string, label: string)
 	} as MediaDeviceInfo;
 }
 
-function shapeVideoDevices(devices: ReadonlyArray<MediaDeviceInfo>): Array<MediaDeviceInfo> {
+export function shapeVideoDevices(devices: ReadonlyArray<MediaDeviceInfo>): Array<MediaDeviceInfo> {
 	const endpointDevices = devices
 		.filter((device) => device.kind === 'videoinput' && device.deviceId.trim().length > 0)
 		.map((device) =>
@@ -406,7 +406,7 @@ function dedupeAudioDeviceInfos(devices: ReadonlyArray<VoiceMediaDeviceInfo>): A
 	return [...devicesByDeviceId.values()];
 }
 
-function shapeBrowserAudioDevices(devices: ReadonlyArray<MediaDeviceInfo>): Array<MediaDeviceInfo> {
+export function shapeBrowserAudioDevices(devices: ReadonlyArray<MediaDeviceInfo>): Array<MediaDeviceInfo> {
 	return shapeAudioDevices(
 		devices.map((device) => ({
 			deviceId: device.deviceId,

@@ -2,7 +2,7 @@
 
 import {useCallback, useState} from 'react';
 
-type MediaPreloadAttribute = 'none' | 'metadata';
+export type MediaPreloadAttribute = 'none' | 'metadata';
 
 export interface UseMetadataPreloadReturn {
 	escalateToMetadata: () => void;

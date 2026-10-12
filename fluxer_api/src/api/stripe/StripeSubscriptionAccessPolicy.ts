@@ -27,8 +27,15 @@ export function shouldTreatInvoicePaymentFailureAsAccessChange(invoice: Stripe.I
 	return billingReason != null && ACCESS_AFFECTING_INVOICE_FAILURE_REASONS.has(billingReason);
 }
 
+export function shouldTreatInvoiceCollectionIssueAsAccessChange(invoice: Stripe.Invoice): boolean {
+	return shouldTreatInvoicePaymentFailureAsAccessChange(invoice);
+}
+
 export function shouldTreatInvoiceUpdatedAsCollectionIssue(invoice: Stripe.Invoice): boolean {
-	if (!shouldTreatInvoicePaymentFailureAsAccessChange(invoice)) {
+	if (!shouldTreatInvoiceCollectionIssueAsAccessChange(invoice)) {
+		return false;
+	}
+	if (invoice.status === 'paid') {
 		return false;
 	}
 	if (invoice.status !== 'open') {

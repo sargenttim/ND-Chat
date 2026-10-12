@@ -39,7 +39,7 @@ export type ProfileAssetCustomizationEvent =
 			remoteState: ProfileAssetRemoteState;
 	  };
 
-type ProfileAssetCustomizationStateValue = 'unhydrated' | 'clean' | 'dirty' | 'committed';
+export type ProfileAssetCustomizationStateValue = 'unhydrated' | 'clean' | 'dirty' | 'committed';
 
 export interface ProfileAssetCustomizationState extends ProfileAssetRemoteState {
 	readonly state: ProfileAssetCustomizationStateValue;
@@ -50,7 +50,7 @@ export interface ProfileAssetCustomizationState extends ProfileAssetRemoteState 
 	readonly isDirty: boolean;
 }
 
-interface ProfileAssetUploadPatch {
+export interface ProfileAssetUploadPatch {
 	readonly value: TransientUploadFieldValue;
 }
 
@@ -96,7 +96,7 @@ function remoteMatchesCurrent(
 	);
 }
 
-function createProfileAssetRemoteState(params: {
+export function createProfileAssetRemoteState(params: {
 	identityKey: string | null;
 	mode: ProfileAssetMode;
 	hasCustomAsset: boolean;
@@ -128,7 +128,7 @@ export function createGlobalProfileAssetRemoteState(params: {
 	});
 }
 
-const profileAssetCustomizationStateMachine = setup({
+export const profileAssetCustomizationStateMachine = setup({
 	types: {} as {
 		context: ProfileAssetCustomizationContext;
 		events: ProfileAssetCustomizationEvent;
@@ -254,7 +254,7 @@ export function transitionProfileAssetCustomizationSnapshot(
 	return transition(profileAssetCustomizationStateMachine, snapshot, event)[0] as ProfileAssetCustomizationSnapshot;
 }
 
-function getProfileAssetCustomizationStateValue(
+export function getProfileAssetCustomizationStateValue(
 	snapshot: ProfileAssetCustomizationSnapshot,
 ): ProfileAssetCustomizationStateValue {
 	return typeof snapshot.value === 'string' ? (snapshot.value as ProfileAssetCustomizationStateValue) : 'unhydrated';
@@ -272,7 +272,7 @@ export function selectProfileAssetCustomizationState(
 	};
 }
 
-function getProfileAssetUploadPatch(state: ProfileAssetCustomizationState): ProfileAssetUploadPatch {
+export function getProfileAssetUploadPatch(state: ProfileAssetCustomizationState): ProfileAssetUploadPatch {
 	if (state.hasCleared) return {value: null};
 	if (state.previewUrl !== null) return {value: state.previewUrl};
 	if ((state.mode === 'inherit' || state.mode === 'unset') && state.mode !== state.initialMode) {

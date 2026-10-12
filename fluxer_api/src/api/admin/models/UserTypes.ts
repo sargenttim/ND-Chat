@@ -1,24 +1,26 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {UserID} from '@app/api/BrandedTypes';
-import {hasAdminACL} from '@app/api/middleware/AdminMiddleware';
 import type {User} from '@app/api/models/User';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import {getIpAddressReverse, lookupGeoip} from '@app/api/utils/IpUtils';
-import {AdminACLs, filterKnownAdminACLs} from '@fluxer/constants/src/AdminACLs';
-import type {AdminResolvedUser, UserAdminResponse} from '@fluxer/schema/src/domains/admin/AdminUserSchemas';
+import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
+import {DEFERRED_PHONE_ON_COMMUNITY_JOIN} from '@fluxer/constants/src/UserConstants';
+import type {UserAdminResponse} from '@fluxer/schema/src/domains/admin/AdminUserSchemas';
 import type {ICacheService} from '@pkgs/cache/src/ICacheService';
 import {formatGeoipLocation} from '@pkgs/geoip/src/GeoipLookup';
+
+function hasAcl(acls: ReadonlySet<string>, acl: string): boolean {
+	return acls.has(acl) || acls.has(AdminACLs.WILDCARD);
+}
 
 export async function mapUserToAdminResponse(
 	user: User,
 	cacheService?: ICacheService,
 	acls?: ReadonlySet<string>,
 ): Promise<UserAdminResponse> {
-	const canViewEmail = !acls || hasAdminACL(acls, AdminACLs.USER_VIEW_EMAIL);
-	const canViewDob = !acls || hasAdminACL(acls, AdminACLs.USER_VIEW_DOB);
-	const canViewIp = !acls || hasAdminACL(acls, AdminACLs.USER_VIEW_IP);
-	const canViewAuditLog = !acls || hasAdminACL(acls, AdminACLs.AUDIT_LOG_VIEW);
+	const canViewEmail = !acls || hasAcl(acls, AdminACLs.USER_VIEW_EMAIL);
+	const canViewDob = !acls || hasAcl(acls, AdminACLs.USER_VIEW_DOB);
+	const canViewIp = !acls || hasAcl(acls, AdminACLs.USER_VIEW_IP);
+	const canViewAuditLog = !acls || hasAcl(acls, AdminACLs.AUDIT_LOG_VIEW);
 	const lastActiveIpReverse =
 		canViewIp && user.lastActiveIp ? await getIpAddressReverse(user.lastActiveIp, cacheService) : null;
 	let lastActiveLocation: string | null = null;
@@ -48,6 +50,7 @@ export async function mapUserToAdminResponse(
 		email: canViewEmail ? (user.email ?? null) : null,
 		email_verified: canViewEmail ? user.emailVerified : false,
 		email_bounced: canViewEmail ? user.emailBounced : false,
+		has_verified_phone: user.hasVerifiedPhone,
 		date_of_birth: canViewDob ? user.dateOfBirth : null,
 		locale: user.locale,
 		premium_type: user.premiumType,
@@ -55,6 +58,8 @@ export async function mapUserToAdminResponse(
 		premium_until: user.premiumUntil?.toISOString() ?? null,
 		premium_grace_ends_at: user.premiumGraceEndsAt?.toISOString() ?? null,
 		premium_lifetime_sequence: user.premiumLifetimeSequence ?? null,
+		suspicious_activity_flags: user.suspiciousActivityFlags,
+		phone_verification_deferred: ((user.suspiciousActivityFlags ?? 0) & DEFERRED_PHONE_ON_COMMUNITY_JOIN) !== 0,
 		temp_banned_until:
 			user.tempBannedUntil && user.tempBannedUntil.getTime() > Date.now() ? user.tempBannedUntil.toISOString() : null,
 		pending_deletion_at: user.pendingDeletionAt?.toISOString() ?? null,
@@ -64,8 +69,9 @@ export async function mapUserToAdminResponse(
 		deletion_audit_log_reason: canViewAuditLog ? user.deletionAuditLogReason : null,
 		deletion_scheduled_by: user.deletionScheduledBy?.toString() ?? null,
 		deletion_scheduled_at: user.deletionScheduledAt?.toISOString() ?? null,
-		acls: user.acls ? filterKnownAdminACLs(user.acls) : [],
+		acls: user.acls ? Array.from(user.acls) : [],
 		traits: Array.from(user.traits).sort(),
+		badge_ids: Array.from(user.badgeIds, String),
 		has_totp: user.totpSecret !== null,
 		authenticator_types: user.authenticatorTypes ? Array.from(user.authenticatorTypes) : [],
 		last_active_at: user.lastActiveAt?.toISOString() ?? null,
@@ -73,24 +79,4 @@ export async function mapUserToAdminResponse(
 		last_active_ip_reverse: canViewIp ? lastActiveIpReverse : null,
 		last_active_location: canViewIp ? lastActiveLocation : null,
 	};
-}
-
-export async function resolveAdminUsers(
-	userRepository: Pick<UserRepository, 'findUnique'>,
-	userIds: Array<UserID>,
-): Promise<Map<UserID, AdminResolvedUser>> {
-	const results = new Map<UserID, AdminResolvedUser>();
-	const users = await Promise.all(userIds.map((id) => userRepository.findUnique(id)));
-	for (let i = 0; i < userIds.length; i++) {
-		const user = users[i];
-		if (user)
-			results.set(userIds[i], {
-				id: user.id.toString(),
-				username: user.username,
-				discriminator: String(user.discriminator).padStart(4, '0'),
-				global_name: user.globalName,
-				avatar: user.avatarHash,
-			});
-	}
-	return results;
 }

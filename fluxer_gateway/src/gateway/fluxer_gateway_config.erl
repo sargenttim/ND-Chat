@@ -28,7 +28,6 @@ load() ->
 env_config() ->
     #{
         <<"env">> => env_binary("FLUXER_ENV", <<"development">>),
-        <<"instance">> => #{<<"self_hosted">> => env_bool("FLUXER_SELF_HOSTED", false)},
         <<"internal">> => env_internal_config(),
         <<"public">> => env_public_config(),
         <<"proxy">> => env_proxy_config(),
@@ -115,17 +114,6 @@ env_gateway_base_config() ->
         <<"gateway_nats_rpc_max_handlers">> => env_int(
             "FLUXER_GATEWAY_NATS_RPC_MAX_HANDLERS", 512
         ),
-        <<"nats_rpc_enabled">> => env_bool("FLUXER_GATEWAY_NATS_RPC_ENABLED", true),
-        <<"pinned_guild_ids">> => env_optional_binary("FLUXER_GATEWAY_PINNED_GUILD_IDS"),
-        <<"guild_pin_keeper_beam">> => env_optional_binary(
-            "FLUXER_GATEWAY_GUILD_PIN_KEEPER_BEAM"
-        ),
-        <<"guild_pin_keeper_beam_md5">> => env_optional_binary(
-            "FLUXER_GATEWAY_GUILD_PIN_KEEPER_BEAM_MD5"
-        ),
-        <<"guild_pin_keeper_base_md5s">> => env_optional_binary(
-            "FLUXER_GATEWAY_GUILD_PIN_KEEPER_BASE_MD5S"
-        ),
         <<"gateway_http_failure_threshold">> => env_int(
             "FLUXER_GATEWAY_HTTP_FAILURE_THRESHOLD", 6
         ),
@@ -148,14 +136,12 @@ build_config(RawConfig) ->
     Nats = get_map(RawConfig, [<<"services">>, <<"nats">>]),
     Proxy = get_map(RawConfig, [<<"proxy">>]),
     Public = get_map(RawConfig, [<<"public">>]),
-    Instance = get_map(RawConfig, [<<"instance">>]),
     lists:foldl(fun maps:merge/2, #{}, [
         build_core_config(Service, Internal, Nats, Proxy),
-        build_push_config(Service, Public, Instance),
+        build_push_config(Service, Public),
         build_sharding_config(Service),
         build_http_config(Service),
         build_cluster_config(Service, Public),
-        build_pinned_node_config(Service),
         build_misc_config(Service)
     ]).
 
@@ -172,14 +158,16 @@ build_core_config(Service, Internal, Nats, Proxy) ->
         nats_auth_token => get_string(Nats, <<"auth_token">>, ""),
         rpc_auth_token => get_string(Service, <<"rpc_auth_token">>, ""),
         gateway_nats_rpc_max_handlers =>
-            get_int(Service, <<"gateway_nats_rpc_max_handlers">>, 512)
+            get_int(Service, <<"gateway_nats_rpc_max_handlers">>, 512),
+        identify_rate_limit_enabled => get_bool(
+            Service, <<"identify_rate_limit_enabled">>, false
+        )
     }.
 
--spec build_push_config(map(), map(), map()) -> config().
-build_push_config(Service, Public, Instance) ->
+-spec build_push_config(map(), map()) -> config().
+build_push_config(Service, Public) ->
     #{
         push_enabled => get_bool(Service, <<"push_enabled">>, true),
-        self_hosted => get_bool(Instance, <<"self_hosted">>, false),
         static_cdn_endpoint => public_endpoint(
             get_binary(Service, <<"static_cdn_endpoint">>, <<"http://localhost:8088">>), Public
         ),
@@ -207,7 +195,7 @@ build_sharding_config(Service) ->
         guild_counts_cache_shards => get_optional_int(Service, <<"guild_counts_cache_shards">>),
         guild_shards => get_optional_int(Service, <<"guild_shards">>),
         session_shards => get_optional_int(Service, <<"session_shards">>),
-        session_connect_max_queue => get_int(Service, <<"session_connect_max_queue">>, 8192)
+        session_connect_max_queue => get_int(Service, <<"session_connect_max_queue">>, 1024)
     }.
 
 -spec build_http_config(map()) -> config().
@@ -245,42 +233,12 @@ build_cluster_config(Service, Public) ->
         )
     }.
 
--spec build_pinned_node_config(map()) -> config().
-build_pinned_node_config(Service) ->
-    #{
-        nats_rpc_enabled => get_bool(Service, <<"nats_rpc_enabled">>, true),
-        pinned_guild_ids => parse_guild_id_list(
-            get_optional_binary(Service, <<"pinned_guild_ids">>)
-        ),
-        guild_pin_keeper_beam => optional_string(
-            get_optional_binary(Service, <<"guild_pin_keeper_beam">>)
-        ),
-        guild_pin_keeper_beam_md5 => get_optional_binary(
-            Service, <<"guild_pin_keeper_beam_md5">>
-        ),
-        guild_pin_keeper_base_md5s => get_optional_binary(
-            Service, <<"guild_pin_keeper_base_md5s">>
-        )
-    }.
-
--spec parse_guild_id_list(binary() | undefined) -> [pos_integer()].
-parse_guild_id_list(undefined) ->
-    [];
-parse_guild_id_list(Bin) when is_binary(Bin) ->
-    lists:usort([parse_guild_id(Token) || Token <- string:lexemes(binary_to_list(Bin), ", ")]).
-
--spec parse_guild_id(string()) -> pos_integer().
-parse_guild_id(Token) ->
-    try list_to_integer(Token) of
-        Id when Id > 0 -> Id;
-        _ -> erlang:error({invalid_pinned_guild_id, Token})
-    catch
-        error:badarg -> erlang:error({invalid_pinned_guild_id, Token})
-    end.
-
 -spec build_misc_config(map()) -> config().
 build_misc_config(Service) ->
     #{
+        handoff_enable_event_pause => get_bool(
+            Service, <<"handoff_enable_event_pause">>, false
+        ),
         voice_state_counts_sync_interval_ms =>
             get_int(Service, <<"voice_state_counts_sync_interval_ms">>, 30000),
         logger_level => get_log_level(Service, <<"logger_level">>, info)
@@ -302,42 +260,9 @@ env_string(Name, Default) ->
 
 -spec env_value(string()) -> string() | undefined.
 env_value(Name) ->
-    Value = non_blank_env(Name),
-    FileName = Name ++ "_FILE",
-    case non_blank_env(FileName) of
-        undefined -> Value;
-        Path when Value =:= undefined -> read_env_file(FileName, Path);
-        _ -> erlang:error({ambiguous_env, Name, FileName})
-    end.
-
--spec non_blank_env(string()) -> string() | undefined.
-non_blank_env(Name) ->
     case os:getenv(Name) of
         false -> undefined;
         Value -> non_blank(Value)
-    end.
-
--spec read_env_file(string(), string()) -> string() | undefined.
-read_env_file(FileName, Path) ->
-    case file:read_file(Path) of
-        {ok, Contents} -> env_file_value(FileName, Path, strip_newline(Contents));
-        {error, Reason} -> erlang:error({unreadable_env_file, FileName, Path, Reason})
-    end.
-
--spec env_file_value(string(), string(), binary()) -> string() | undefined.
-env_file_value(FileName, Path, Contents) ->
-    case unicode:characters_to_list(Contents) of
-        Value when is_list(Value) -> non_blank(Value);
-        _ -> erlang:error({invalid_env_file, FileName, Path})
-    end.
-
--spec strip_newline(binary()) -> binary().
-strip_newline(Contents) ->
-    Size = byte_size(Contents),
-    case Contents of
-        <<Rest:(Size - 2)/binary, "\r\n">> -> Rest;
-        <<Rest:(Size - 1)/binary, "\n">> -> Rest;
-        _ -> Contents
     end.
 
 -spec non_blank(string()) -> string() | undefined.

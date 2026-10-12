@@ -2,23 +2,19 @@
 
 import {Routes} from '@app/app/Routes';
 import {GuildChannelRouter} from '@app/app/router/components/GuildChannelRouter';
-import {requireAuthentication, whenAuthenticated} from '@app/app/router/policy/AuthRouteRedirectPolicy';
 import {rootRoute} from '@app/app/router/routes/RootRoutes';
 import {AppBadge} from '@app/features/app/components/AppNotificationBadge';
 import {AppLayout} from '@app/features/app/components/layout/AppLayout';
 import {DiscoveryLayout} from '@app/features/app/components/layout/DiscoveryLayout';
 import {FavoritesLayout} from '@app/features/app/components/layout/FavoritesLayout';
 import {GuildsLayout} from '@app/features/app/components/layout/GuildsLayout';
-import {NotFoundPage} from '@app/features/app/components/pages/NotFoundPage';
-import {
-	AuthenticatedRuntimeInvariantError,
-	readAuthenticatedRuntimeContext,
-} from '@app/features/auth/state/AuthenticatedRuntime';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import Authentication from '@app/features/auth/state/Authentication';
 import {ChannelIndexPage} from '@app/features/channel/components/ChannelIndexPage';
 import {ChannelLayout} from '@app/features/channel/components/ChannelLayout';
 import {DMLayout} from '@app/features/channel/components/direct_message/DirectMessageLayout';
 import Channels from '@app/features/channel/state/Channels';
-import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import {setPathQueryParams} from '@app/features/messaging/utils/MessagingUrlUtils';
 import SelectedChannel from '@app/features/navigation/state/SelectedChannel';
 import {navigateToLinkedUserProfile} from '@app/features/navigation/utils/DeepLinkUtils';
 import {getDirectMessagesFallbackPath} from '@app/features/navigation/utils/DefaultLandingUtils';
@@ -27,26 +23,16 @@ import {
 	createNamedLoadableComponent,
 } from '@app/features/platform/components/loadable/LoadableComponent';
 import {createRoute} from '@app/features/platform/components/router/RouterBuilder';
-import {notFound} from '@app/features/platform/components/router/RouterErrors';
 import {useParams} from '@app/features/platform/components/router/RouterReact';
 import {Redirect} from '@app/features/platform/components/router/RouterTypes';
 import SessionManager from '@app/features/platform/state/AuthSession';
-import ThreadGuilds from '@app/features/threads/state/ThreadGuilds';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {ME} from '@fluxer/constants/src/AppConstants';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {observer} from 'mobx-react-lite';
-import {type ReactNode, useEffect, useState} from 'react';
+import {useEffect, useState} from 'react';
 
 type AppRouteComponentProps = Record<string, unknown>;
-
-function authenticatedRuntimeDisablesDirectMessages(): boolean {
-	const runtimeContext = readAuthenticatedRuntimeContext();
-	if (runtimeContext === null) {
-		throw new AuthenticatedRuntimeInvariantError('An authenticated route requires an active account runtime');
-	}
-	return runtimeContext.runtime.community.direct_messages_disabled;
-}
 
 const YouPage = createNamedLoadableComponent<AppRouteComponentProps>({
 	displayName: 'YouPage',
@@ -72,11 +58,6 @@ const NotificationsPage = createNamedLoadableComponent<AppRouteComponentProps>({
 	displayName: 'NotificationsPage',
 	load: async () => (await import('@app/features/notification/components/pages/NotificationsPage')).NotificationsPage,
 });
-const PlutoniumPageLayout = createNamedLoadableComponent<AppRouteComponentProps>({
-	displayName: 'PlutoniumPageLayout',
-	load: async () =>
-		(await import('@app/features/premium/components/plutonium_page/PlutoniumPageLayout')).PlutoniumPageLayout,
-});
 const PremiumCallbackPage = createDefaultLoadableComponent<AppRouteComponentProps>({
 	displayName: 'PremiumCallbackPage',
 	load: () => import('@app/features/premium/components/pages/PremiumCallbackPage'),
@@ -87,24 +68,24 @@ const StatusChangeBottomSheet = createNamedLoadableComponent<AppRouteComponentPr
 		(await import('@app/features/user/components/modals/StatusChangeBottomSheet')).StatusChangeBottomSheet,
 });
 
-const ProtectedAppLayout = observer(({children}: {children: ReactNode}) => {
-	if (readAuthenticatedRuntimeContext() === null && !SessionManager.isSwitching) {
-		return null;
-	}
-	return (
+const appLayoutRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	id: 'appLayout',
+	onEnter: () => {
+		if (!SessionManager.isInitialized) {
+			return undefined;
+		}
+		if (!Authentication.isAuthenticated) {
+			const current = window.location.pathname + window.location.search;
+			return new Redirect(setPathQueryParams(Routes.LOGIN, {redirect_to: current}));
+		}
+		return undefined;
+	},
+	layout: ({children}) => (
 		<>
 			<AppBadge data-flx="app.router.app-routes.layout.app-badge" />
 			<AppLayout data-flx="app.router.app-routes.layout.app-layout">{children}</AppLayout>
 		</>
-	);
-});
-
-const appLayoutRoute = createRoute({
-	getParentRoute: () => rootRoute,
-	id: 'appLayout',
-	onEnter: requireAuthentication,
-	layout: ({children}) => (
-		<ProtectedAppLayout data-flx="app.router.app-routes.layout.protected-app-layout">{children}</ProtectedAppLayout>
 	),
 });
 const guildsLayoutRoute = createRoute({
@@ -172,7 +153,6 @@ export const premiumCallbackRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	id: 'premiumCallback',
 	path: Routes.PREMIUM_CALLBACK,
-	onEnter: requireAuthentication,
 	preload: PremiumCallbackPage.preload,
 	component: () => <PremiumCallbackPage data-flx="app.router.app-routes.premium-callback-page" />,
 });
@@ -208,12 +188,12 @@ const meRoute = createRoute({
 	getParentRoute: () => guildsLayoutRoute,
 	id: 'me',
 	path: '/channels/@me',
-	onEnter: whenAuthenticated(() => {
-		if (authenticatedRuntimeDisablesDirectMessages()) {
+	onEnter: () => {
+		if (RuntimeConfig.directMessagesDisabled) {
 			return new Redirect(getDirectMessagesFallbackPath());
 		}
 		return undefined;
-	}),
+	},
 	component: observer(() => {
 		const isMobileLayout = MobileLayout.enabled;
 		useEffect(() => {
@@ -229,23 +209,6 @@ const discoverRoute = createRoute({
 	id: 'discover',
 	path: '/channels/@discover',
 	component: () => <DiscoveryLayout data-flx="app.router.app-routes.discovery-layout" />,
-});
-const plutoniumRoute = createRoute({
-	getParentRoute: () => guildsLayoutRoute,
-	id: 'plutonium',
-	path: Routes.PLUTONIUM,
-	preload: PlutoniumPageLayout.preload,
-	component: () => (
-		<DMLayout data-flx="app.router.app-routes.dm-layout--plutonium">
-			<PlutoniumPageLayout data-flx="app.router.app-routes.plutonium-page-layout" />
-		</DMLayout>
-	),
-});
-const legacyPlutoniumRoute = createRoute({
-	getParentRoute: () => guildsLayoutRoute,
-	id: 'legacyPlutonium',
-	path: Routes.LEGACY_PLUTONIUM,
-	onEnter: () => new Redirect(Routes.PLUTONIUM),
 });
 const userProfileRoute = createRoute({
 	getParentRoute: () => appLayoutRoute,
@@ -308,9 +271,9 @@ const channelRoute = createRoute({
 	getParentRoute: () => channelsRoute,
 	id: 'channel',
 	path: '/channels/:guildId/:channelId',
-	onEnter: whenAuthenticated((ctx) => {
+	onEnter: (ctx) => {
 		const {guildId, channelId} = ctx.params;
-		if (guildId === ME && authenticatedRuntimeDisablesDirectMessages()) {
+		if (guildId === ME && RuntimeConfig.directMessagesDisabled) {
 			return new Redirect(getDirectMessagesFallbackPath());
 		}
 		const channel = Channels.getChannel(channelId);
@@ -318,7 +281,7 @@ const channelRoute = createRoute({
 			return new Redirect(Routes.guildChannel(guildId));
 		}
 		return undefined;
-	}),
+	},
 	component: () => (
 		<ChannelLayout data-flx="app.router.app-routes.channel-layout--2">
 			<ChannelIndexPage data-flx="app.router.app-routes.channel-index-page--2" />
@@ -329,9 +292,9 @@ const messageRoute = createRoute({
 	getParentRoute: () => channelRoute,
 	id: 'message',
 	path: '/channels/:guildId/:channelId/:messageId',
-	onEnter: whenAuthenticated((ctx) => {
+	onEnter: (ctx) => {
 		const {guildId, channelId} = ctx.params;
-		if (guildId === ME && authenticatedRuntimeDisablesDirectMessages()) {
+		if (guildId === ME && RuntimeConfig.directMessagesDisabled) {
 			return new Redirect(getDirectMessagesFallbackPath());
 		}
 		const channel = Channels.getChannel(channelId);
@@ -339,40 +302,12 @@ const messageRoute = createRoute({
 			return new Redirect(Routes.guildChannel(guildId));
 		}
 		return undefined;
-	}),
+	},
 	component: () => (
 		<ChannelLayout data-flx="app.router.app-routes.channel-layout--3">
 			<ChannelIndexPage data-flx="app.router.app-routes.channel-index-page--3" />
 		</ChannelLayout>
 	),
-});
-const ThreadPanelRoutePage = observer(() => {
-	const {guildId} = useParams() as {guildId?: string};
-	if (GatewaySessions.foregroundConnection.isReady && !ThreadGuilds.isActive(guildId)) {
-		return <NotFoundPage data-flx="app.router.app-routes.thread-panel-not-found-page" />;
-	}
-	return (
-		<ChannelLayout data-flx="app.router.app-routes.channel-layout--4">
-			<ChannelIndexPage data-flx="app.router.app-routes.channel-index-page--4" />
-		</ChannelLayout>
-	);
-});
-const threadPanelRoute = createRoute({
-	getParentRoute: () => channelRoute,
-	id: 'threadPanel',
-	path: '/channels/:guildId/:channelId/threads/:threadId/:threadMessageId?',
-	onEnter: (ctx) => {
-		const {guildId, channelId} = ctx.params;
-		if (guildId === ME || (GatewaySessions.foregroundConnection.isReady && !ThreadGuilds.isActive(guildId))) {
-			return notFound();
-		}
-		const channel = Channels.getChannel(channelId);
-		if (channel && channel.type === ChannelTypes.GUILD_CATEGORY) {
-			return new Redirect(Routes.guildChannel(guildId));
-		}
-		return undefined;
-	},
-	component: () => <ThreadPanelRoutePage data-flx="app.router.app-routes.thread-panel-route-page" />,
 });
 export const appRouteTree = appLayoutRoute.addChildren([
 	notificationsRoute,
@@ -383,9 +318,7 @@ export const appRouteTree = appLayoutRoute.addChildren([
 		mentionsRoute,
 		meRoute,
 		discoverRoute,
-		plutoniumRoute,
-		legacyPlutoniumRoute,
 		favoritesRoute.addChildren([favoritesChannelRoute]),
-		channelsRoute.addChildren([membersRoute, channelRoute.addChildren([messageRoute, threadPanelRoute])]),
+		channelsRoute.addChildren([membersRoute, channelRoute.addChildren([messageRoute])]),
 	]),
 ]);

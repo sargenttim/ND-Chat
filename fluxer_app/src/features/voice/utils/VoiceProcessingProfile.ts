@@ -2,7 +2,6 @@
 
 import VoiceDevicePermissionState from '@app/features/voice/engine/VoiceDevicePermissionState';
 import type VoiceSettings from '@app/features/voice/state/VoiceSettings';
-import NoiseSuppressionAvailability from '@app/features/voice/utils/noise_suppression/NoiseSuppressionAvailability';
 import {
 	getNoiseSuppressionBackendDescriptor,
 	type VoiceNoiseSuppressionBackend,
@@ -38,14 +37,10 @@ function resolveBaseVoiceProcessing(
 	settings: VoiceProcessingSettingsLike,
 	backend: VoiceNoiseSuppressionBackend,
 ): ResolvedVoiceProcessing {
-	const effectiveBackend =
-		settings.voiceProcessingMode === 'voice'
-			? NoiseSuppressionAvailability.resolveEffectiveBackend(resolveNoiseSuppressionBackend(null))
-			: backend;
 	const noiseSuppression = {
-		browserNoiseSuppression: getNoiseSuppressionBackendDescriptor(effectiveBackend).browserNoiseSuppression,
-		deepFilter: effectiveBackend === 'deep_filter',
-		noiseSuppressionBackend: effectiveBackend,
+		browserNoiseSuppression: getNoiseSuppressionBackendDescriptor(backend).browserNoiseSuppression,
+		deepFilter: backend === 'deep_filter',
+		noiseSuppressionBackend: backend,
 		stereoCapture: false,
 	};
 	switch (settings.voiceProcessingMode) {
@@ -88,6 +83,10 @@ export function resolveVoiceProcessing(
 	return {...profile, stereoCapture: resolveStereoCapture(profile, stereoPreferred)};
 }
 
+export function resolveVoiceProcessingFromState(store: typeof VoiceSettings): ResolvedVoiceProcessing {
+	return resolveVoiceProcessingFromStateForMode(store, store.voiceProcessingMode);
+}
+
 export function resolveVoiceProcessingFromStateForDeviceLabel(
 	store: typeof VoiceSettings,
 	label: string | null | undefined,
@@ -105,9 +104,7 @@ function resolveVoiceProcessingFromStateForMode(
 			echoCancellation: store.echoCancellation,
 			autoGainControl: store.autoGainControl,
 		},
-		NoiseSuppressionAvailability.resolveEffectiveBackend(
-			resolveNoiseSuppressionBackend(store.getNoiseSuppressionBackend()),
-		),
+		resolveNoiseSuppressionBackend(store.getNoiseSuppressionBackend()),
 		store.getStereoMicrophone() === true,
 	);
 }

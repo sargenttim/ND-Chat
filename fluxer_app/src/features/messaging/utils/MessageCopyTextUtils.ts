@@ -5,7 +5,6 @@ import {MarkdownContext} from '@app/features/messaging/components/markdown/rende
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import {getParserFlagsForContext} from '@app/features/messaging/utils/markdown/MarkdownParserFlags';
 import {
-	normaliseUrlForComparison,
 	type PlaintextRenderOptions,
 	parseAndRenderToPlaintext,
 	renderAstToPlaintext,
@@ -38,6 +37,7 @@ interface MessageCopyTextOptions extends MarkdownCopyContext {
 }
 
 interface EmbedCopyTextOptions extends MarkdownCopyContext {
+	includeFields?: boolean;
 	omittedUrls?: ReadonlySet<string>;
 }
 
@@ -71,6 +71,17 @@ function normaliseCopyBlock(value?: string | null): string {
 		.replace(/[ \t]+\n/gu, '\n')
 		.replace(/\n{3,}/gu, '\n\n')
 		.trim();
+}
+
+function normaliseUrlForComparison(value?: string | null): string | null {
+	if (!value) {
+		return null;
+	}
+	try {
+		return new URL(value).href.replace(/\/$/u, '');
+	} catch {
+		return null;
+	}
 }
 
 function trimUrlCandidate(value: string): string {
@@ -190,7 +201,7 @@ export function buildMessageEmbedCopyText(embed: MessageEmbed, options: EmbedCop
 		appendCopyBlock(blocks, embed.title);
 		appendCopyBlock(blocks, embed.description);
 	}
-	if (embed.type !== MessageEmbedTypes.BLUESKY) {
+	if (options.includeFields !== false && embed.type !== MessageEmbedTypes.BLUESKY) {
 		for (const field of embed.fields ?? []) {
 			const fieldName = renderMarkdownCopyText(field.name, EMBED_INLINE_COPY_PARSER_FLAGS, options);
 			const fieldValue = renderMarkdownCopyText(field.value, EMBED_DESCRIPTION_COPY_PARSER_FLAGS, options);

@@ -3,19 +3,44 @@
 import Guilds from '@app/features/guild/state/Guilds';
 import type {GuildMember} from '@app/features/member/models/GuildMember';
 import GuildMembers from '@app/features/member/state/GuildMembers';
-import {
-	type MemberSearchFilters,
-	MessageTypes as MemberSearchWorkerMessageTypes,
-	type TransformedMember,
-} from '@app/features/member/workers/MemberSearchProtocol';
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {randomUuid} from '@app/features/platform/utils/RandomUuid';
 import Relationships from '@app/features/relationship/state/Relationships';
 import type {User} from '@app/features/user/models/User';
 import Users from '@app/features/user/state/Users';
-import {formatUserTag} from '@app/features/user/utils/UserTagUtils';
 import {RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 import {makeAutoObservable} from 'mobx';
+
+export enum MemberSearchActionTypes {
+	INGEST_DIRECTORY = 'INGEST_DIRECTORY',
+	MATCHES_READY = 'MATCHES_READY',
+	SEARCH_BEGIN = 'SEARCH_BEGIN',
+	SEARCH_CANCEL = 'SEARCH_CANCEL',
+}
+
+export enum MemberSearchWorkerMessageTypes {
+	INGEST_DIRECTORY = 'INGEST_DIRECTORY',
+	MATCHES_READY = 'MATCHES_READY',
+	SEARCH_BEGIN = 'SEARCH_BEGIN',
+	SEARCH_CANCEL = 'SEARCH_CANCEL',
+}
+
+export interface MemberSearchFilters {
+	friends?: boolean;
+	guild?: string;
+}
+
+export interface TransformedMember {
+	id: string;
+	username: string;
+	globalName?: string | null;
+	guildNicknames?: Record<string, string | null>;
+	isBot?: boolean;
+	isFriend?: boolean;
+	guildIds?: Array<string>;
+	_delete?: boolean;
+	_removeGuild?: string;
+	[key: string]: string | boolean | null | undefined | Array<string> | Record<string, string | null>;
+}
 
 export type QueryBlacklist = Set<string>;
 export type QueryWhitelist = Set<string>;
@@ -94,7 +119,7 @@ function isFriendRelationship(userId: string): boolean {
 function getTransformedUser(user: User): TransformedMember {
 	return {
 		id: user.id,
-		username: formatUserTag(user),
+		username: `${user.username}#${user.discriminator}`,
 		globalName: user.globalName,
 		isBot: user.bot,
 		isFriend: isFriendRelationship(user.id),
@@ -146,7 +171,7 @@ export class SearchContext {
 	private _attachedWorker: Worker | null = null;
 
 	constructor(callback: (results: Array<TransformedMember>) => void, limit: number = DEFAULT_LIMIT) {
-		this._contextId = randomUuid();
+		this._contextId = crypto.randomUUID();
 		this._deliverResults = callback;
 		this._maxResults = limit;
 		this._inFlightQuery = null;
@@ -380,6 +405,24 @@ class MemberSearch {
 		updateMembers(transformedMembers);
 	}
 
+	handleUserUpdate(userId: string): void {
+		if (!worker) return;
+		const user = Users.getUser(userId);
+		if (user == null) return;
+		const allMembers: Array<TransformedMember> = [getTransformedUser(user)];
+		const guilds = Guilds.getGuilds();
+		for (const guild of guilds) {
+			const member = GuildMembers.getMember(guild.id, userId);
+			if (member) {
+				const transformedMember = getTransformedMember(member, guild.id);
+				if (transformedMember) {
+					allMembers.push(transformedMember);
+				}
+			}
+		}
+		updateMembers(allMembers);
+	}
+
 	handleFriendshipChange(userId: string, isFriend: boolean): void {
 		if (!worker) return;
 		const user = Users.getUser(userId);
@@ -408,6 +451,12 @@ class MemberSearch {
 			worker = null;
 		}
 		this.initialized = false;
+	}
+
+	cleanup(): void {
+		this.terminate();
+		this.initialized = false;
+		this.recentFetches.clear();
 	}
 
 	async fetchMembersInBackground(query: string, guildIds: Array<string>, priorityGuildId?: string): Promise<void> {

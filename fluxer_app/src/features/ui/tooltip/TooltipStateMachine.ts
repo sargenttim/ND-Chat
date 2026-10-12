@@ -59,7 +59,7 @@ export interface TooltipModel {
 	shouldRender: boolean;
 }
 
-const DEFAULT_TOOLTIP_ENVIRONMENT: TooltipEnvironment = {
+export const DEFAULT_TOOLTIP_ENVIRONMENT: TooltipEnvironment = {
 	disabled: false,
 	mobileEnabled: false,
 	contextMenuOpen: false,
@@ -172,7 +172,7 @@ const tooltipStateTransitions = {
 	'tooltip.dismiss': {target: 'routing', actions: 'dismiss'},
 } as const;
 
-const tooltipStateMachine = setup({
+export const tooltipStateMachine = setup({
 	types: {} as {
 		context: TooltipMachineContext;
 		events: TooltipMachineEvent;

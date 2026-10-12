@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Initialization from '@app/features/app/state/Initialization';
-import Accounts from '@app/features/auth/state/Accounts';
 import DeveloperOptions from '@app/features/devtools/state/DeveloperOptions';
-import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import GatewayConnection from '@app/features/gateway/transport/GatewayConnection';
 
 export function isClientBooting(): boolean {
 	if (DeveloperOptions.bypassLoadingSkeleton) {
@@ -16,8 +15,8 @@ export function isClientBooting(): boolean {
 }
 
 export function isClientReconnecting(): boolean {
-	if (isClientBooting() || Accounts.transitioning) {
+	if (isClientBooting()) {
 		return false;
 	}
-	return GatewaySessions.foregroundConnection.isConnectionInterrupted || !Initialization.isReady;
+	return GatewayConnection.isConnectionInterrupted || !Initialization.isReady;
 }

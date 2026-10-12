@@ -5,15 +5,12 @@ import type {GatewayHandlerContext} from '@app/features/gateway/events/EventRout
 import QuickSwitcher from '@app/features/search/state/QuickSwitcher';
 import type {UserPartial} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 
-export interface ChannelRecipientRemovePayload {
+interface ChannelRecipientPayload {
 	channel_id: string;
 	user: UserPartial;
 }
 
-export function handleChannelRecipientRemove(
-	data: ChannelRecipientRemovePayload,
-	_context: GatewayHandlerContext,
-): void {
+export function handleChannelRecipientRemove(data: ChannelRecipientPayload, _context: GatewayHandlerContext): void {
 	Channels.handleChannelRecipientRemove({
 		channelId: data.channel_id,
 		user: data.user,

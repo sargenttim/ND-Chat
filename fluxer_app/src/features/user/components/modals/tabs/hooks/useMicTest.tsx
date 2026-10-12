@@ -9,23 +9,29 @@ import {
 	type MicTestAudioGraph,
 } from '@app/features/user/components/modals/tabs/hooks/MicTestAudioGraph';
 import {
-	acquireIdleVoiceInputSource,
-	type VoiceInputContextLease,
-} from '@app/features/voice/engine/VoiceInputAudioContext';
-import {beginMicrophoneSession} from '@app/features/voice/utils/noise_suppression/DeepFilter';
-import NoiseSuppressionAvailability from '@app/features/voice/utils/noise_suppression/NoiseSuppressionAvailability';
-import type {VoiceNoiseSuppressionBackend} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionBackends';
-import {readRequestedNoiseSuppressionBackend} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionRuntime';
+	getNoiseSuppressionBackendDescriptor,
+	type VoiceNoiseSuppressionBackend,
+} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionBackends';
+import {readNoiseSuppressionBackend} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionRuntime';
+import type {NoiseSuppressionWorkletBackend} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionWorkletTypes';
 import {
 	applyContentHintToTrack,
 	resolveVoiceProcessing,
 	type VoiceProcessingMode,
 } from '@app/features/voice/utils/VoiceProcessingProfile';
-import {boostedVoiceVolumePercentToTrackVolume} from '@app/features/voice/utils/VoiceVolumeUtils';
-import {useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore} from 'react';
+import {
+	boostedVoiceVolumePercentToTrackVolume,
+	inputVoiceVolumePercentToGain,
+} from '@app/features/voice/utils/VoiceVolumeUtils';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 
 const logger = new Logger('useMicTest');
 
+interface SinkableAudioContext extends AudioContext {
+	setSinkId?: (sinkId: string | {type: 'none'}) => Promise<void>;
+}
+
+const TEST_AUDIO_CONTEXT_SAMPLE_RATE = 48000;
 const MIC_TEST_MONITOR_DELAY_SECONDS = 0.9;
 
 export interface MicTestSettings {
@@ -36,11 +42,12 @@ export interface MicTestSettings {
 	echoCancellation: boolean;
 	autoGainControl: boolean;
 	voiceProcessingMode: VoiceProcessingMode;
-	stereoMicrophone: boolean;
 }
 
-function readEffectiveNoiseSuppressionBackend(): VoiceNoiseSuppressionBackend {
-	return NoiseSuppressionAvailability.resolveEffectiveBackend(readRequestedNoiseSuppressionBackend());
+function resolveMicTestWorkletBackend(backend: VoiceNoiseSuppressionBackend): NoiseSuppressionWorkletBackend | null {
+	return getNoiseSuppressionBackendDescriptor(backend).engine === 'worklet'
+		? (backend as NoiseSuppressionWorkletBackend)
+		: null;
 }
 
 function normalizeOutputDeviceId(deviceId: string): string {
@@ -52,8 +59,7 @@ export const useMicTest = (settings: MicTestSettings) => {
 	const [isStarting, setIsStarting] = useState(false);
 	const [level, setLevel] = useState(0);
 	const [peakLevel, setPeakLevel] = useState(0);
-	const inputLeaseRef = useRef<VoiceInputContextLease | null>(null);
-	const inputVolumeRef = useRef(settings.inputVolume);
+	const audioContextRef = useRef<AudioContext | null>(null);
 	const graphRef = useRef<MicTestAudioGraph | null>(null);
 	const playbackDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 	const audioElementRef = useRef<HTMLAudioElement | null>(null);
@@ -62,14 +68,10 @@ export const useMicTest = (settings: MicTestSettings) => {
 	const timeDomainDataRef = useRef<Float32Array<ArrayBuffer> | null>(null);
 	const peakLevelRef = useRef(0);
 	const isStartingRef = useRef(false);
-	const attemptRef = useRef(0);
-	const abortRef = useRef<AbortController | null>(null);
+	const restartPendingRef = useRef(false);
 	const activeCaptureSignatureRef = useRef<string | null>(null);
 	const micExplicitlyDenied = MediaPermission.microphoneExplicitlyDenied;
-	const noiseSuppressionBackend = useSyncExternalStore(
-		NoiseSuppressionAvailability.subscribe,
-		readEffectiveNoiseSuppressionBackend,
-	);
+	const noiseSuppressionBackend = readNoiseSuppressionBackend();
 	const captureSignature = useMemo(
 		() =>
 			JSON.stringify({
@@ -78,7 +80,6 @@ export const useMicTest = (settings: MicTestSettings) => {
 				echoCancellation: settings.echoCancellation,
 				autoGainControl: settings.autoGainControl,
 				voiceProcessingMode: settings.voiceProcessingMode,
-				stereoMicrophone: settings.stereoMicrophone,
 				noiseSuppressionBackend,
 			}),
 		[
@@ -86,7 +87,6 @@ export const useMicTest = (settings: MicTestSettings) => {
 			settings.echoCancellation,
 			settings.inputDeviceId,
 			settings.outputDeviceId,
-			settings.stereoMicrophone,
 			settings.voiceProcessingMode,
 			noiseSuppressionBackend,
 		],
@@ -114,12 +114,7 @@ export const useMicTest = (settings: MicTestSettings) => {
 		animationFrameRef.current = requestAnimationFrame(updateLevel);
 	}, []);
 	const stop = useCallback(() => {
-		attemptRef.current++;
-		abortRef.current?.abort();
-		abortRef.current = null;
-		isStartingRef.current = false;
-		setIsStarting(false);
-		if (animationFrameRef.current !== null) {
+		if (animationFrameRef.current) {
 			cancelAnimationFrame(animationFrameRef.current);
 			animationFrameRef.current = null;
 		}
@@ -130,7 +125,11 @@ export const useMicTest = (settings: MicTestSettings) => {
 		}
 		const graph = graphRef.current;
 		graphRef.current = null;
-		graph?.dispose();
+		if (graph) {
+			void graph.dispose().catch((error) => {
+				logger.warn('Failed to dispose mic test graph', error);
+			});
+		}
 		const playbackDestination = playbackDestinationRef.current;
 		playbackDestinationRef.current = null;
 		if (playbackDestination) {
@@ -141,8 +140,12 @@ export const useMicTest = (settings: MicTestSettings) => {
 			micStreamRef.current.getTracks().forEach((track) => track.stop());
 			micStreamRef.current = null;
 		}
-		inputLeaseRef.current?.release();
-		inputLeaseRef.current = null;
+		const audioContext = audioContextRef.current;
+		audioContextRef.current = null;
+		if (audioContext && audioContext.state !== 'closed') {
+			void audioContext.close();
+			audioContextRef.current = null;
+		}
 		timeDomainDataRef.current = null;
 		peakLevelRef.current = 0;
 		setIsTesting(false);
@@ -155,22 +158,17 @@ export const useMicTest = (settings: MicTestSettings) => {
 			handleMediaPermissionBlocked('microphone');
 			return;
 		}
-		stop();
-		const attempt = ++attemptRef.current;
-		const controller = new AbortController();
-		abortRef.current = controller;
-		const isCurrent = () => attempt === attemptRef.current && !controller.signal.aborted;
 		isStartingRef.current = true;
 		setIsStarting(true);
 		try {
-			beginMicrophoneSession(controller.signal);
+			stop();
 			const nativeResult = await ensureMacPermission('microphone', {behavior: 'interactive'});
-			if (!isCurrent()) return;
 			switch (nativeResult) {
 				case 'granted':
 				case 'unsupported-platform':
 					break;
 				case 'denied':
+				case 'declined':
 					MediaPermission.markMicrophoneExplicitlyDenied();
 					handleMediaPermissionBlocked('microphone');
 					return;
@@ -179,17 +177,13 @@ export const useMicTest = (settings: MicTestSettings) => {
 					return exhaustive;
 				}
 			}
-			const profile = resolveVoiceProcessing(
-				settings,
-				readEffectiveNoiseSuppressionBackend(),
-				settings.stereoMicrophone,
-			);
+			const profile = resolveVoiceProcessing(settings, readNoiseSuppressionBackend(), false);
+			const workletBackend = resolveMicTestWorkletBackend(profile.noiseSuppressionBackend);
 			const baseAudioConstraints: MediaTrackConstraints & {voiceIsolation?: boolean} = {
 				echoCancellation: profile.echoCancellation,
 				noiseSuppression: profile.browserNoiseSuppression,
 				autoGainControl: profile.autoGainControl,
 				voiceIsolation: false,
-				...(profile.stereoCapture ? {channelCount: {ideal: 2}} : {}),
 			};
 			const useExactDeviceId = settings.inputDeviceId !== 'default';
 			const buildAudioConstraints = (exact: boolean): MediaTrackConstraints =>
@@ -203,15 +197,10 @@ export const useMicTest = (settings: MicTestSettings) => {
 			try {
 				stream = await navigator.mediaDevices.getUserMedia({audio: buildAudioConstraints(true)});
 			} catch (error) {
-				if (!isCurrent()) return;
 				if (!useExactDeviceId || !(error instanceof Error) || error.name !== 'OverconstrainedError') {
 					throw error;
 				}
 				stream = await navigator.mediaDevices.getUserMedia({audio: buildAudioConstraints(false)});
-			}
-			if (!isCurrent()) {
-				stream.getTracks().forEach((track) => track.stop());
-				return;
 			}
 			micStreamRef.current = stream;
 			const sourceTrack = stream.getAudioTracks()[0];
@@ -219,33 +208,24 @@ export const useMicTest = (settings: MicTestSettings) => {
 				throw new Error('getUserMedia returned no audio tracks for mic test');
 			}
 			applyContentHintToTrack(sourceTrack, profile.contentHint);
-			const acquired = acquireIdleVoiceInputSource(sourceTrack);
-			if (!acquired) {
-				throw new Error('No AudioContext is available for the mic test');
+			const audioContext = new AudioContext({sampleRate: TEST_AUDIO_CONTEXT_SAMPLE_RATE});
+			audioContextRef.current = audioContext;
+			if (audioContext.state === 'suspended') {
+				await audioContext.resume();
 			}
-			inputLeaseRef.current = acquired.lease;
-			const audioContext = acquired.lease.context;
-			inputVolumeRef.current = settings.inputVolume;
 			const outputSinkId = normalizeOutputDeviceId(settings.outputDeviceId);
 			const playbackDestination = audioContext.createMediaStreamDestination();
 			playbackDestinationRef.current = playbackDestination;
 			let playbackTarget: AudioNode = playbackDestination;
-			graphRef.current = createMicTestAudioGraph({
-				signal: controller.signal,
-				source: acquired.source,
+			graphRef.current = await createMicTestAudioGraph({
+				audioContext,
 				sourceTrack,
-				channelCount: profile.stereoCapture ? 2 : 1,
-				resolveConfig: () => ({
-					backend: resolveVoiceProcessing(settings, readEffectiveNoiseSuppressionBackend(), false)
-						.noiseSuppressionBackend,
-					inputVolumePercent: inputVolumeRef.current,
-					gateEnabled: false,
-					gateAuto: true,
-					gateThresholdRms: 0,
-				}),
+				inputGain: inputVoiceVolumePercentToGain(settings.inputVolume),
 				outputGain: boostedVoiceVolumePercentToTrackVolume(settings.outputVolume),
 				playbackTarget,
 				playbackDelaySeconds: MIC_TEST_MONITOR_DELAY_SECONDS,
+				deepFilter: profile.deepFilter,
+				workletBackend,
 			});
 			timeDomainDataRef.current = new Float32Array(graphRef.current.analyser.fftSize);
 			const audioElement = new Audio();
@@ -261,11 +241,9 @@ export const useMicTest = (settings: MicTestSettings) => {
 					logger.warn('Failed to set mic test media element output device', error);
 				}
 			}
-			if (!isCurrent()) return;
 			try {
 				await audioElement.play();
 			} catch (error) {
-				if (!isCurrent()) return;
 				logger.warn('Failed to start mic test media element playback; falling back to AudioContext destination', error);
 				audioElement.pause();
 				audioElement.srcObject = null;
@@ -275,10 +253,17 @@ export const useMicTest = (settings: MicTestSettings) => {
 				playbackDestinationRef.current = null;
 				graphRef.current.softClipOutput.disconnect();
 				playbackTarget = audioContext.destination;
+				const sinkableAudioContext = audioContext as SinkableAudioContext;
+				if (settings.outputDeviceId !== 'default' && sinkableAudioContext.setSinkId) {
+					try {
+						await sinkableAudioContext.setSinkId(outputSinkId);
+					} catch (sinkError) {
+						logger.warn('Failed to set mic test AudioContext output device', sinkError);
+					}
+				}
 				graphRef.current.softClipOutput.connect(playbackTarget);
 				graphRef.current.playbackTarget = playbackTarget;
 			}
-			if (!isCurrent()) return;
 			setIsTesting(true);
 			activeCaptureSignatureRef.current = captureSignature;
 			updateLevel();
@@ -286,7 +271,6 @@ export const useMicTest = (settings: MicTestSettings) => {
 				logger.info('Applied DeepFilterNet3 noise suppression for mic test');
 			}
 		} catch (error) {
-			if (!isCurrent()) return;
 			logger.error('Error starting mic test', error);
 			if (error instanceof Error && (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError')) {
 				MediaPermission.markMicrophoneExplicitlyDenied();
@@ -294,17 +278,18 @@ export const useMicTest = (settings: MicTestSettings) => {
 			}
 			stop();
 		} finally {
-			if (isCurrent()) {
-				isStartingRef.current = false;
-				setIsStarting(false);
+			isStartingRef.current = false;
+			setIsStarting(false);
+			if (restartPendingRef.current) {
+				restartPendingRef.current = false;
+				void start();
 			}
 		}
 	}, [captureSignature, settings, updateLevel, stop, micExplicitlyDenied]);
 	useEffect(() => {
 		if (!isTesting) return;
 		if (graphRef.current) {
-			inputVolumeRef.current = settings.inputVolume;
-			void graphRef.current.configure();
+			graphRef.current.inputGain.gain.value = inputVoiceVolumePercentToGain(settings.inputVolume);
 			graphRef.current.outputGain.gain.value = boostedVoiceVolumePercentToTrackVolume(settings.outputVolume);
 		}
 	}, [isTesting, settings.inputVolume, settings.outputVolume]);
@@ -317,6 +302,10 @@ export const useMicTest = (settings: MicTestSettings) => {
 			return;
 		}
 		activeCaptureSignatureRef.current = captureSignature;
+		if (isStartingRef.current) {
+			restartPendingRef.current = true;
+			return;
+		}
 		void start();
 	}, [captureSignature, isTesting, start]);
 	useEffect(() => {

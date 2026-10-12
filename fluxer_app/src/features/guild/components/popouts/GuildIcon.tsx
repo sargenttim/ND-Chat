@@ -3,16 +3,11 @@
 import {useHover} from '@app/features/app/hooks/useHover';
 import {useShouldAnimate} from '@app/features/app/hooks/useShouldAnimate';
 import styles from '@app/features/guild/components/popouts/GuildIcon.module.css';
-import * as StringUtils from '@app/features/guild/utils/GuildInitialsUtils';
-import {
-	getGuildIconDisplayInitials,
-	getGuildInitialsFitStyle,
-	getInitialsLength,
-} from '@app/features/guild/utils/GuildInitialsUtils';
-import {useRecoveringBackgroundImageURL} from '@app/features/messaging/hooks/useImageRecovery';
+import {getGuildIconDisplayInitials, getInitialsLength} from '@app/features/guild/utils/GuildInitialsUtils';
 import * as ImageCacheUtils from '@app/features/messaging/utils/ImageCacheUtils';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
+import * as StringUtils from '@app/lib/strings';
 import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
@@ -43,8 +38,9 @@ export const GuildIcon = observer(function GuildIcon({
 	sizePx,
 	containerProps,
 }: GuildIconProps) {
-	const initials = useMemo(() => getGuildIconDisplayInitials(StringUtils.getInitialsFromName(name)), [name]);
-	const initialsLength = getInitialsLength(initials);
+	const rawInitials = useMemo(() => StringUtils.getInitialsFromName(name), [name]);
+	const initials = useMemo(() => getGuildIconDisplayInitials(rawInitials), [rawInitials]);
+	const initialsLength = useMemo(() => getInitialsLength(rawInitials), [rawInitials]);
 	const [hoverRef, isHovering] = useHover();
 	const iconUrl = icon ? AvatarUtils.getGuildIconURL({id, icon}) : null;
 	const hoverIconUrl = icon ? AvatarUtils.getGuildIconURL({id, icon}, true) : null;
@@ -56,9 +52,8 @@ export const GuildIcon = observer(function GuildIcon({
 		if (!animationAllowed || hoverIconUrl == null || isAnimatedLoaded) return;
 		return ImageCacheUtils.loadImage(hoverIconUrl, () => setLoadedAnimatedUrl(hoverIconUrl));
 	}, [animationAllowed, hoverIconUrl, isAnimatedLoaded]);
-	const paintableIconUrl = useRecoveringBackgroundImageURL(iconUrl ?? '');
-	const activeUrl = animationAllowed && isAnimatedLoaded ? hoverIconUrl : paintableIconUrl;
-	const paintedUrl = paintableIconUrl != null && activeUrl != null && activeUrl.length > 0 ? activeUrl : null;
+	const activeUrl = animationAllowed && isAnimatedLoaded ? hoverIconUrl : iconUrl;
+	const paintedUrl = activeUrl != null && activeUrl.length > 0 ? activeUrl : null;
 	const styleVars: GuildIconStyleVars = {};
 	if (sizePx != null) {
 		styleVars['--guild-icon-size'] = remFromPx(sizePx);
@@ -76,11 +71,7 @@ export const GuildIcon = observer(function GuildIcon({
 			style={styleVars}
 		>
 			{paintedUrl == null && (
-				<span
-					className={styles.initials}
-					style={getGuildInitialsFitStyle(initials)}
-					data-flx="guild.guild-icon.initials"
-				>
+				<span className={styles.initials} data-flx="guild.guild-icon.initials">
 					{initials}
 				</span>
 			)}

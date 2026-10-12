@@ -10,6 +10,12 @@ class Sudo {
 		makeAutoObservable(this, {}, {autoBind: true});
 	}
 
+	init(): void {}
+
+	get hasValidTokenFlag(): boolean {
+		return Boolean(this.token && this.expiresAt && Date.now() < this.expiresAt);
+	}
+
 	getValidToken = (): string | null => {
 		if (this.token && this.expiresAt && Date.now() < this.expiresAt) {
 			return this.token;
@@ -28,7 +34,7 @@ class Sudo {
 	}
 
 	hasValidToken(): boolean {
-		return this.getValidToken() !== null;
+		return this.hasValidTokenFlag;
 	}
 }
 

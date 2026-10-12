@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {resolveDocumentURLFromRoot} from '@app/features/platform/URLOriginUtils';
-
 const MAX_SAFE_REDIRECT_LENGTH = 2048;
 
 export function safeRedirectTarget(target: string | null | undefined): string | null {
@@ -21,7 +19,7 @@ export function safeRedirectTarget(target: string | null | undefined): string | 
 		return null;
 	}
 	try {
-		const url = resolveDocumentURLFromRoot(trimmed);
+		const url = new URL(trimmed, window.location.origin);
 		if (url.origin !== window.location.origin) {
 			return null;
 		}

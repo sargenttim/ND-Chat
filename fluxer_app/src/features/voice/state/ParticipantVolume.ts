@@ -2,7 +2,6 @@
 
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {makePersistent} from '@app/features/platform/utils/MobXPersistence';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import {getStreamKey} from '@app/features/voice/components/StreamKeys';
 import {getEffectiveAudioState} from '@app/features/voice/engine/VoiceEffectiveAudioState';
 import {isScreenShareAudioPublicationLike, VoiceTrackKind} from '@app/features/voice/engine/VoiceTrackSource';
@@ -80,7 +79,7 @@ class ParticipantVolume {
 			},
 			{autoBind: true},
 		);
-		initializeStore(this, () => this.initPersistence());
+		void this.initPersistence();
 	}
 
 	private async initPersistence(): Promise<void> {
@@ -152,6 +151,17 @@ class ParticipantVolume {
 
 	isLocalMuted(userId: string): boolean {
 		return this.localMutes[userId] ?? false;
+	}
+
+	resetUserSettings(userId: string): void {
+		const newVolumes = {...this.volumes};
+		const newLocalMutes = {...this.localMutes};
+		delete newVolumes[userId];
+		delete newLocalMutes[userId];
+		this.volumes = newVolumes;
+		this.localMutes = newLocalMutes;
+		this.notifyListeners();
+		logger.debug(`Reset settings for ${userId}`);
 	}
 
 	subscribe(listener: () => void): () => void {

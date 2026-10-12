@@ -2,7 +2,6 @@
 
 import Accessibility from '@app/features/accessibility/state/Accessibility';
 import {getStatusTypeLabel} from '@app/features/app/constants/AppConstants';
-import {useImageRecovery} from '@app/features/messaging/hooks/useImageRecovery';
 import * as ImageCacheUtils from '@app/features/messaging/utils/ImageCacheUtils';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {type AvatarStatusLayout, getAvatarStatusLayout} from '@app/features/ui/components/AvatarStatusLayout';
@@ -14,7 +13,7 @@ import type {StatusType} from '@fluxer/constants/src/StatusConstants';
 import {normalizeStatus, StatusTypes} from '@fluxer/constants/src/StatusConstants';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
-import React, {useCallback, useId, useMemo, useState} from 'react';
+import React, {useCallback, useEffect, useId, useMemo, useState} from 'react';
 
 const AVATAR_DESCRIPTOR = msg({
 	message: 'Avatar',
@@ -30,6 +29,7 @@ const STATUS_DESCRIPTOR = msg({
 });
 const DEFAULT_CUSTOM_STATUS_BADGE_SCALE = 1.25;
 const DEFAULT_CUSTOM_STATUS_BADGE_CUTOUT_PADDING_SCALE = 1.2;
+const AVATAR_IMAGE_RETRY_LIMIT = 3;
 const PLACEHOLDER_FAST_FADE_WINDOW_MS = 200;
 
 type AvatarCSSProperties = React.CSSProperties & {
@@ -175,12 +175,32 @@ export const BaseAvatar = React.forwardRef<HTMLDivElement, BaseAvatarProps>(
 		const maskIsMobileOnline = shouldShowCustomStatusBadge ? false : isMobileOnline;
 		const reducedMotion = Accessibility.useReducedMotion;
 		const candidateUrl = animatedMediaPlaybackEnabled ? hoverAvatarUrl || '' : avatarUrl;
-		const {failed: imgError, reportError: handleImageError} = useImageRecovery(candidateUrl);
+		const [imgError, setImgError] = useState(() => ImageCacheUtils.hasFailedImage(candidateUrl));
+		const [imgRetryCount, setImgRetryCount] = useState(0);
 		const [wasCachedAtMount] = useState(() => ImageCacheUtils.hasImage(candidateUrl));
 		const [mountedAt] = useState(() => Date.now());
 		const [paintedImage, setPaintedImage] = useState<PaintedAvatarImage | null>(() =>
 			wasCachedAtMount ? {url: candidateUrl, fade: 'instant'} : null,
 		);
+		useEffect(() => {
+			setImgError(ImageCacheUtils.hasFailedImage(candidateUrl));
+			setImgRetryCount(0);
+		}, [candidateUrl]);
+		useEffect(() => {
+			if (!imgError || !candidateUrl || imgRetryCount >= AVATAR_IMAGE_RETRY_LIMIT) {
+				return;
+			}
+			let active = true;
+			const cancelImageRetry = ImageCacheUtils.loadImage(candidateUrl, () => {
+				if (!active) return;
+				setImgRetryCount((count) => count + 1);
+				setImgError(false);
+			});
+			return () => {
+				active = false;
+				cancelImageRetry();
+			};
+		}, [candidateUrl, imgError, imgRetryCount]);
 		const handleImageRef = useCallback(
 			(node: HTMLImageElement | null) => {
 				if (node == null) return;
@@ -207,6 +227,9 @@ export const BaseAvatar = React.forwardRef<HTMLDivElement, BaseAvatarProps>(
 			},
 			[mountedAt, onImageLoaded],
 		);
+		const handleImageError = useCallback(() => {
+			setImgError(true);
+		}, []);
 		const showFallback = !candidateUrl || imgError;
 		const paintedCandidate = paintedImage?.url === candidateUrl ? paintedImage : null;
 		const shouldMountPlaceholder = showSkeleton && !wasCachedAtMount;

@@ -17,6 +17,7 @@ async function setEmailVerified(harness: ApiTestHarness, userId: string, emailVe
 		.post(`/test/users/${userId}/security-flags`)
 		.body({
 			email_verified: emailVerified,
+			suspicious_activity_flags: 0,
 		})
 		.execute();
 }

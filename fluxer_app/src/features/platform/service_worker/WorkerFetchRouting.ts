@@ -4,7 +4,7 @@ import {isAppNavigationPath} from '@app/features/platform/service_worker/WorkerN
 
 export type WorkerFetchRoute = 'ignore' | 'metadata' | 'navigation';
 
-function isNavigationRequest(request: Request): boolean {
+export function isNavigationRequest(request: Request): boolean {
 	if (request.mode === 'navigate') return true;
 	const accept = request.headers.get('accept') ?? '';
 	return request.destination === 'document' || accept.includes('text/html');

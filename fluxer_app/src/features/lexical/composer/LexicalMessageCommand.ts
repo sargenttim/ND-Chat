@@ -251,3 +251,8 @@ export const LexicalMessageCommandResolver = Object.freeze({
 		return resolution;
 	},
 });
+
+export function isLexicalMessageCommandCurrentChannelMessage(resolution: LexicalMessageCommandResolution): boolean {
+	if (resolution.status !== LexicalMessageCommandResolutionStatus.VALID_COMMAND) return false;
+	return resolution.command.type === 'me' || resolution.command.type === 'spoiler' || resolution.command.type === 'tts';
+}

@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {type AccountIdentityMode, AccountIdentityModes} from '@fluxer/constants/src/AccountIdentityConstants';
 import {assign, initialTransition, type SnapshotFrom, setup, transition} from 'xstate';
 
 export type WizardStep =
 	| 'welcome'
 	| 'theme'
-	| 'sign_in_method'
 	| 'admin_intro'
 	| 'admin_account'
 	| 'loading'
-	| 'admin_recovery_kit'
 	| 'branding'
 	| 'registration'
 	| 'community'
@@ -24,17 +21,11 @@ export type WizardStep =
 	| 'premium'
 	| 'finish';
 
-type WizardPhase = 'register' | 'loading' | 'configure';
+export type WizardPhase = 'register' | 'loading' | 'configure';
 
-const REGISTER_STEPS: ReadonlyArray<WizardStep> = [
-	'welcome',
-	'theme',
-	'sign_in_method',
-	'admin_intro',
-	'admin_account',
-];
-const LOADING_STEPS: ReadonlyArray<WizardStep> = ['loading'];
-const CONFIGURE_STEPS: ReadonlyArray<WizardStep> = [
+export const REGISTER_STEPS: ReadonlyArray<WizardStep> = ['welcome', 'theme', 'admin_intro', 'admin_account'];
+export const LOADING_STEPS: ReadonlyArray<WizardStep> = ['loading'];
+export const CONFIGURE_STEPS: ReadonlyArray<WizardStep> = [
 	'welcome',
 	'branding',
 	'registration',
@@ -50,30 +41,20 @@ const CONFIGURE_STEPS: ReadonlyArray<WizardStep> = [
 	'finish',
 ];
 
-function derivePhase(isAuthenticated: boolean, hasConfig: boolean): WizardPhase {
+export function derivePhase(isAuthenticated: boolean, hasConfig: boolean): WizardPhase {
 	if (!isAuthenticated) return 'register';
 	if (!hasConfig) return 'loading';
 	return 'configure';
 }
 
-const USERNAME_CONFIGURE_STEPS: ReadonlyArray<WizardStep> = [
-	'welcome',
-	'admin_recovery_kit',
-	...CONFIGURE_STEPS.slice(1).filter((step) => step !== 'integration_email'),
-];
-
-function phaseSteps(
-	phase: WizardPhase,
-	accountIdentity: AccountIdentityMode,
-	identityLocked = false,
-): ReadonlyArray<WizardStep> {
+export function phaseSteps(phase: WizardPhase): ReadonlyArray<WizardStep> {
 	switch (phase) {
 		case 'register':
-			return identityLocked ? REGISTER_STEPS.filter((step) => step !== 'sign_in_method') : REGISTER_STEPS;
+			return REGISTER_STEPS;
 		case 'loading':
 			return LOADING_STEPS;
 		case 'configure':
-			return accountIdentity === AccountIdentityModes.USERNAME ? USERNAME_CONFIGURE_STEPS : CONFIGURE_STEPS;
+			return CONFIGURE_STEPS;
 	}
 }
 
@@ -82,20 +63,12 @@ interface SetupWizardMachineContext {
 	direction: number;
 	isAuthenticated: boolean;
 	hasConfig: boolean;
-	accountIdentity: AccountIdentityMode;
-	identityLocked: boolean;
 }
 
 export type SetupWizardMachineEvent =
 	| {type: 'wizard.next'}
 	| {type: 'wizard.back'}
-	| {
-			type: 'wizard.sync';
-			isAuthenticated: boolean;
-			hasConfig: boolean;
-			accountIdentity: AccountIdentityMode;
-			identityLocked: boolean;
-	  };
+	| {type: 'wizard.sync'; isAuthenticated: boolean; hasConfig: boolean};
 
 export interface SetupWizardModel {
 	phase: WizardPhase;
@@ -106,11 +79,7 @@ export interface SetupWizardModel {
 }
 
 function advance(context: SetupWizardMachineContext, delta: number): Partial<SetupWizardMachineContext> {
-	const steps = phaseSteps(
-		derivePhase(context.isAuthenticated, context.hasConfig),
-		context.accountIdentity,
-		context.identityLocked,
-	);
+	const steps = phaseSteps(derivePhase(context.isAuthenticated, context.hasConfig));
 	const index = steps.indexOf(context.step);
 	const safeIndex = index < 0 ? 0 : index;
 	const nextIndex = Math.min(steps.length - 1, Math.max(0, safeIndex + delta));
@@ -125,7 +94,7 @@ function targetsPhase(event: SetupWizardMachineEvent, context: SetupWizardMachin
 	);
 }
 
-const setupWizardStateMachine = setup({
+export const setupWizardStateMachine = setup({
 	types: {} as {
 		context: SetupWizardMachineContext;
 		events: SetupWizardMachineEvent;
@@ -140,10 +109,6 @@ const setupWizardStateMachine = setup({
 			isAuthenticated: ({context, event}) =>
 				event.type === 'wizard.sync' ? event.isAuthenticated : context.isAuthenticated,
 			hasConfig: ({context, event}) => (event.type === 'wizard.sync' ? event.hasConfig : context.hasConfig),
-			accountIdentity: ({context, event}) =>
-				event.type === 'wizard.sync' ? event.accountIdentity : context.accountIdentity,
-			identityLocked: ({context, event}) =>
-				event.type === 'wizard.sync' ? event.identityLocked : context.identityLocked,
 		}),
 		goNext: assign(({context}) => advance(context, 1)),
 		goBack: assign(({context}) => advance(context, -1)),
@@ -158,8 +123,6 @@ const setupWizardStateMachine = setup({
 		direction: 0,
 		isAuthenticated: false,
 		hasConfig: false,
-		accountIdentity: AccountIdentityModes.EMAIL,
-		identityLocked: false,
 	},
 	initial: 'register',
 	on: {
@@ -206,7 +169,7 @@ export function transitionSetupWizardSnapshot(
 
 export function selectSetupWizardModel(snapshot: SetupWizardSnapshot): SetupWizardModel {
 	const phase = derivePhase(snapshot.context.isAuthenticated, snapshot.context.hasConfig);
-	const steps = phaseSteps(phase, snapshot.context.accountIdentity, snapshot.context.identityLocked);
+	const steps = phaseSteps(phase);
 	const stepIndex = steps.indexOf(snapshot.context.step);
 	return {
 		phase,

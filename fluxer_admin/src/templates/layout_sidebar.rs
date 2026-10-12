@@ -4,7 +4,7 @@ use crate::{acl, config::AdminConfig};
 use maud::{Markup, PreEscaped, html};
 
 use super::layout_scripts::SIDEBAR_ACTIVE_SCROLL_SCRIPT;
-use super::layout_sidebar_nav::NAV_SECTIONS;
+pub use super::layout_sidebar_nav::{NAV_SECTIONS, NavItem, NavSection};
 
 pub fn render_sidebar(
     config: &AdminConfig,
@@ -29,6 +29,7 @@ pub fn render_sidebar(
             nav data-sidebar-nav="" class="sidebar-scrollbar flex-1 space-y-4 overflow-y-auto p-4" aria-label="Admin sections" {
                 @for section in NAV_SECTIONS {
                     @let visible_items: Vec<_> = section.items.iter()
+                        .filter(|item| !(item.hosted_only && config.self_hosted))
                         .filter(|item| acl::has_any_permission(admin_acls, item.required_acls))
                         .filter(|item| {
                             item.active_key != "voice-servers" || inspected_voice_region_id.is_some()

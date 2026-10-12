@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {requireOwnerWindow} from '@app/features/ui/utils/OwnerWindow';
 import {
 	measureVisibleScrollViewportRect,
 	type VisibleScrollViewportRect,
@@ -21,6 +20,13 @@ const OUTSIDE_TOLERANCE_PX = 24;
 const MIN_SPEED_PX_PER_SECOND = 120;
 const MAX_SPEED_PX_PER_SECOND = 960;
 const MAX_FRAME_DELTA_MS = 32;
+function resolveOwnerWindow(element: HTMLElement): Window & typeof globalThis {
+	const ownerWindow = element.ownerDocument.defaultView;
+	if (ownerWindow == null) {
+		throw new Error('Drag auto-scroll element has no owner window');
+	}
+	return ownerWindow;
+}
 
 function getScrollVelocity(pointer: number, start: number, end: number): number {
 	if (pointer < start - OUTSIDE_TOLERANCE_PX || pointer > end + OUTSIDE_TOLERANCE_PX) return 0;
@@ -72,7 +78,7 @@ export function useDragAutoScroll({active, axis = 'vertical', getScrollElement}:
 			const elementChanged = element !== scrollElement;
 			scrollElement = element;
 			bounds = measureVisibleScrollViewportRect(element);
-			const ownerWindow = requireOwnerWindow(element, 'Drag auto-scroll element');
+			const ownerWindow = resolveOwnerWindow(element);
 			if (ownerWindow !== resizeWindow) {
 				if (resizeWindow != null) {
 					resizeWindow.removeEventListener('resize', handleResize);
@@ -133,7 +139,7 @@ export function useDragAutoScroll({active, axis = 'vertical', getScrollElement}:
 			} else {
 				element.scrollLeft = nextPosition;
 			}
-			const ownerWindow = requireOwnerWindow(element, 'Drag auto-scroll element');
+			const ownerWindow = resolveOwnerWindow(element);
 			animationWindow = ownerWindow;
 			animationFrame = ownerWindow.requestAnimationFrame(runAnimationFrame);
 		};
@@ -157,7 +163,7 @@ export function useDragAutoScroll({active, axis = 'vertical', getScrollElement}:
 				return;
 			}
 			if (animationFrame == null) {
-				const ownerWindow = requireOwnerWindow(element, 'Drag auto-scroll element');
+				const ownerWindow = resolveOwnerWindow(element);
 				animationWindow = ownerWindow;
 				animationFrame = ownerWindow.requestAnimationFrame(runAnimationFrame);
 			}

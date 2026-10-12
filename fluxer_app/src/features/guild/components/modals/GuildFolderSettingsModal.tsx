@@ -4,7 +4,6 @@ import * as Modal from '@app/features/app/components/dialogs/Modal';
 import {useCursorAtEnd} from '@app/features/app/hooks/useCursorAtEnd';
 import Guilds from '@app/features/guild/state/Guilds';
 import {CANCEL_DESCRIPTOR, FOLDER_SETTINGS_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
-import {formatList} from '@app/features/i18n/utils/IntlCache';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Button} from '@app/features/ui/button/Button';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
@@ -33,6 +32,7 @@ import {
 	ShieldIcon,
 	StarIcon,
 } from '@phosphor-icons/react';
+import {formatListWithConfig} from '@pkgs/list_utils/src/ListFormatting';
 import {observer} from 'mobx-react-lite';
 import type {ReactNode} from 'react';
 import {useCallback, useMemo, useState} from 'react';
@@ -128,7 +128,7 @@ interface GuildFolderSettingsModalProps {
 	folderId: number;
 }
 
-const GuildFolderSettingsModal = observer(({folderId}: GuildFolderSettingsModalProps) => {
+export const GuildFolderSettingsModal = observer(({folderId}: GuildFolderSettingsModalProps) => {
 	const {i18n} = useLingui();
 	const folder = useMemo(() => {
 		return UserSettings.guildFolders.find((f) => f.id === folderId);
@@ -139,7 +139,7 @@ const GuildFolderSettingsModal = observer(({folderId}: GuildFolderSettingsModalP
 			.slice(0, 3)
 			.map((guildId) => Guilds.getGuild(guildId)?.name)
 			.filter((name): name is string => name != null);
-		return formatList(guildNames, {locale: i18n.locale, style: 'narrow', type: 'conjunction'});
+		return formatListWithConfig(guildNames, {locale: i18n.locale, style: 'narrow', type: 'conjunction'});
 	}, [folder, i18n.locale]);
 	const [name, setName] = useState(folder?.name ?? '');
 	const nameRef = useCursorAtEnd<HTMLInputElement>();

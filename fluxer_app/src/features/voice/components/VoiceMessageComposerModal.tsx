@@ -2,11 +2,7 @@
 
 import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
 import * as Modal from '@app/features/app/components/dialogs/Modal';
-import {
-	CANCEL_DESCRIPTOR,
-	PAUSE_DESCRIPTOR,
-	SOMETHING_WENT_WRONG_DESCRIPTOR,
-} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {SOMETHING_WENT_WRONG_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
@@ -15,7 +11,6 @@ import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {AudioWaveform, computePeaks} from '@app/features/voice/components/AudioWaveform';
 import {LiveRecordingWaveform} from '@app/features/voice/components/LiveRecordingWaveform';
 import styles from '@app/features/voice/components/VoiceMessageComposerModal.module.css';
-import {resolveAudioContextConstructor} from '@app/features/voice/engine/VoiceSharedAudioContext';
 import {encodeAudioBufferSliceToWav} from '@app/features/voice/utils/AudioWavEncode';
 import {computeVoiceWaveformFromAudioBuffer} from '@app/features/voice/utils/VoiceMessageRecordingUtils';
 import {sendVoiceMessage} from '@app/features/voice/utils/VoiceMessageSendUtils';
@@ -83,10 +78,17 @@ const SEND_BUTTON_DESCRIPTOR = msg({
 	message: 'Send',
 	comment: 'Send-message button label in the voice message composer modal.',
 });
-
+const CANCEL_DESCRIPTOR = msg({
+	message: 'Cancel',
+	comment: 'Cancel button label in the voice message composer modal.',
+});
 const PLAY_DESCRIPTOR = msg({
 	message: 'Play',
 	comment: 'Play-preview button label in the voice message composer modal.',
+});
+const PAUSE_DESCRIPTOR = msg({
+	message: 'Pause',
+	comment: 'Pause-preview button label in the voice message composer modal.',
 });
 
 const logger = new Logger('VoiceMessageComposerModal');
@@ -119,7 +121,7 @@ function formatElapsedMs(value: number): string {
 	return `${minutes.toString().padStart(1, '0')}:${seconds.toString().padStart(2, '0')}.${tenths}`;
 }
 
-const VoiceMessageComposerModal: React.FC<VoiceMessageComposerModalProps> = observer(({channelId}) => {
+export const VoiceMessageComposerModal: React.FC<VoiceMessageComposerModalProps> = observer(({channelId}) => {
 	const {i18n} = useLingui();
 	const [stage, setStage] = useState<ModalStage>('idle');
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -278,7 +280,9 @@ const VoiceMessageComposerModal: React.FC<VoiceMessageComposerModalProps> = obse
 		try {
 			const stream = await navigator.mediaDevices.getUserMedia({audio: true});
 			mediaStreamRef.current = stream;
-			const Ctor = resolveAudioContextConstructor();
+			const Ctor =
+				window.AudioContext ||
+				(window as typeof window & {webkitAudioContext?: typeof AudioContext}).webkitAudioContext;
 			if (Ctor) {
 				const audioContext = new Ctor();
 				analyserAudioCtxRef.current = audioContext;
@@ -330,7 +334,8 @@ const VoiceMessageComposerModal: React.FC<VoiceMessageComposerModalProps> = obse
 	}, []);
 
 	const decodeBlob = useCallback(async (blob: Blob): Promise<AudioBuffer | null> => {
-		const Ctor = resolveAudioContextConstructor();
+		const Ctor =
+			window.AudioContext || (window as typeof window & {webkitAudioContext?: typeof AudioContext}).webkitAudioContext;
 		if (!Ctor) return null;
 		const ctx = playbackCtxRef.current ?? new Ctor();
 		playbackCtxRef.current = ctx;

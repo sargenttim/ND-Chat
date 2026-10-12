@@ -6,12 +6,7 @@ use crate::{
 };
 use maud::{Markup, html};
 
-pub fn applications_tab(
-    config: &AdminConfig,
-    applications: &[Application],
-    empty_title: &str,
-    empty_body: &str,
-) -> Markup {
+pub fn applications_tab(config: &AdminConfig, applications: &[Application]) -> Markup {
     let base = &config.base_path;
     html! {
         (card_with_header(
@@ -20,10 +15,10 @@ pub fn applications_tab(
                 @if applications.is_empty() {
                     div class="flex flex-col items-center justify-center py-12 text-center" {
                         p class="text-sm font-medium text-neutral-900" {
-                            (empty_title)
+                            "No applications owned"
                         }
                         p class="mt-1 text-sm text-neutral-500" {
-                            (empty_body)
+                            "This user does not own any applications."
                         }
                     }
                 } @else {

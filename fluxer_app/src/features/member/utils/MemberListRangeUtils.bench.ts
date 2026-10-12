@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {
+	areMemberListRangesCovered,
+	areMemberListRangesEqual,
 	areNormalizedMemberListRangesCovered,
 	areNormalizedMemberListRangesEqual,
 	buildMemberListRangeWindow,
@@ -54,8 +56,16 @@ test('MemberListRangeUtils benchmarks', async ({bench}) => {
 		}
 	}).run();
 
+	await bench('coverage checks for 1k normalized pages', () => {
+		areMemberListRangesCovered(INNER_RANGES, COVERING_RANGES);
+	}).run();
+
 	await bench('normalized coverage checks without re-normalizing', () => {
 		areNormalizedMemberListRangesCovered(NORMALIZED_INNER_RANGES, NORMALIZED_COVERING_RANGES);
+	}).run();
+
+	await bench('range equality for raw normalized-shaped windows', () => {
+		areMemberListRangesEqual(COVERING_RANGES, COVERING_RANGES_COPY);
 	}).run();
 
 	await bench('normalized range equality without re-normalizing', () => {

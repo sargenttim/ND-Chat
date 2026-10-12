@@ -2,10 +2,6 @@
 
 -module(gateway_rpc_guild_infra).
 
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -typing([eqwalizer]).
 
 -export([
@@ -25,8 +21,13 @@
     is_cached_guild_pid_alive/1
 ]).
 
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
+
 -define(GUILD_LOOKUP_TIMEOUT, 2500).
 -define(GUILD_START_LOOKUP_TIMEOUT, 8000).
+-define(GUILD_CALL_TIMEOUT, 4000).
 -define(GUILD_START_MAX_ATTEMPTS, 3).
 -define(GUILD_START_BASE_MS, 250).
 -define(GUILD_START_MAX_MS, 2000).
@@ -66,7 +67,7 @@ with_guild_unchecked(GuildId, Fun) ->
 
 -spec ensure_responsive(pid()) -> ok.
 ensure_responsive(Pid) ->
-    case guild_health:is_overloaded(Pid) of
+    case guild_health:is_degraded(Pid) of
         true -> gateway_rpc_error:raise(<<"guild_overloaded">>);
         false -> ok
     end.
@@ -432,8 +433,7 @@ overloaded_guild_is_rejected_before_enqueuing_work_test() ->
             stop -> ok
         end
     end),
-    Pending = {make_ref(), erlang:monotonic_time(millisecond), 2500},
-    true = ets:insert(guild_health_status, {Pid, 42, true, undefined, Pending}),
+    true = ets:insert(guild_health_status, {Pid, 42, true, undefined, undefined}),
     try
         ?assertError(
             {gateway_rpc_error, <<"guild_overloaded">>},
@@ -448,6 +448,17 @@ overloaded_guild_is_rejected_before_enqueuing_work_test() ->
         ets:delete(guild_health_status, Pid),
         Pid ! stop
     end.
+
+guild_start_backoff_delay_exponential_test() ->
+    Delay1 = guild_start_backoff_delay(1),
+    ?assert(Delay1 >= ?GUILD_START_BASE_MS),
+    ?assert(Delay1 =< ?GUILD_START_BASE_MS + ?GUILD_START_JITTER_MS),
+    Delay2 = guild_start_backoff_delay(2),
+    ?assert(Delay2 >= ?GUILD_START_BASE_MS * 2),
+    ?assert(Delay2 =< ?GUILD_START_BASE_MS * 2 + ?GUILD_START_JITTER_MS).
+
+guild_start_backoff_delay_caps_at_max_test() ->
+    ?assert(guild_start_backoff_delay(10) =< ?GUILD_START_MAX_MS + ?GUILD_START_JITTER_MS).
 
 run_with_guild_pid_guard_generic_exit_returns_domain_error_test() ->
     ?assertError(

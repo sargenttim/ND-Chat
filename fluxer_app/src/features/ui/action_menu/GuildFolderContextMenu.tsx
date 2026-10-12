@@ -6,7 +6,6 @@ import type {Guild} from '@app/features/guild/models/Guild';
 import GuildReadState from '@app/features/guild/state/GuildReadState';
 import {FOLDER_SETTINGS_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import * as ReadStateCommands from '@app/features/read_state/commands/ReadStateCommands';
-import {getUnreadThreadIds} from '@app/features/threads/utils/ThreadViewUtils';
 import {MarkAsReadIcon, SettingsIcon} from '@app/features/ui/action_menu/ContextMenuIcons';
 import {BulkGuildSettingsMenuItems} from '@app/features/ui/action_menu/items/BulkSettingsMenuItems';
 import {MenuGroup} from '@app/features/ui/action_menu/MenuGroup';
@@ -23,6 +22,9 @@ const MARK_FOLDER_AS_READ_DESCRIPTOR = msg({
 
 interface GuildFolder {
 	id: number | null;
+	name: string | null;
+	color: number | null;
+	guildIds: Array<string>;
 }
 
 interface GuildFolderContextMenuProps {
@@ -48,7 +50,6 @@ export const GuildFolderContextMenu: React.FC<GuildFolderContextMenuProps> = obs
 			for (const channel of channels) {
 				channelIds.push(channel.id);
 			}
-			channelIds.push(...getUnreadThreadIds(guild.id));
 		}
 		if (channelIds.length > 0) {
 			void ReadStateCommands.bulkAckChannels(channelIds);

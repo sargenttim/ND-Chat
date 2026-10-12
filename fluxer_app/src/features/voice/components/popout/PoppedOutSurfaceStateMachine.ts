@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
+
+export const POPPED_OUT_TRANSITION_ENTER_MS = 240;
+export const POPPED_OUT_TRANSITION_EXIT_MS = 200;
 export const POPPED_OUT_TRANSITION_FALLBACK_MS = 480;
 
-type PoppedOutSurfacePhase = 'live' | 'popping-out' | 'popped' | 'restoring';
+export type PoppedOutSurfacePhase = 'live' | 'popping-out' | 'popped' | 'restoring';
 
 export interface PoppedOutSurfaceSnapshot {
 	phase: PoppedOutSurfacePhase;

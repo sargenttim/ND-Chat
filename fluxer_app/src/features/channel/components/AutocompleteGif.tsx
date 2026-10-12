@@ -2,9 +2,8 @@
 
 import {useAnimatedMediaVideoPlayback} from '@app/features/app/hooks/useAnimatedMediaPlayback';
 import {useShouldAnimate} from '@app/features/app/hooks/useShouldAnimate';
+import {type AutocompleteOption, isGif} from '@app/features/channel/components/Autocomplete';
 import styles from '@app/features/channel/components/AutocompleteGif.module.css';
-import type {AutocompleteListProps} from '@app/features/channel/components/AutocompleteTypes';
-import {isGif} from '@app/features/channel/components/AutocompleteTypes';
 import * as KlipyUtils from '@app/features/expressions/utils/KlipyUtils';
 import {GIFS_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {buildStaticGifPreviewURL} from '@app/features/messaging/utils/MediaProxyUtils';
@@ -12,7 +11,7 @@ import {Scroller, type ScrollerHandle} from '@app/features/ui/components/Scrolle
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
-
+import type React from 'react';
 import {useEffect, useMemo, useRef} from 'react';
 
 const NO_GIFS_FOUND_DESCRIPTOR = msg({
@@ -79,7 +78,16 @@ export const AutocompleteGif = observer(
 		onMouseLeave,
 		rowRefs,
 		getOptionId,
-	}: AutocompleteListProps) => {
+	}: {
+		onSelect: (option: AutocompleteOption) => void;
+		keyboardFocusIndex: number;
+		hoverIndex: number;
+		options: Array<AutocompleteOption>;
+		onMouseEnter: (index: number) => void;
+		onMouseLeave: () => void;
+		rowRefs?: React.RefObject<Array<HTMLButtonElement | null>>;
+		getOptionId?: (index: number) => string;
+	}) => {
 		const {i18n} = useLingui();
 		const gifs = useMemo(() => options.filter(isGif), [options]);
 		const scrollerRef = useRef<ScrollerHandle>(null);

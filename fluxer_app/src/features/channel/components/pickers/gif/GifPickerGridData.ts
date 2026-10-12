@@ -14,7 +14,7 @@ const CATEGORY_TILE_WIDTH = 200;
 const CATEGORY_TILE_HEIGHT = 96;
 const DEFAULT_GIF_SIZE = 200;
 
-interface GifPickerFavoriteMemePreview {
+export interface GifPickerFavoriteMemePreview {
 	contentType: string;
 	url: string;
 }
@@ -39,7 +39,7 @@ function freshStoredUrl(url: string): string {
 	return AttachmentUrlRefresher.fresh(url, {refreshUnsigned: true});
 }
 
-function buildSkeletonGifPickerItems(count: number): Array<GifPickerGridItemData> {
+export function buildSkeletonGifPickerItems(count: number): Array<GifPickerGridItemData> {
 	return Array.from({length: count}, (_, i) => ({
 		type: 'skeleton',
 		key: `skeleton-${i}`,

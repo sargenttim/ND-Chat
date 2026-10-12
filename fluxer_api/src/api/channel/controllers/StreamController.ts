@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createChannelID} from '@app/api/BrandedTypes';
-import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
+import {Config} from '@app/api/Config';
 import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import type {HonoApp} from '@app/api/types/HonoEnv';
-import {requireRequestClientIp} from '@app/api/utils/RequestClientIp';
 import {Validator} from '@app/api/Validator';
+import {requireClientIp} from '@fluxer/ip_utils/src/ClientIp';
 import {
 	StreamPreviewResponse,
 	StreamPreviewUploadBodySchema,
@@ -40,9 +40,7 @@ export function StreamController(app: HonoApp) {
 			const user = ctx.get('user');
 			const {region} = ctx.req.valid('json');
 			const streamKey = ctx.req.valid('param').stream_key;
-			await ctx
-				.get('streamService')
-				.updateStreamRegion({viewer: viewerFromCtx(ctx), streamKey, region, userId: user.id});
+			await ctx.get('streamService').updateStreamRegion({streamKey, region, userId: user.id});
 			return ctx.body(null, 204);
 		},
 	);
@@ -66,9 +64,7 @@ export function StreamController(app: HonoApp) {
 		async (ctx) => {
 			const user = ctx.get('user');
 			const streamKey = ctx.req.valid('param').stream_key;
-			const preview = await ctx
-				.get('streamService')
-				.getPreview({viewer: viewerFromCtx(ctx), streamKey, userId: user.id});
+			const preview = await ctx.get('streamService').getPreview({streamKey, userId: user.id});
 			if (!preview) {
 				return ctx.body(null, 404);
 			}
@@ -101,9 +97,11 @@ export function StreamController(app: HonoApp) {
 			const user = ctx.get('user');
 			const {channel_id, content_type} = ctx.req.valid('json');
 			const streamKey = ctx.req.valid('param').stream_key;
-			const clientIp = requireRequestClientIp(ctx);
+			const clientIp = requireClientIp(ctx.req.raw, {
+				trustClientIpHeader: Config.proxy.trust_client_ip_header,
+				clientIpHeaderName: Config.proxy.client_ip_header,
+			});
 			const response = await ctx.get('streamService').createPreviewUploadUrl({
-				viewer: viewerFromCtx(ctx),
 				streamKey,
 				channelId: createChannelID(channel_id),
 				userId: user.id,
@@ -135,7 +133,6 @@ export function StreamController(app: HonoApp) {
 			const {thumbnail, channel_id, content_type} = ctx.req.valid('json');
 			const streamKey = ctx.req.valid('param').stream_key;
 			await ctx.get('streamService').uploadPreview({
-				viewer: viewerFromCtx(ctx),
 				streamKey,
 				channelId: createChannelID(channel_id),
 				userId: user.id,
@@ -164,7 +161,7 @@ export function StreamController(app: HonoApp) {
 		async (ctx) => {
 			const user = ctx.get('user');
 			const streamKey = ctx.req.valid('param').stream_key;
-			await ctx.get('streamService').deletePreview({viewer: viewerFromCtx(ctx), streamKey, userId: user.id});
+			await ctx.get('streamService').deletePreview({streamKey, userId: user.id});
 			return ctx.body(null, 204);
 		},
 	);

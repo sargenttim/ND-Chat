@@ -76,21 +76,16 @@
 	--action-toolbar-item-border-width: 0;
 }
 
+.quickReactionGroupEnd {
+	margin-right: 0.5625rem;
+}
+
 .button[hidden] {
 	display: none;
 }
 
-.button.disabled {
-	color: var(--text-chat-muted);
-	cursor: default;
-}
-
-.button.disabled .actionBarIcon {
-	opacity: 0.5;
-}
-
 :global(:where(html.window-focused, html.unfocused-fully-interactive):not(.window-focus-activation-guard))
-	.button:not(.active):not(.danger):not(.disabled):hover {
+	.button:not(.active):not(.danger):hover {
 	color: var(--text-primary);
 	background: var(--message-action-bar-hover-background);
 }

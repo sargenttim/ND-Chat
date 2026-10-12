@@ -13,7 +13,7 @@ const SPEC_DOCUMENT = JSON.parse(fs.readFileSync(SPEC_PATH, 'utf-8')) as Record<
 
 let specBody: string | null = null;
 
-function buildOpenAPISpecBody(apiClientEndpoint: string): string {
+export function buildOpenAPISpecBody(apiClientEndpoint: string): string {
 	return JSON.stringify({
 		...SPEC_DOCUMENT,
 		servers: [{url: `${apiClientEndpoint.trim().replace(/\/+$/u, '')}/v1`, description: 'This deployment'}],

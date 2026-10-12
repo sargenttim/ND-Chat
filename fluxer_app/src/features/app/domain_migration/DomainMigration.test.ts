@@ -2,12 +2,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {
-	collectExportableAppStorage,
-	writeImportedAppStorage,
-} from '@app/features/app/domain_migration/DomainMigrationAppStorage';
-import {
 	detectDomainMigrationInstallKind,
-	readDomainMigrationDiscovery,
+	installDomainMovedApp,
 } from '@app/features/app/domain_migration/DomainMigrationBrowser';
 import * as core from '@app/features/app/domain_migration/DomainMigrationCore';
 import {
@@ -15,17 +11,10 @@ import {
 	encryptDomainMigrationPayload,
 } from '@app/features/app/domain_migration/DomainMigrationCrypto';
 import {runDomainMigrationPreMount} from '@app/features/app/domain_migration/DomainMigrationPreMount';
-import InstanceSnapshotStore from '@app/features/app/state/InstanceSnapshotStore';
 import type {RuntimeConfigSnapshot} from '@app/features/app/state/RuntimeConfig';
-import type {StoredAccount} from '@app/features/auth/state/AccountStorageContract';
-import {accountStorageKey} from '@app/features/auth/state/AccountStorageKey';
-import {AppStorageKey} from '@app/features/platform/state/AppStorageKeys';
-import {LEGACY_APP_STORAGE_MIGRATION_MARKER_KEY} from '@app/features/platform/state/LegacyAppStorageMigration';
-import {createPersistentStorageBackend} from '@app/features/platform/state/PersistentStorageBackend';
-import {DEPLOYED_OFFICIAL_DOCUMENT} from '@fluxer/instance_bootstrap/src/__tests__/DiscoveryFixtures';
+import type {StoredAccount} from '@app/features/auth/state/AccountStorage';
 import type {DomainMigrationDiscoveryResponse} from '@fluxer/schema/src/domains/admin/DomainMigrationSchemas';
 import {experimentBucket} from '@fluxer/schema/src/domains/experiment/ExperimentBucket';
-import {runInAction} from 'mobx';
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 
 vi.mock('@app/features/platform/utils/AppLogger', () => ({
@@ -38,7 +27,7 @@ vi.mock('@app/features/platform/utils/AppLogger', () => ({
 }));
 
 vi.mock('@app/features/auth/state/AccountStorage', () => ({
-	default: {getAllAccounts: async () => ({records: [], source: 'idb'})},
+	default: {getAllAccounts: async () => []},
 }));
 
 const ENABLED_DISCOVERY: DomainMigrationDiscoveryResponse = {
@@ -71,7 +60,7 @@ function environment(
 	installKind: core.DomainMigrationInstallKind,
 	overrides: Partial<core.DomainMigrationEnvironment> = {},
 ): core.DomainMigrationEnvironment {
-	return {installKind, electron: false, ...overrides};
+	return {installKind, electron: false, electronMigrationVersion: null, electronPasskeyRpIds: [], ...overrides};
 }
 
 function gateInput(overrides: Partial<core.DomainMigrationGateInput> = {}): core.DomainMigrationGateInput {
@@ -266,84 +255,20 @@ describe('local storage export', () => {
 	});
 });
 
-describe('scoped app storage handoff', () => {
-	const sourceInstance = {apiEndpoint: 'https://api.fluxer.app'} as RuntimeConfigSnapshot;
-	const targetInstance = {apiEndpoint: 'https://api.fluxer.com'} as RuntimeConfigSnapshot;
-	const account: StoredAccount = {
-		userId: '1',
-		token: 'token',
-		localStorageData: {},
-		lastActive: NOW,
-		instance: sourceInstance,
-	};
-
-	async function exportSource() {
-		const source = createPersistentStorageBackend(null);
-		await source.setMany([
-			{scope: 'global', key: AppStorageKey.VOICE_SETTINGS, value: '{"inputVolume":40}'},
-			{scope: 'global', key: AppStorageKey.DELETED_KEYS, value: JSON.stringify(['locale'])},
-			{scope: 'global', key: 'fluxer.lastPushEndpoint', value: 'https://push'},
-			{scope: 'global', key: LEGACY_APP_STORAGE_MIGRATION_MARKER_KEY, value: '{"version":1}'},
-			{scope: accountStorageKey('1', sourceInstance)!, key: AppStorageKey.NOTIFICATION, value: '{"fresh":true}'},
-		]);
-		const raw = {
-			token: '"token"',
-			VoiceSettings: '{"inputVolume":100}',
-			Notification: '{"fresh":false}',
-			locale: 'sv-SE',
-		};
-		return collectExportableAppStorage(source, raw, [account], '1');
-	}
-
-	it('carries values saved after the upgrade and drops raw values the source deleted', async () => {
-		const exported = await exportSource();
-
-		expect(exported.app_storage).toEqual(
-			expect.arrayContaining([
-				{user_id: null, key: AppStorageKey.VOICE_SETTINGS, value: '{"inputVolume":40}'},
-				{user_id: '1', key: AppStorageKey.NOTIFICATION, value: '{"fresh":true}'},
-			]),
-		);
-		const keys = exported.app_storage.map((entry) => entry.key);
-		expect(keys).not.toContain('fluxer.lastPushEndpoint');
-		expect(keys).not.toContain(LEGACY_APP_STORAGE_MIGRATION_MARKER_KEY);
-		expect(exported.local_storage).not.toHaveProperty('locale');
-		expect(exported.local_storage.token).toBe('"token"');
-	});
-
-	it('seeds the target scoped store so its legacy migration cannot restore the stale raw values', async () => {
-		const exported = await exportSource();
-		const parsed = core.parseDomainMigrationPayload(
-			{
-				version: core.DOMAIN_MIGRATION_PAYLOAD_VERSION,
-				source_origin: 'https://web.fluxer.app',
-				exported_at: NOW,
-				local_storage: exported.local_storage,
-				app_storage: [...exported.app_storage, {user_id: 1, key: 'bad', value: 'x'}],
-				accounts: [account],
-				notification_permission: 'default',
-			},
-			'https://web.fluxer.app',
-		);
-		expect(parsed?.app_storage).toHaveLength(exported.app_storage.length);
-
-		const target = createPersistentStorageBackend(null);
-		await writeImportedAppStorage(target, parsed!.app_storage!, parsed!.accounts, targetInstance);
-		const targetScope = accountStorageKey('1', targetInstance)!;
-		await target.setMany([
-			{scope: 'global', key: AppStorageKey.VOICE_SETTINGS, value: '{"inputVolume":100}', ifAbsent: true},
-			{scope: targetScope, key: AppStorageKey.NOTIFICATION, value: '{"fresh":false}', ifAbsent: true},
-		]);
-
-		expect((await target.get('global', AppStorageKey.VOICE_SETTINGS))?.value).toBe('{"inputVolume":40}');
-		expect((await target.get(targetScope, AppStorageKey.NOTIFICATION))?.value).toBe('{"fresh":true}');
-		expect(await target.get('global', LEGACY_APP_STORAGE_MIGRATION_MARKER_KEY)).toBeNull();
-	});
-});
-
 describe('migration gate', () => {
 	it('passes when every condition holds', () => {
 		expect(core.shouldStartDomainMigration(gateInput())).toBe(true);
+		expect(
+			core.shouldStartDomainMigration(
+				gateInput({
+					environment: environment('none', {
+						electron: true,
+						electronMigrationVersion: 1,
+						electronPasskeyRpIds: ['fluxer.app', 'fluxer.com'],
+					}),
+				}),
+			),
+		).toBe(true);
 	});
 
 	it.each<[string, Partial<core.DomainMigrationGateInput>]>([
@@ -357,7 +282,17 @@ describe('migration gate', () => {
 		['Apple web app', {environment: environment('webkit')}],
 		['Firefox web app', {environment: environment('firefox')}],
 		['other web app', {environment: environment('other')}],
-		['the desktop app', {environment: environment('none', {electron: true})}],
+		['old desktop', {environment: environment('none', {electron: true})}],
+		[
+			'desktop that cannot create fluxer.com passkeys',
+			{
+				environment: environment('none', {
+					electron: true,
+					electronMigrationVersion: 1,
+					electronPasskeyRpIds: ['fluxer.app'],
+				}),
+			},
+		],
 		['in a voice call', {voiceActive: true}],
 		['on a one-shot token route', {oneShotRoute: true}],
 	])('blocks when %s', (_label, overrides) => {
@@ -506,6 +441,7 @@ function signals(overrides: Partial<core.DomainMigrationInstallSignals>): core.D
 		userAgent: CHROME_DESKTOP_UA,
 		userAgentData: null,
 		maxTouchPoints: 0,
+		electron: false,
 		...overrides,
 	};
 }
@@ -514,6 +450,7 @@ describe('classifyDomainMigrationInstallKind', () => {
 	it.each<[string, Partial<core.DomainMigrationInstallSignals>, core.DomainMigrationInstallKind]>([
 		['a browser tab', {displayMode: 'browser'}, 'none'],
 		['a Firefox taskbar tab', {displayMode: 'minimal-ui', userAgent: FIREFOX_DESKTOP_UA}, 'none'],
+		['Electron', {electron: true}, 'none'],
 		['Safari on iPhone in a tab', {displayMode: 'browser', userAgent: IPHONE_UA}, 'none'],
 		['Chrome desktop by brand', {userAgentData: {brands: CHROMIUM_BRANDS, mobile: false}}, 'chromium-desktop'],
 		['Chrome desktop by user agent', {}, 'chromium-desktop'],
@@ -566,29 +503,111 @@ describe('classifyDomainMigrationInstallKind', () => {
 	});
 });
 
+describe('shouldShowDomainMovedNotice', () => {
+	const source = core.resolveDomainMigrationSide('https://web.fluxer.app');
+	const completed: core.DomainMigrationMarker = {
+		state: 'completed',
+		target: 'https://fluxer.com',
+		at: NOW,
+		attempts: 1,
+	};
+
+	function notice(overrides: Partial<core.DomainMovedNoticeInput>): core.DomainMovedNoticeInput {
+		return {
+			side: source,
+			installKind: 'webkit',
+			discovery: ENABLED_DISCOVERY,
+			assignmentEnabled: true,
+			marker: null,
+			dismissedAt: null,
+			now: NOW,
+			...overrides,
+		};
+	}
+
+	it('shows in installed apps on the source once the user is in the rollout', () => {
+		for (const installKind of ['chromium-android', 'webkit', 'firefox', 'other'] as const) {
+			expect(core.shouldShowDomainMovedNotice(notice({installKind}))).toBe(true);
+			expect(core.shouldShowDomainMovedNotice(notice({installKind, assignmentEnabled: false}))).toBe(false);
+			expect(core.shouldShowDomainMovedNotice(notice({installKind, assignmentEnabled: false, marker: completed}))).toBe(
+				true,
+			);
+		}
+	});
+
+	it('waits for the handoff in Chromium desktop apps', () => {
+		expect(core.shouldShowDomainMovedNotice(notice({installKind: 'chromium-desktop'}))).toBe(false);
+		expect(core.shouldShowDomainMovedNotice(notice({installKind: 'chromium-desktop', marker: completed}))).toBe(true);
+	});
+
+	it.each<[string, Partial<core.DomainMovedNoticeInput>]>([
+		['a browser tab', {installKind: 'none', marker: completed}],
+		['the target', {side: core.resolveDomainMigrationSide('https://fluxer.com')}],
+		['a self-hosted origin', {side: core.resolveDomainMigrationSide('https://chat.example.com')}],
+		['the kill switch', {discovery: {...ENABLED_DISCOVERY, enabled: false}}],
+		['missing discovery', {discovery: null}],
+	])('stays hidden for %s', (_label, overrides) => {
+		expect(core.shouldShowDomainMovedNotice(notice(overrides))).toBe(false);
+	});
+
+	it('comes back seven days after a dismissal', () => {
+		expect(core.shouldShowDomainMovedNotice(notice({dismissedAt: NOW - 1000}))).toBe(false);
+		expect(
+			core.shouldShowDomainMovedNotice(notice({dismissedAt: NOW - core.DOMAIN_MIGRATION_MOVED_DISMISS_MS + 1})),
+		).toBe(false);
+		expect(core.shouldShowDomainMovedNotice(notice({dismissedAt: NOW - core.DOMAIN_MIGRATION_MOVED_DISMISS_MS}))).toBe(
+			true,
+		);
+	});
+
+	it('builds the new app links from the side target', () => {
+		expect(core.domainMovedInstallUrl('https://canary.fluxer.com')).toBe('https://canary.fluxer.com/app');
+		expect(core.domainMovedManifestId('https://fluxer.com')).toBe('https://fluxer.com/');
+		expect(core.domainMovedBrowserMigrationUrl('https://fluxer.com')).toBe(
+			'https://fluxer.com/migrate/begin?start=1&next=%2Fapp',
+		);
+	});
+});
+
+describe('installDomainMovedApp', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	it('opens the new app in the browser straight from the click without the install API', () => {
+		const open = vi.spyOn(window, 'open').mockReturnValue(null);
+		const onUnavailable = vi.fn();
+		vi.stubGlobal('navigator', {userAgent: CHROME_DESKTOP_UA});
+		installDomainMovedApp('https://fluxer.com', onUnavailable);
+		expect(open).toHaveBeenCalledWith('https://fluxer.com/app', '_blank', 'noopener');
+		expect(onUnavailable).not.toHaveBeenCalled();
+	});
+
+	it('shows the fallback instead of a late popup when the install fails', async () => {
+		const open = vi.spyOn(window, 'open').mockReturnValue(null);
+		const onUnavailable = vi.fn();
+		const install = vi.fn().mockRejectedValue(new DOMException('denied', 'NotAllowedError'));
+		vi.stubGlobal('navigator', {userAgent: CHROME_DESKTOP_UA, install});
+		installDomainMovedApp('https://fluxer.com', onUnavailable);
+		await vi.waitFor(() => expect(onUnavailable).toHaveBeenCalledOnce());
+		expect(install).toHaveBeenCalledWith('https://fluxer.com/app', 'https://fluxer.com/');
+		expect(open).not.toHaveBeenCalled();
+	});
+
+	it('does nothing more when the user cancels the install', async () => {
+		const onUnavailable = vi.fn();
+		const install = vi.fn().mockRejectedValue(new DOMException('cancelled', 'AbortError'));
+		vi.stubGlobal('navigator', {userAgent: CHROME_DESKTOP_UA, install});
+		installDomainMovedApp('https://fluxer.com', onUnavailable);
+		await Promise.resolve();
+		await Promise.resolve();
+		expect(onUnavailable).not.toHaveBeenCalled();
+	});
+});
+
 describe('runDomainMigrationPreMount', () => {
 	let replace: ReturnType<typeof vi.fn>;
-
-	let discoveryFetch: ReturnType<typeof vi.fn>;
-
-	function serveDiscovery(discovery: DomainMigrationDiscoveryResponse | undefined): void {
-		runInAction(() => InstanceSnapshotStore.entries.clear());
-		discoveryFetch = vi.fn(async (url: string) => {
-			const api = `${new URL(url).origin}/api`;
-			const body = JSON.stringify({
-				...DEPLOYED_OFFICIAL_DOCUMENT,
-				endpoints: {...DEPLOYED_OFFICIAL_DOCUMENT.endpoints, api, api_client: api, api_public: api},
-				...(discovery === undefined ? {} : {domain_migration: discovery}),
-			});
-			return {
-				status: 200,
-				headers: {get: (name: string) => (name.toLowerCase() === 'content-type' ? 'application/json' : null)},
-				body: null,
-				text: async () => body,
-			};
-		});
-		vi.stubGlobal('fetch', discoveryFetch);
-	}
 
 	function visit(url: string, discovery: DomainMigrationDiscoveryResponse | undefined): void {
 		const parsed = new URL(url);
@@ -600,7 +619,7 @@ describe('runDomainMigrationPreMount', () => {
 			hash: parsed.hash,
 			replace,
 		});
-		serveDiscovery(discovery);
+		(window as unknown as Record<string, unknown>).__FLUXER_BOOTSTRAP__ = {instance: {domain_migration: discovery}};
 	}
 
 	function readMarker(): core.DomainMigrationMarker | null {
@@ -629,31 +648,6 @@ describe('runDomainMigrationPreMount', () => {
 
 	it('does nothing on a self-hosted origin', async () => {
 		visit('https://chat.example.com/migrate/done?next=/channels/@me', ENABLED_DISCOVERY);
-		writeCompletedMarker();
-		expect(await runDomainMigrationPreMount()).toBe(false);
-		expect(replace).not.toHaveBeenCalled();
-	});
-
-	it('does nothing in the desktop local renderer', async () => {
-		visit('fluxer-app://app/channels/@me', ENABLED_DISCOVERY);
-		writeCompletedMarker();
-		expect(await runDomainMigrationPreMount()).toBe(false);
-		expect(replace).not.toHaveBeenCalled();
-		expect(discoveryFetch).not.toHaveBeenCalled();
-		expect(readDomainMigrationDiscovery()).toBeNull();
-	});
-
-	it('reads the migration from the instance discovery document', async () => {
-		visit('https://web.fluxer.app/channels/@me', ENABLED_DISCOVERY);
-		expect(readDomainMigrationDiscovery()).toBeNull();
-		await runDomainMigrationPreMount();
-		expect(discoveryFetch).toHaveBeenCalled();
-		expect(readDomainMigrationDiscovery()).toEqual(ENABLED_DISCOVERY);
-	});
-
-	it('stays put when discovery is unreachable', async () => {
-		visit('https://web.fluxer.app/channels/1/2', ENABLED_DISCOVERY);
-		vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('offline')));
 		writeCompletedMarker();
 		expect(await runDomainMigrationPreMount()).toBe(false);
 		expect(replace).not.toHaveBeenCalled();

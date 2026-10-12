@@ -10,7 +10,6 @@ import * as TextCopyCommands from '@app/features/ui/commands/TextCopyCommands';
 import {MenuBottomSheet, type MenuGroupType} from '@app/features/ui/menu_bottom_sheet/MenuBottomSheet';
 import * as AvatarUtils from '@app/features/user/utils/AvatarUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
-import {formatUserTag} from '@app/features/user/utils/UserTagUtils';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {EyeIcon, IdentificationCardIcon, ProhibitIcon} from '@phosphor-icons/react';
@@ -39,7 +38,7 @@ export const BannedUserActionsSheet: React.FC<BannedUserActionsSheetProps> = obs
 		const {user} = ban;
 		const userDisplayName = NicknameUtils.getDisplayName(user);
 		const userTag = NicknameUtils.formatTagForStreamerMode(
-			user.tag ?? formatUserTag({...user, discriminator: (user.discriminator ?? '').padStart(4, '0')}),
+			user.tag ?? `${user.username}#${(user.discriminator ?? '').padStart(4, '0')}`,
 		);
 		const handleViewDetails = () => {
 			ModalCommands.pushAfterBottomSheetClose(

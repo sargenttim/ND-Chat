@@ -13,7 +13,7 @@ interface BuildConstraintsOptions {
 	includeResolution: boolean;
 }
 
-function getDeviceMediaConstraints(
+export function getDeviceMediaConstraints(
 	options: DeviceScreenShareCaptureOptions | undefined,
 	flags: BuildConstraintsOptions,
 ): MediaStreamConstraints {

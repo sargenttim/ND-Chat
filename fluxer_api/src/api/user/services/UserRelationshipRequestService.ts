@@ -6,7 +6,7 @@ import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import type {Relationship} from '@app/api/models/Relationship';
 import type {UserChannelService} from '@app/api/user/services/UserChannelService';
 import type {UserRelationshipService} from '@app/api/user/services/UserRelationshipService';
-
+import {getCachedUserPartialResponse, getCachedUserPartialResponses} from '@app/api/user/UserCacheHelpers';
 import {mapRelationshipToResponse} from '@app/api/user/UserMappers';
 import {RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 import type {
@@ -69,10 +69,11 @@ export class UserRelationshipRequestService {
 		const userPartialResolver = this.createUserPartialResolver(params.requestCache);
 		const inverseRelationshipResolver = this.createInverseRelationshipResolver(params.userId);
 		const relationships = await this.userRelationshipService.getRelationships(params.userId);
-		await this.userCacheService.getUserPartialResponses(
-			relationships.map((relationship) => relationship.targetUserId),
-			params.requestCache,
-		);
+		await getCachedUserPartialResponses({
+			userIds: relationships.map((relationship) => relationship.targetUserId),
+			userCacheService: this.userCacheService,
+			requestCache: params.requestCache,
+		});
 		return Promise.all(
 			relationships.map((relationship) =>
 				mapRelationshipToResponse({relationship, userPartialResolver, inverseRelationshipResolver}),
@@ -157,7 +158,8 @@ export class UserRelationshipRequestService {
 	}
 
 	private createUserPartialResolver(requestCache: RequestCache) {
-		return (userId: UserID) => this.userCacheService.getUserPartialResponse(userId, requestCache);
+		return (userId: UserID) =>
+			getCachedUserPartialResponse({userId, userCacheService: this.userCacheService, requestCache});
 	}
 
 	private createInverseRelationshipResolver(viewerId: UserID) {

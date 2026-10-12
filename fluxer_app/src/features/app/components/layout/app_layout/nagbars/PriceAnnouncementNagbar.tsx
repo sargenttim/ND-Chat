@@ -4,13 +4,15 @@ import {Nagbar} from '@app/features/app/components/layout/Nagbar';
 import {NagbarButton} from '@app/features/app/components/layout/NagbarButton';
 import {NagbarContent} from '@app/features/app/components/layout/NagbarContent';
 import {NAGBAR_TONES, NagbarToneKind} from '@app/features/app/components/layout/NagbarTones';
-import * as PlutoniumPageCommands from '@app/features/premium/commands/PlutoniumPageCommands';
+import {PREMIUM_PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {resolvePriceAnnouncementCampaign} from '@app/features/premium/config/PriceAnnouncementCampaign';
 import PremiumState from '@app/features/premium/state/PremiumState';
 import {VIEW_PLANS_DESCRIPTOR} from '@app/features/premium/utils/PremiumMessageDescriptors';
-import {getPremiumProductName} from '@app/features/premium/utils/PremiumUtils';
 import {formatMinorUnitPrice} from '@app/features/premium/utils/PricingUtils';
+import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
+import {modal} from '@app/features/ui/commands/ModalCommands';
 import NagbarState from '@app/features/ui/state/Nagbar';
+import {UserSettingsModal} from '@app/features/user/components/modals/UserSettingsModal';
 import Users from '@app/features/user/state/Users';
 import * as LocaleUtils from '@app/features/user/utils/LocaleUtils';
 import {useLingui} from '@lingui/react/macro';
@@ -27,7 +29,14 @@ export const PriceAnnouncementNagbar = observer(function PriceAnnouncementNagbar
 		if (campaignId != null) {
 			NagbarState.dismissPriceAnnouncement(campaignId);
 		}
-		PlutoniumPageCommands.openPlutoniumPage();
+		ModalCommands.push(
+			modal(() => (
+				<UserSettingsModal
+					initialTab="plutonium"
+					data-flx="app.app-layout.nagbars.price-announcement-nagbar.handle-open-plans.user-settings-modal"
+				/>
+			)),
+		);
 	}, [campaignId]);
 	const handleDismiss = useCallback(() => {
 		if (campaignId == null) return;
@@ -51,7 +60,7 @@ export const PriceAnnouncementNagbar = observer(function PriceAnnouncementNagbar
 				isMobile={isMobile}
 				onDismiss={handleDismiss}
 				message={i18n._(resolved.campaign.announcementMessage, {
-					premiumProductName: getPremiumProductName(),
+					premiumProductName: PREMIUM_PRODUCT_NAME,
 					monthlyPrice,
 					yearlyPrice,
 				})}

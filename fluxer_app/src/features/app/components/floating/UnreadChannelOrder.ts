@@ -2,13 +2,13 @@
 
 import {useEffect, useMemo, useRef, useState} from 'react';
 
-const UNREAD_REFREEZE_COOLDOWN_MS = 10_000;
+export const UNREAD_REFREEZE_COOLDOWN_MS = 10_000;
 
 export interface FrozenUnreadOrder {
 	order: Map<string, number>;
 }
 
-function selectFrozenUnreadChannels<T extends {id: string}>(
+export function selectFrozenUnreadChannels<T extends {id: string}>(
 	order: ReadonlyMap<string, number>,
 	live: ReadonlyArray<T>,
 ): Array<T> {

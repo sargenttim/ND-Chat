@@ -12,7 +12,7 @@ function getCurrentPath(): string {
 	return window.location.pathname + window.location.search + window.location.hash;
 }
 
-function isMobileVoiceTextChatHistoryState(state: unknown, channelId: string): boolean {
+export function isMobileVoiceTextChatHistoryState(state: unknown, channelId: string): boolean {
 	if (typeof state !== 'object' || state === null) {
 		return false;
 	}

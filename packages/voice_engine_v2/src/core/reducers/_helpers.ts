@@ -250,6 +250,9 @@ export function clearOperationForResource(
 	if (resourceKey === 'stats' && snapshot.statsOperationId === operationId) {
 		return {...snapshot, statsOperationId: null};
 	}
+	if (resourceKey === 'capabilities' && snapshot.hardwareEncoder.operationId === operationId) {
+		return {...snapshot, hardwareEncoder: {...snapshot.hardwareEncoder, operationId: null}};
+	}
 	if (resourceKey === 'gateway' && snapshot.gateway.operationId === operationId) {
 		return {...snapshot, gateway: {...snapshot.gateway, operationId: null}};
 	}

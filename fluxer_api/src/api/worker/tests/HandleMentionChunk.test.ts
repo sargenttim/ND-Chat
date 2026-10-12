@@ -13,10 +13,11 @@ import {
 import type {RecentMentionRow} from '@app/api/database/types/UserTypes';
 import {UserGuildSettings} from '@app/api/models/UserGuildSettings';
 import type {ReadStateService} from '@app/api/read_state/ReadStateService';
-import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
+import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import handleMentionChunk from '@app/api/worker/tasks/HandleMentionChunk';
 import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
+import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
 import {afterEach, describe, expect, test} from 'vitest';
 
 const CHANNEL_ID = '2000';
@@ -75,10 +76,21 @@ function createHarness(settingsByUserId: Record<string, SuppressionFlags>) {
 	return {settingsReads, incrementedUserIds, recentMentions};
 }
 
+function createHelpers(): WorkerTaskHelpers {
+	return {
+		logger: new NoopLogger(),
+		jobId: 1n,
+		addJob: async () => 0n,
+		reportProgress: async () => {},
+		shouldCancel: async () => false,
+		setContextLink: async () => {},
+	};
+}
+
 async function runChunk(mentions: Array<{userId: string; direct?: boolean; role?: boolean; everyone?: boolean}>) {
 	await handleMentionChunk(
 		{channelId: CHANNEL_ID, messageId: MESSAGE_ID, guildId: GUILD_ID, mentions},
-		createTestWorkerHelpers(),
+		createHelpers(),
 	);
 }
 
@@ -105,6 +117,18 @@ describe('handleMentionChunk', () => {
 			['11', false, false],
 			['12', false, false],
 		]);
+	});
+
+	test('reads guild settings only for everyone and role mentions', async () => {
+		const harness = createHarness({});
+
+		await runChunk([
+			{userId: '10', direct: true},
+			{userId: '11', everyone: true},
+			{userId: '12', role: true},
+		]);
+
+		expect(harness.settingsReads).toEqual(['11', '12']);
 	});
 
 	test('honours suppressEveryone for everyone mentions', async () => {
@@ -161,7 +185,7 @@ describe('handleMentionChunk', () => {
 
 		await handleMentionChunk(
 			{channelId: CHANNEL_ID, messageId: MESSAGE_ID, mentions: [{userId: '10', direct: true}]},
-			createTestWorkerHelpers(),
+			createHelpers(),
 		);
 
 		expect(harness.settingsReads).toEqual([]);

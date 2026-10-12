@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import GatewayConnection from '@app/features/gateway/transport/GatewayConnection';
 import Keybind from '@app/features/input/state/InputKeybind';
 import {SoundType} from '@app/features/notification/utils/SoundUtils';
 import {handleMediaPermissionBlocked} from '@app/features/permissions/system/commands/MacPermissionsModalCommands';
@@ -204,9 +204,9 @@ const updateConnectionProperty = async (
 ): Promise<void> => {
 	const voiceState = MediaEngine.getVoiceStateByConnectionId(connectionId);
 	if (!voiceState) return;
-	const socket = GatewaySessions.foregroundConnection.socket;
+	const socket = GatewayConnection.socket;
 	if (!socket) return;
-	socket.updateVoiceStateExplicit({
+	socket.updateVoiceState({
 		guild_id: voiceState.guild_id,
 		channel_id: voiceState.channel_id,
 		connection_id: connectionId,
@@ -221,12 +221,12 @@ const updateConnectionsProperty = async (
 	property: VoiceStateProperty,
 	value: boolean,
 ): Promise<void> => {
-	const socket = GatewaySessions.foregroundConnection.socket;
+	const socket = GatewayConnection.socket;
 	if (!socket) return;
 	for (const connectionId of connectionIds) {
 		const voiceState = MediaEngine.getVoiceStateByConnectionId(connectionId);
 		if (!voiceState) continue;
-		socket.updateVoiceStateExplicit({
+		socket.updateVoiceState({
 			guild_id: voiceState.guild_id,
 			channel_id: voiceState.channel_id,
 			connection_id: connectionId,
@@ -277,12 +277,12 @@ export async function bulkTurnOffCameras(connectionIds: Array<string>): Promise<
 }
 
 export async function bulkDisconnect(connectionIds: Array<string>): Promise<void> {
-	const socket = GatewaySessions.foregroundConnection.socket;
+	const socket = GatewayConnection.socket;
 	if (!socket) return;
 	for (const connectionId of connectionIds) {
 		const voiceState = MediaEngine.getVoiceStateByConnectionId(connectionId);
 		if (!voiceState) continue;
-		socket.updateVoiceStateExplicit({
+		socket.updateVoiceState({
 			guild_id: voiceState.guild_id,
 			channel_id: null,
 			connection_id: connectionId,
@@ -295,7 +295,7 @@ export async function bulkDisconnect(connectionIds: Array<string>): Promise<void
 }
 
 export async function bulkMoveConnections(connectionIds: Array<string>, targetChannelId: string): Promise<void> {
-	const socket = GatewaySessions.foregroundConnection.socket;
+	const socket = GatewayConnection.socket;
 	if (!socket) return;
 	const localConnectionId = MediaEngine.connectionId;
 	for (const connectionId of connectionIds) {
@@ -305,7 +305,7 @@ export async function bulkMoveConnections(connectionIds: Array<string>, targetCh
 			await MediaEngine.connectToVoiceChannel(voiceState.guild_id ?? null, targetChannelId);
 			continue;
 		}
-		socket.updateVoiceStateExplicit({
+		socket.updateVoiceState({
 			guild_id: voiceState.guild_id,
 			channel_id: targetChannelId,
 			connection_id: connectionId,

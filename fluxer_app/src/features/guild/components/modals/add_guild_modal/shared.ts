@@ -2,7 +2,6 @@
 
 import {openClaimAccountModal} from '@app/features/auth/components/modals/ClaimAccountModal';
 import {failureCode} from '@app/features/platform/utils/ResponseInspection';
-import {handleAccountLimitedError} from '@app/features/user/utils/AccountLimitUtils';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import type {TemplateSerializedGuild} from '@fluxer/schema/src/domains/guild/GuildTemplateSchemas';
@@ -47,16 +46,19 @@ export interface TemplateCreateFormInputs {
 	name: string;
 }
 
-const THE_OTHER_PLATFORM_GUILD_STAGE_VOICE_CHANNEL_TYPE = 13;
+export const THE_OTHER_PLATFORM_GUILD_ANNOUNCEMENT_CHANNEL_TYPE = 5;
+export const THE_OTHER_PLATFORM_GUILD_STAGE_VOICE_CHANNEL_TYPE = 13;
 
 export function mapTemplateChannelTypeToFluxer(channelType: number): number | null {
 	if (
 		channelType === ChannelTypes.GUILD_TEXT ||
-		channelType === ChannelTypes.GUILD_ANNOUNCEMENT ||
 		channelType === ChannelTypes.GUILD_VOICE ||
 		channelType === ChannelTypes.GUILD_CATEGORY
 	) {
 		return channelType;
+	}
+	if (channelType === THE_OTHER_PLATFORM_GUILD_ANNOUNCEMENT_CHANNEL_TYPE) {
+		return ChannelTypes.GUILD_TEXT;
 	}
 	if (channelType === THE_OTHER_PLATFORM_GUILD_STAGE_VOICE_CHANNEL_TYPE) {
 		return ChannelTypes.GUILD_VOICE;
@@ -81,9 +83,6 @@ export function parseTemplateCode(input: string): string | null {
 }
 
 export function handleGuildCreationError(error: unknown): never {
-	if (handleAccountLimitedError(error)) {
-		throw new DOMException('Guild create skipped', 'AbortError');
-	}
 	if (failureCode(error) === APIErrorCodes.UNCLAIMED_ACCOUNT_CANNOT_CREATE_GUILDS) {
 		openClaimAccountModal({force: true});
 	}

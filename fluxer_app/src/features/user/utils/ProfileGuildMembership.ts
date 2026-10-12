@@ -36,7 +36,7 @@ export type ProfileGuildMembership =
 			roles: ReadonlyArray<GuildRole>;
 	  };
 
-const GLOBAL_PROFILE_MEMBERSHIP: ProfileGuildMembership = Object.freeze({
+export const GLOBAL_PROFILE_MEMBERSHIP: ProfileGuildMembership = Object.freeze({
 	kind: 'global',
 	guildId: null,
 	guild: null,

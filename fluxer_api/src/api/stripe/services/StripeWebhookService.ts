@@ -2,8 +2,9 @@
 
 import type {AdminRepository} from '@app/api/admin/AdminRepository';
 import {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
+import type {ISessionTerminator} from '@app/api/auth/ISessionTerminator';
 import type {BillingRepository} from '@app/api/billing/repositories/BillingRepository';
-import type {DonationRepository} from '@app/api/donation/DonationRepository';
+import type {IDonationRepository} from '@app/api/donation/IDonationRepository';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
 import type {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAccountDeletionQueueService';
@@ -14,8 +15,8 @@ import {OAuth2TokenRepository} from '@app/api/oauth/repositories/OAuth2TokenRepo
 import type {StoreEntitlementService} from '@app/api/store_billing/StoreEntitlementService';
 import {getAcceptedWebhookSecrets} from '@app/api/stripe/BillingConfigCache';
 import type {ProductRegistry} from '@app/api/stripe/ProductRegistry';
-import {mirrorBestEffort} from '@app/api/stripe/StripeMirror';
 import type {AgeVerificationService} from '@app/api/stripe/services/AgeVerificationService';
+import type {StripeCheckoutService} from '@app/api/stripe/services/StripeCheckoutService';
 import {StripeCheckoutWebhookHandler} from '@app/api/stripe/services/StripeCheckoutWebhookHandler';
 import {StripeDisputeWebhookHandler} from '@app/api/stripe/services/StripeDisputeWebhookHandler';
 import {StripeGiftReversalHandler} from '@app/api/stripe/services/StripeGiftReversalHandler';
@@ -25,7 +26,7 @@ import type {StripePremiumService} from '@app/api/stripe/services/StripePremiumS
 import type {StripeRefundService} from '@app/api/stripe/services/StripeRefundService';
 import {StripeSubscriptionReconciler} from '@app/api/stripe/services/StripeSubscriptionReconciler';
 import {StripeSubscriptionWebhookHandler} from '@app/api/stripe/services/StripeSubscriptionWebhookHandler';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {StripeError} from '@fluxer/errors/src/domains/payment/StripeError';
 import {StripeWebhookNotAvailableError} from '@fluxer/errors/src/domains/payment/StripeWebhookNotAvailableError';
 import {StripeWebhookSignatureInvalidError} from '@fluxer/errors/src/domains/payment/StripeWebhookSignatureInvalidError';
@@ -46,15 +47,17 @@ export class StripeWebhookService {
 
 	constructor(
 		private stripe: Stripe | null,
-		userRepository: UserRepository,
+		private checkoutService: StripeCheckoutService,
+		userRepository: IUserRepository,
 		userCacheService: UserCacheService,
+		sessionTerminator: ISessionTerminator,
 		emailService: IEmailService,
 		gatewayService: IGatewayService,
 		productRegistry: ProductRegistry,
 		cacheService: ICacheService,
 		giftService: StripeGiftService,
 		premiumService: StripePremiumService,
-		private donationRepository: DonationRepository,
+		private donationRepository: IDonationRepository,
 		kvDeletionQueue: KVAccountDeletionQueueService,
 		premiumStateReconciliationQueueService: PremiumStateReconciliationQueueService,
 		private ageVerificationService: AgeVerificationService | null,
@@ -87,6 +90,7 @@ export class StripeWebhookService {
 			stripe,
 			userRepository,
 			userCacheService,
+			sessionTerminator,
 			emailService,
 			gatewayService,
 			donationRepository,
@@ -165,8 +169,15 @@ export class StripeWebhookService {
 		switch (event.type) {
 			case 'checkout.session.completed': {
 				const checkoutSession = event.data.object as Stripe.Checkout.Session;
+				await this.safeMirrorUpsert(event, () =>
+					this.billingRepository.checkoutSessions.upsertFromStripe(checkoutSession, {eventCreated: event.created}),
+				);
 				if (checkoutSession.metadata?.verification_type === 'uk_age_verification' && this.ageVerificationService) {
 					await this.ageVerificationService.completeVerification(checkoutSession);
+					break;
+				}
+				if (checkoutSession.metadata?.setup_type === 'localized_card_preapproval') {
+					await this.checkoutService.completeLocalizedCardPreapproval(checkoutSession);
 					break;
 				}
 				await this.checkoutHandler.handleCheckoutSessionCompleted(checkoutSession);
@@ -174,11 +185,17 @@ export class StripeWebhookService {
 			}
 			case 'checkout.session.async_payment_succeeded': {
 				const cs = event.data.object as Stripe.Checkout.Session;
+				await this.safeMirrorUpsert(event, () =>
+					this.billingRepository.checkoutSessions.upsertFromStripe(cs, {eventCreated: event.created}),
+				);
 				await this.checkoutHandler.handleAsyncPaymentSucceeded(cs);
 				break;
 			}
 			case 'checkout.session.async_payment_failed': {
 				const cs = event.data.object as Stripe.Checkout.Session;
+				await this.safeMirrorUpsert(event, () =>
+					this.billingRepository.checkoutSessions.upsertFromStripe(cs, {eventCreated: event.created}),
+				);
 				await this.checkoutHandler.handleAsyncPaymentFailed(cs);
 				break;
 			}
@@ -243,11 +260,13 @@ export class StripeWebhookService {
 			}
 			case 'charge.dispute.created': {
 				const d = event.data.object as Stripe.Dispute;
+				await this.safeMirrorUpsert(event, () => this.billingRepository.disputes.upsertFromStripe(d));
 				await this.disputeHandler.handleChargebackCreated(d);
 				break;
 			}
 			case 'charge.dispute.closed': {
 				const d = event.data.object as Stripe.Dispute;
+				await this.safeMirrorUpsert(event, () => this.billingRepository.disputes.upsertFromStripe(d));
 				await this.disputeHandler.handleChargebackClosed(d);
 				break;
 			}
@@ -281,6 +300,13 @@ export class StripeWebhookService {
 				await this.safeMirrorUpsert(event, () => this.billingRepository.customers.upsertFromStripe(cust));
 				await this.safeMirrorUpsert(event, () => this.billingRepository.customers.markDeleted(cust.id, new Date()));
 				await this.donationRepository.clearDonorStripeCustomer(cust.id);
+				break;
+			}
+			case 'product.created':
+			case 'product.updated':
+			case 'product.deleted': {
+				const p = event.data.object as Stripe.Product;
+				await this.safeMirrorUpsert(event, () => this.billingRepository.products.upsertFromStripe(p));
 				break;
 			}
 			case 'price.created':
@@ -344,6 +370,20 @@ export class StripeWebhookService {
 			case 'invoice.marked_uncollectible': {
 				const inv = event.data.object as Stripe.Invoice;
 				await this.mirrorInvoice(event, inv);
+				break;
+			}
+			case 'checkout.session.expired': {
+				const cs = event.data.object as Stripe.Checkout.Session;
+				await this.safeMirrorUpsert(event, () =>
+					this.billingRepository.checkoutSessions.upsertFromStripe(cs, {eventCreated: event.created}),
+				);
+				break;
+			}
+			case 'charge.dispute.updated':
+			case 'charge.dispute.funds_reinstated':
+			case 'charge.dispute.funds_withdrawn': {
+				const d = event.data.object as Stripe.Dispute;
+				await this.safeMirrorUpsert(event, () => this.billingRepository.disputes.upsertFromStripe(d));
 				break;
 			}
 			default: {
@@ -413,11 +453,14 @@ export class StripeWebhookService {
 	}
 
 	private async safeMirrorUpsert(event: Stripe.Event, fn: () => Promise<unknown>): Promise<void> {
-		await mirrorBestEffort(
-			() => fn(),
-			{eventId: event.id, eventType: event.type},
-			'Mirror upsert failed; continuing with downstream handler',
-		);
+		try {
+			await fn();
+		} catch (mirrorErr) {
+			Logger.error(
+				{mirrorErr, eventId: event.id, eventType: event.type},
+				'Mirror upsert failed; continuing with downstream handler',
+			);
+		}
 	}
 
 	private async resolveKnownUserIdForSubscription(sub: Stripe.Subscription): Promise<bigint | null> {

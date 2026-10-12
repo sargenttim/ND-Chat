@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use crate::{
-    api::{
-        client::{AdminApiClient, ApiError},
-        types::FlashMessage,
-    },
+    api::client::AdminApiClient,
     middleware::{auth::AuthContext, csrf, htmx},
     state::AppState,
     templates,
@@ -16,12 +13,10 @@ use axum::{
     response::{Html, IntoResponse, Response},
     routing::get,
 };
-use serde::Deserialize;
 
 use super::ActionQuery;
 use super::bans_actions::{
     BanFormData, custom_flash, execute_ban, extract_value, flash_response, render_inline_flash,
-    to_flash,
 };
 
 pub fn router() -> Router<AppState> {
@@ -48,39 +43,15 @@ pub fn router() -> Router<AppState> {
         )
 }
 
-async fn render_ban_page(
-    state: &AppState,
-    auth: &AuthContext,
-    key: &str,
-    csrf_token: String,
-) -> Response {
+fn render_ban_page(state: &AppState, auth: &AuthContext, key: &str, req: &Request) -> Response {
     let config = state.config();
     let ban_cfg = match templates::pages::bans::get_ban_config(key) {
         Some(c) => c,
         None => return axum::http::StatusCode::NOT_FOUND.into_response(),
     };
-    let username_sign_in = email_bans_on_username_instance(state, auth, key).await;
-    let markup = templates::pages::bans::bans_page(
-        config,
-        auth,
-        ban_cfg,
-        None,
-        &csrf_token,
-        username_sign_in,
-    );
+    let csrf_token = csrf::get_csrf_token(req);
+    let markup = templates::pages::bans::bans_page(config, auth, ban_cfg, None, &csrf_token);
     Html(markup.into_string()).into_response()
-}
-
-async fn email_bans_on_username_instance(state: &AppState, auth: &AuthContext, key: &str) -> bool {
-    key == "email-bans"
-        && state
-            .account_identity(&AdminApiClient::new(
-                state.http_client(),
-                state.config(),
-                &auth.session,
-            ))
-            .await
-            .is_username()
 }
 
 macro_rules! ban_get {
@@ -90,8 +61,7 @@ macro_rules! ban_get {
             auth: axum::Extension<AuthContext>,
             request: Request,
         ) -> Response {
-            let csrf_token = csrf::get_csrf_token(&request);
-            render_ban_page(&state, &auth.0, $key, csrf_token).await
+            render_ban_page(&state, &auth.0, $key, &request)
         }
     };
 }
@@ -120,18 +90,17 @@ async fn generic_ban_post(
     };
     let value = extract_value(form, ban_cfg.input_name);
     let is_htmx = htmx::is_htmx_request(headers);
-    let (level, msg) = execute_ban(&client, ban_key, action, &value, form).await;
-    let username_sign_in = !is_htmx && email_bans_on_username_instance(state, auth, ban_key).await;
-    flash_response(
-        config,
-        auth,
-        is_htmx,
-        level,
-        &msg,
-        ban_cfg,
-        csrf_token,
-        username_sign_in,
+    let (level, msg) = execute_ban(
+        &client,
+        ban_key,
+        action,
+        &value,
+        form.hashes.as_deref(),
+        form.sha256_list.as_deref(),
+        form.audit_log_reason.as_deref(),
     )
+    .await;
+    flash_response(config, auth, is_htmx, level, &msg, ban_cfg, csrf_token)
 }
 
 macro_rules! ban_post {
@@ -149,18 +118,14 @@ macro_rules! ban_post {
             let form: BanFormData = match Form::from_request(request, &state).await {
                 Ok(Form(f)) => f,
                 Err(_) => {
-                    let is_htmx = htmx::is_htmx_request(&headers);
-                    let username_sign_in =
-                        !is_htmx && email_bans_on_username_instance(&state, &auth.0, $key).await;
                     return flash_response(
                         state.config(),
                         &auth.0,
-                        is_htmx,
+                        htmx::is_htmx_request(&headers),
                         "error",
                         "Invalid form data",
                         templates::pages::bans::get_ban_config($key).unwrap(),
                         &csrf_token,
-                        username_sign_in,
                     );
                 }
             };
@@ -176,56 +141,16 @@ ban_post!(url_bans_post, "url-bans");
 ban_post!(file_sha_bans_post, "file-sha-bans");
 ban_post!(avatar_hash_bans_post, "avatar-hash-bans");
 
-#[derive(Deserialize)]
-struct UrlDomainListQuery {
-    after: Option<String>,
-}
-
-async fn render_url_domain_page(
-    state: &AppState,
-    auth: &AuthContext,
-    flash: Option<&FlashMessage>,
-    csrf_token: &str,
-    after: Option<&str>,
-) -> Response {
-    let config = state.config();
-    let client = AdminApiClient::new(state.http_client(), config, &auth.session);
-    let entries = match client.list_url_domain_entries(after).await {
-        Ok(page) => Some(page),
-        Err(error) => {
-            tracing::warn!(%error, "admin API request failed: list URL domain blocklist");
-            None
-        }
-    };
-    let markup = templates::pages::url_domain_bans::url_domain_bans_page(
-        config,
-        auth,
-        flash,
-        csrf_token,
-        entries.as_ref(),
-    );
-    Html(markup.into_string()).into_response()
-}
-
-fn ban_url_domain_error(domain: &str, error: &ApiError) -> String {
-    match error {
-        ApiError::Http { status: 400, .. } => {
-            format!("Failed to ban {domain}: not a valid domain, or the pattern is too broad")
-        }
-        _ => format!("Failed to ban {domain}"),
-    }
-}
-
 async fn url_domain_bans(
     State(state): State<AppState>,
     auth: axum::Extension<AuthContext>,
     request: Request,
 ) -> Response {
+    let config = state.config();
     let csrf_token = csrf::get_csrf_token(&request);
-    let Query(query): Query<UrlDomainListQuery> =
-        Query::try_from_uri(request.uri()).unwrap_or(Query(UrlDomainListQuery { after: None }));
-    let after = query.after.as_deref().filter(|value| !value.is_empty());
-    render_url_domain_page(&state, &auth.0, None, &csrf_token, after).await
+    let markup =
+        templates::pages::url_domain_bans::url_domain_bans_page(config, &auth.0, None, &csrf_token);
+    Html(markup.into_string()).into_response()
 }
 
 async fn url_domain_bans_post(
@@ -256,10 +181,10 @@ async fn url_domain_bans_post(
                 .ban_url_domain(&domain, m_sub, form.audit_log_reason.as_deref())
                 .await
             {
-                Ok(()) => ("success", format!("{domain} banned successfully")),
+                Ok(()) => ("success", format!("Domain {domain} banned successfully")),
                 Err(error) => {
                     tracing::warn!(%error, domain, "admin API request failed: ban URL domain");
-                    ("error", ban_url_domain_error(&domain, &error))
+                    ("error", format!("Failed to ban domain {domain}"))
                 }
             }
         }
@@ -267,15 +192,15 @@ async fn url_domain_bans_post(
             .unban_url_domain(&domain, form.audit_log_reason.as_deref())
             .await
         {
-            Ok(()) => ("success", format!("{domain} unbanned")),
+            Ok(()) => ("success", format!("Domain {domain} unbanned")),
             Err(error) => {
                 tracing::warn!(%error, domain, "admin API request failed: unban URL domain");
-                ("error", format!("Failed to unban {domain}"))
+                ("error", format!("Failed to unban domain {domain}"))
             }
         },
         "check" => match client.check_url_domain_ban(&domain).await {
-            Ok(r) if r.banned => ("info", format!("{domain} is blocked")),
-            Ok(_) => ("info", format!("{domain} is NOT blocked")),
+            Ok(r) if r.banned => ("info", format!("Domain {domain} is banned")),
+            Ok(_) => ("info", format!("Domain {domain} is NOT banned")),
             Err(error) => {
                 tracing::warn!(%error, domain, "admin API request failed: check URL domain ban");
                 ("error", "Error checking ban status".into())
@@ -283,11 +208,15 @@ async fn url_domain_bans_post(
         },
         _ => ("error", "Unknown action".into()),
     };
-    if is_htmx {
-        return render_inline_flash(level, &msg);
-    }
-    let flash = to_flash(level, &msg);
-    render_url_domain_page(&state, &auth.0, Some(&flash), &csrf_token, None).await
+    custom_flash(
+        config,
+        &auth.0,
+        is_htmx,
+        level,
+        &msg,
+        &csrf_token,
+        "url-domain",
+    )
 }
 
 async fn profile_substring_bans(
@@ -359,5 +288,13 @@ async fn profile_substring_bans_post(
         },
         _ => ("error", "Unknown action".into()),
     };
-    custom_flash(config, &auth.0, is_htmx, level, &msg, &csrf_token)
+    custom_flash(
+        config,
+        &auth.0,
+        is_htmx,
+        level,
+        &msg,
+        &csrf_token,
+        "profile-substring",
+    )
 }

@@ -59,6 +59,10 @@ export class RpcTimingRecorder {
 		this.steps[name] = createRpcTimingNode(startedAtNs, steps);
 	}
 
+	recordNode(name: string, node: RpcTimingNode): void {
+		this.steps[name] = node;
+	}
+
 	finalize(): RpcSessionTimings {
 		const podName = apiPodName();
 		return {

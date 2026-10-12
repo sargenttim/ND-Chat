@@ -6,7 +6,7 @@ interface CallScopedPrefs {
 	disabledVideoByIdentity: Record<string, boolean>;
 }
 
-class CallMediaPrefs {
+export class CallMediaPrefs {
 	private byCall: Record<string, CallScopedPrefs> = {};
 
 	constructor() {

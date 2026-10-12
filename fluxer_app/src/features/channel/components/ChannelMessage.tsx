@@ -1,15 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Accessibility from '@app/features/accessibility/state/Accessibility';
-import {
-	calculateSwipeVelocity,
-	pushVelocitySample,
-	SWIPE_VELOCITY_THRESHOLD,
-	type VelocitySample,
-} from '@app/features/app/hooks/SwipeVelocity';
 import {useContextMenuHoverState} from '@app/features/app/hooks/useContextMenuHoverState';
 import {isMediaOnlyEmbed} from '@app/features/channel/components/embeds/EmbedRenderUtils';
-import {MessageActionBar} from '@app/features/channel/components/MessageActionBar';
+import {MessageActionBar, MessageActionBarCore} from '@app/features/channel/components/MessageActionBar';
 import {MessageActionBottomSheet} from '@app/features/channel/components/MessageActionBottomSheet';
 import {requestDeleteMessage} from '@app/features/channel/components/MessageActionUtils';
 import {useMessageHoverState} from '@app/features/channel/components/MessageHoverState';
@@ -97,6 +91,7 @@ const isActivationKey = (key: string) => key === 'Enter' || key === ' ' || key =
 const MAX_ARIA_MESSAGE_TEXT_LENGTH = 220;
 const LONG_PRESS_DELAY = 500;
 const MOVEMENT_THRESHOLD = 10;
+const SWIPE_VELOCITY_THRESHOLD = 0.4;
 const HIGHLIGHT_DELAY = 100;
 const SUPPRESS_POST_LONG_PRESS_CLICK_MS = 750;
 const NESTED_LONG_PRESS_OWNER_SELECTOR = '[data-long-press-owner="true"]';
@@ -195,6 +190,7 @@ interface MessageProps {
 	};
 	removeTopSpacing?: boolean;
 	isJumpTarget?: boolean;
+	previewMode?: boolean;
 	behaviorOverrides?: MessageBehaviorOverrides;
 	compact?: boolean;
 	idPrefix?: string;
@@ -213,6 +209,7 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 		previewOverrides,
 		removeTopSpacing = false,
 		isJumpTarget = false,
+		previewMode,
 		behaviorOverrides,
 		compact,
 		idPrefix = 'message',
@@ -358,7 +355,7 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 		],
 	);
 	const touchStartPos = useRef<{x: number; y: number} | null>(null);
-	const velocitySamples = useRef<Array<VelocitySample>>([]);
+	const velocitySamples = useRef<Array<{x: number; y: number; timestamp: number}>>([]);
 	const highlightTimerRef = useRef<NodeJS.Timeout | null>(null);
 	const suppressClickUntilRef = useRef(0);
 	const unsubscribeLongPressScrollCancel = useCallback(() => {
@@ -385,6 +382,26 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 		},
 		[unsubscribeLongPressScrollCancel],
 	);
+	const calculateVelocity = useCallback((): number => {
+		const samples = velocitySamples.current;
+		if (samples.length < 2) return 0;
+		const now = performance.now();
+		let firstRecentIndex = samples.length - 1;
+		for (let i = samples.length - 1; i >= 0; i--) {
+			if (now - samples[i].timestamp >= 100) {
+				break;
+			}
+			firstRecentIndex = i;
+		}
+		if (samples.length - firstRecentIndex < 2) return 0;
+		const first = samples[firstRecentIndex];
+		const last = samples[samples.length - 1];
+		const dt = last.timestamp - first.timestamp;
+		if (dt === 0) return 0;
+		const dx = last.x - first.x;
+		const dy = last.y - first.y;
+		return Math.sqrt(dx * dx + dy * dy) / dt;
+	}, []);
 	const handleLongPressStart = useCallback(
 		(event: React.TouchEvent) => {
 			if (!mobileLayoutEnabled || previewContext || isNestedLongPressOwnerTarget(event.target)) {
@@ -428,19 +445,22 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 			if (!touchStartPos.current) return;
 			const touch = event.touches[0];
 			if (!touch) return;
-			pushVelocitySample(velocitySamples.current, touch.clientX, touch.clientY);
+			velocitySamples.current.push({x: touch.clientX, y: touch.clientY, timestamp: performance.now()});
+			if (velocitySamples.current.length > 10) {
+				velocitySamples.current.shift();
+			}
 			const deltaX = Math.abs(touch.clientX - touchStartPos.current.x);
 			const deltaY = Math.abs(touch.clientY - touchStartPos.current.y);
 			if (deltaX > MOVEMENT_THRESHOLD || deltaY > MOVEMENT_THRESHOLD) {
 				clearLongPressState();
 				return;
 			}
-			const velocity = calculateSwipeVelocity(velocitySamples.current, performance.now());
+			const velocity = calculateVelocity();
 			if (velocity > SWIPE_VELOCITY_THRESHOLD) {
 				clearLongPressState();
 			}
 		},
-		[clearLongPressState],
+		[clearLongPressState, calculateVelocity],
 	);
 	const handleClickCapture = useCallback(
 		(event: React.MouseEvent<HTMLDivElement>) => {
@@ -539,6 +559,20 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 			messageDisplayCompact,
 			previewContext,
 			previewOverrides,
+			previewPermissions: previewMode
+				? {
+						isDM: false,
+						canSendMessages: true,
+						canAddReactions: true,
+						canEditMessage: true,
+						canDeleteMessage: true,
+						canDeleteAttachment: true,
+						canPinMessage: true,
+						canForwardMessage: true,
+						canSuppressEmbeds: true,
+						shouldRenderSuppressEmbeds: false,
+					}
+				: undefined,
 			onPopoutToggle: handlePopoutToggle,
 			suppressMessageActions,
 			onHeadingActivate,
@@ -552,6 +586,7 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 			messageDisplayCompact,
 			previewContext,
 			previewOverrides,
+			previewMode,
 			handlePopoutToggle,
 			suppressMessageActions,
 			onHeadingActivate,
@@ -563,7 +598,7 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 		</MessageViewContextProvider>
 	);
 	const shouldHideContent =
-		UserSettings.renderEmbeds &&
+		UserSettings.getRenderEmbeds() &&
 		message.embeds.length > 0 &&
 		message.embeds.every(isMediaOnlyEmbed) &&
 		astNodes.length === 1 &&
@@ -636,8 +671,8 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 		[previewContext, suppressMessageActions, message.state, isEditing, mobileLayoutEnabled],
 	);
 	const isActionBarForcedVisible = useMemo(
-		() => Boolean(isKeyboardFocused || contextMenuOpen || isPopoutOpen),
-		[isKeyboardFocused, contextMenuOpen, isPopoutOpen],
+		() => Boolean(previewMode || isKeyboardFocused || contextMenuOpen || isPopoutOpen),
+		[previewMode, isKeyboardFocused, contextMenuOpen, isPopoutOpen],
 	);
 	const isActionBarActive = isHovering || isActionBarForcedVisible;
 	const wasActionBarActivatedRef = useRef(false);
@@ -681,11 +716,7 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 					data-flx-author-self={message.author.id === Users.currentUserId ? 'true' : undefined}
 					data-flx-author-bot={message.author.bot ? 'true' : undefined}
 					data-flx-author-webhook={message.webhookId != null ? 'true' : undefined}
-					data-flx-reply={
-						message.type === MessageTypes.REPLY || (message.messageReference != null && !message.isCrosspostCopy)
-							? 'true'
-							: undefined
-					}
+					data-flx-reply={message.type === MessageTypes.REPLY || message.messageReference != null ? 'true' : undefined}
 					data-flx-blocked={message.blocked ? 'true' : undefined}
 					data-flx-pinned={message.pinned ? 'true' : undefined}
 					data-flx-call={message.type === MessageTypes.CALL ? 'true' : undefined}
@@ -720,16 +751,36 @@ export const Message: React.FC<MessageProps> = observer((props) => {
 						data-flx="channel.message.focus-ring-anchor"
 					/>
 					{messageComponent}
-					{shouldMountActionBar && (
-						<MessageActionBar
-							message={message}
-							handleDelete={handleDelete}
-							sourceChannel={channel}
-							isActive={isActionBarActive}
-							onPopoutToggle={handlePopoutToggle}
-							data-flx="channel.message.message-action-bar"
-						/>
-					)}
+					{shouldMountActionBar &&
+						(previewMode ? (
+							<MessageActionBarCore
+								message={message}
+								handleDelete={handleDelete}
+								permissions={{
+									channel,
+									canSendMessages: true,
+									canAddReactions: true,
+									canEditMessage: true,
+									canDeleteMessage: true,
+									canPinMessage: true,
+									canForwardMessage: true,
+									shouldRenderSuppressEmbeds: true,
+								}}
+								developerMode={false}
+								isActive={isActionBarActive}
+								onPopoutToggle={handlePopoutToggle}
+								data-flx="channel.message.message-action-bar-core"
+							/>
+						) : (
+							<MessageActionBar
+								message={message}
+								handleDelete={handleDelete}
+								sourceChannel={channel}
+								isActive={isActionBarActive}
+								onPopoutToggle={handlePopoutToggle}
+								data-flx="channel.message.message-action-bar"
+							/>
+						))}
 				</div>
 			</FocusRing>
 			{shouldShowBottomSheet && (

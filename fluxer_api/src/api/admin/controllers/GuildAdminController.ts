@@ -3,13 +3,14 @@
 import {AdminAuditReadActions} from '@app/api/admin/AdminAuditActions';
 import {recordAdminRead, recordAdminWrite} from '@app/api/admin/AdminAuditRecorder';
 import {createGuildID} from '@app/api/BrandedTypes';
-import {requireAdminACL, requireAnyAdminACL, requireGrantedAdminACLs} from '@app/api/middleware/AdminMiddleware';
+import {requireAdminACL, requireAnyAdminACL} from '@app/api/middleware/AdminMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {AdminRateLimitConfigs} from '@app/api/rate_limit_configs/AdminRateLimitConfig';
 import type {HonoApp} from '@app/api/types/HonoEnv';
 import {Validator} from '@app/api/Validator';
 import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
+import {MissingACLError} from '@fluxer/errors/src/domains/core/MissingACLError';
 import {UnknownGuildError} from '@fluxer/errors/src/domains/guild/UnknownGuildError';
 import {
 	BanGuildMemberBody,
@@ -33,6 +34,7 @@ const GUILD_UPDATE_ACLS = [
 	AdminACLs.GUILD_UPDATE_NAME,
 	AdminACLs.GUILD_UPDATE_SETTINGS,
 	AdminACLs.GUILD_UPDATE_FEATURES,
+	AdminACLs.GUILD_UPDATE_BADGES,
 	AdminACLs.GUILD_UPDATE_VANITY,
 	AdminACLs.GUILD_TRANSFER_OWNERSHIP,
 ];
@@ -66,6 +68,9 @@ function selectGuildUpdateACLs(body: UpdateGuildRequest): Array<string> {
 	if (hasGuildFeatureUpdate(body)) {
 		required.push(AdminACLs.GUILD_UPDATE_FEATURES);
 	}
+	if (body.badge_ids !== undefined) {
+		required.push(AdminACLs.GUILD_UPDATE_BADGES);
+	}
 	if (body.vanity_url_code !== undefined) {
 		required.push(AdminACLs.GUILD_UPDATE_VANITY);
 	}
@@ -76,6 +81,17 @@ function selectGuildUpdateACLs(body: UpdateGuildRequest): Array<string> {
 		return required;
 	}
 	return Object.keys(body).length === 0 ? [] : [AdminACLs.WILDCARD];
+}
+
+function requireAllAdminACLs(granted: ReadonlySet<string>, required: ReadonlyArray<string>): void {
+	if (granted.has(AdminACLs.WILDCARD)) {
+		return;
+	}
+	for (const acl of required) {
+		if (!granted.has(acl)) {
+			throw new MissingACLError(acl);
+		}
+	}
 }
 
 export function GuildAdminController(app: HonoApp) {
@@ -155,7 +171,7 @@ export function GuildAdminController(app: HonoApp) {
 			operationId: 'update_admin_guild',
 			summary: 'Update guild',
 			description:
-				'Partially updates a guild. The permissions required are selected by the fields present in the body and are evaluated with all-of semantics: name requires GUILD_UPDATE_NAME, vanity_url_code requires GUILD_UPDATE_VANITY, new_owner_id requires GUILD_TRANSFER_OWNERSHIP, add_features and remove_features require GUILD_UPDATE_FEATURES, and fields together with every other setting requires GUILD_UPDATE_SETTINGS. A body with no fields applies no change. Every applied change is logged to the audit log.',
+				'Partially updates a guild. The permissions required are selected by the fields present in the body and are evaluated with all-of semantics: name requires GUILD_UPDATE_NAME, vanity_url_code requires GUILD_UPDATE_VANITY, new_owner_id requires GUILD_TRANSFER_OWNERSHIP, add_features and remove_features require GUILD_UPDATE_FEATURES, badge_ids requires GUILD_UPDATE_BADGES, and fields together with every other setting requires GUILD_UPDATE_SETTINGS. A body with no fields applies no change. Every applied change is logged to the audit log.',
 			responseSchema: GuildUpdateResponse,
 			statusCode: 200,
 			security: 'adminApiKey',
@@ -167,7 +183,7 @@ export function GuildAdminController(app: HonoApp) {
 			const auditLogReason = ctx.get('auditLogReason');
 			const guildIdRaw = ctx.req.valid('param').guild_id;
 			const body = ctx.req.valid('json');
-			requireGrantedAdminACLs(ctx.get('adminUserAcls'), selectGuildUpdateACLs(body));
+			requireAllAdminACLs(ctx.get('adminUserAcls'), selectGuildUpdateACLs(body));
 			const {updateService, vanityService, lookupService} = adminService.guildServiceAggregate;
 			if (body.fields !== undefined) {
 				await updateService.clearGuildFields({guild_id: guildIdRaw, fields: body.fields}, adminUserId, auditLogReason);
@@ -199,6 +215,14 @@ export function GuildAdminController(app: HonoApp) {
 					auditLogReason,
 				});
 			}
+			if (body.badge_ids !== undefined) {
+				await updateService.updateGuildBadges({
+					guildId: createGuildID(guildIdRaw),
+					badgeIds: body.badge_ids,
+					adminUserId,
+					auditLogReason,
+				});
+			}
 			if (body.name !== undefined) {
 				await updateService.updateGuildName({guild_id: guildIdRaw, name: body.name}, adminUserId, auditLogReason);
 			}
@@ -224,6 +248,7 @@ export function GuildAdminController(app: HonoApp) {
 				body.fields !== undefined ||
 				hasGuildSettingsUpdate(body) ||
 				hasGuildFeatureUpdate(body) ||
+				body.badge_ids !== undefined ||
 				body.name !== undefined ||
 				body.vanity_url_code !== undefined ||
 				body.new_owner_id !== undefined;
@@ -253,7 +278,7 @@ export function GuildAdminController(app: HonoApp) {
 			operationId: 'delete_admin_guild',
 			summary: 'Delete guild',
 			description:
-				'Permanently deletes a guild. The guild becomes unavailable at once, and a background job deletes all channels, messages, and settings. Irreversible operation with no recovery window. Logged to audit log. Requires GUILD_DELETE permission.',
+				'Permanently deletes a guild. Deletes all channels, messages, and settings. Irreversible operation with no recovery window. Logged to audit log. Requires GUILD_DELETE permission.',
 			responseSchema: SuccessResponse,
 			statusCode: 200,
 			security: 'adminApiKey',

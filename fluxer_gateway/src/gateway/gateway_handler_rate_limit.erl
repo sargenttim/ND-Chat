@@ -4,7 +4,10 @@
 -typing([eqwalizer]).
 
 -export([
-    check_rate_limit/2, check_shared_ip_rate/1, check_shared_user_rate/1, rate_limits_disabled/0
+    check_rate_limit/2,
+    check_shared_ip_rate/1,
+    check_shared_user_rate/1,
+    rate_limits_disabled/0
 ]).
 
 -export_type([state/0]).
@@ -13,10 +16,6 @@
 -define(GATEWAY_RATE_LIMIT_MAX_EVENTS, 600).
 -define(PRESENCE_RATE_LIMIT_WINDOW_MS, 20000).
 -define(PRESENCE_RATE_LIMIT_MAX_EVENTS, 5).
--define(FORUM_UNREADS_RATE_LIMIT_WINDOW_MS, 5000).
--define(FORUM_UNREADS_RATE_LIMIT_MAX_EVENTS, 5).
--define(VOICE_SIGNAL_RATE_LIMIT_WINDOW_MS, 10000).
--define(VOICE_SIGNAL_RATE_LIMIT_MAX_EVENTS, 240).
 
 -define(SHARED_IP_RATE_TABLE, gateway_shared_ip_rate).
 -define(SHARED_USER_RATE_TABLE, gateway_shared_user_rate).
@@ -30,7 +29,7 @@
 -type state() :: gateway_handler:state().
 
 -ifdef(TEST).
-
+-export([prune_old_window_entries/2]).
 -include_lib("eunit/include/eunit.hrl").
 -endif.
 
@@ -99,22 +98,6 @@ check_opcode_rate_limit(State, presence_update, Now) ->
         Now,
         ?PRESENCE_RATE_LIMIT_WINDOW_MS,
         ?PRESENCE_RATE_LIMIT_MAX_EVENTS
-    );
-check_opcode_rate_limit(State, request_forum_unreads, Now) ->
-    check_named_opcode_rate_limit(
-        State,
-        request_forum_unreads,
-        Now,
-        ?FORUM_UNREADS_RATE_LIMIT_WINDOW_MS,
-        ?FORUM_UNREADS_RATE_LIMIT_MAX_EVENTS
-    );
-check_opcode_rate_limit(State, voice_signal, Now) ->
-    check_named_opcode_rate_limit(
-        State,
-        voice_signal,
-        Now,
-        ?VOICE_SIGNAL_RATE_LIMIT_WINDOW_MS,
-        ?VOICE_SIGNAL_RATE_LIMIT_MAX_EVENTS
     );
 check_opcode_rate_limit(State, _Op, _Now) ->
     {ok, State}.
@@ -316,29 +299,6 @@ with_rate_limits_enabled(Fun) ->
     after
         restore_env("FLUXER_DISABLE_RATE_LIMITS", OldValue)
     end.
-
-forum_unreads_allows_five_requests_per_five_seconds_test() ->
-    with_rate_limits_enabled(fun() ->
-        Now = erlang:system_time(millisecond),
-        Recent = #{request_forum_unreads => lists:duplicate(4, Now)},
-        State = eqwalizer:dynamic_cast(#{
-            rate_limit_state => #{events => [], op_events => Recent}
-        }),
-        {ok, Next} = check_rate_limit_limited(State, request_forum_unreads),
-        ?assertMatch(
-            {opcode_rate_limited, _}, check_rate_limit_limited(Next, request_forum_unreads)
-        ),
-        Old = #{request_forum_unreads => lists:duplicate(5, Now - 5000)},
-        Expired = eqwalizer:dynamic_cast(#{
-            rate_limit_state => #{events => [], op_events => Old}
-        }),
-        ?assertMatch({ok, _}, check_rate_limit_limited(Expired, request_forum_unreads)),
-        Full = #{request_guild_counts => lists:duplicate(5, Now)},
-        Other = eqwalizer:dynamic_cast(#{
-            rate_limit_state => #{events => [], op_events => Full}
-        }),
-        ?assertMatch({ok, _}, check_rate_limit_limited(Other, request_guild_counts))
-    end).
 
 shared_ip_rate_blocks_over_limit_test() ->
     with_rate_limits_enabled(fun() ->

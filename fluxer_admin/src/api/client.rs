@@ -49,15 +49,6 @@ impl AdminApiClient {
         Self { generated }
     }
 
-    pub fn anonymous(http_client: &reqwest::Client, config: &AdminConfig) -> Self {
-        let generated = GeneratedClient::new_with_client(
-            &config.api_endpoint,
-            http_client.clone(),
-            build_proxy_client_ip_headers(config),
-        );
-        Self { generated }
-    }
-
     fn build_url(&self, path: &str, query_params: Option<&[(&str, &str)]>) -> String {
         let mut url = format!("{}{}", self.generated.baseurl(), path);
         let query = query_params
@@ -136,30 +127,168 @@ impl AdminApiClient {
         Self::parse_response(response).await
     }
 
-    pub async fn send<T, B>(
+    pub async fn post<T: DeserializeOwned>(
         &self,
-        method: Method,
         path: &str,
-        body: Option<&B>,
+        body: Option<&serde_json::Value>,
+    ) -> ApiResult<T> {
+        self.post_with_reason(path, body, None).await
+    }
+
+    pub async fn post_typed<T, B>(&self, path: &str, body: &B) -> ApiResult<T>
+    where
+        T: DeserializeOwned,
+        B: Serialize + ?Sized,
+    {
+        self.post_typed_with_reason(path, body, None).await
+    }
+
+    pub async fn post_typed_with_reason<T, B>(
+        &self,
+        path: &str,
+        body: &B,
         audit_log_reason: Option<&str>,
     ) -> ApiResult<T>
     where
         T: DeserializeOwned,
         B: Serialize + ?Sized,
     {
-        let response = self.send_json(method, path, body, audit_log_reason).await?;
+        let response = self
+            .send_json(Method::POST, path, Some(body), audit_log_reason)
+            .await?;
         Self::parse_response(response).await
     }
 
-    pub async fn send_void<B: Serialize + ?Sized>(
+    pub async fn post_with_reason<T: DeserializeOwned>(
         &self,
-        method: Method,
         path: &str,
-        body: Option<&B>,
+        body: Option<&serde_json::Value>,
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<T> {
+        let response = self
+            .send_json(Method::POST, path, body, audit_log_reason)
+            .await?;
+        Self::parse_response(response).await
+    }
+
+    pub async fn post_void(&self, path: &str, body: Option<&serde_json::Value>) -> ApiResult<()> {
+        self.post_void_with_reason(path, body, None).await
+    }
+
+    pub async fn post_void_with_reason(
+        &self,
+        path: &str,
+        body: Option<&serde_json::Value>,
         audit_log_reason: Option<&str>,
     ) -> ApiResult<()> {
-        let response = self.send_json(method, path, body, audit_log_reason).await?;
+        let response = self
+            .send_json(Method::POST, path, body, audit_log_reason)
+            .await?;
         Self::parse_void_response(response).await
+    }
+
+    pub async fn patch<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> ApiResult<T> {
+        self.patch_with_reason(path, body, None).await
+    }
+
+    pub async fn patch_with_reason<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<T> {
+        let response = self
+            .send_json(Method::PATCH, path, body, audit_log_reason)
+            .await?;
+        Self::parse_response(response).await
+    }
+
+    pub async fn patch_typed_with_reason<T, B>(
+        &self,
+        path: &str,
+        body: &B,
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<T>
+    where
+        T: DeserializeOwned,
+        B: Serialize + ?Sized,
+    {
+        let response = self
+            .send_json(Method::PATCH, path, Some(body), audit_log_reason)
+            .await?;
+        Self::parse_response(response).await
+    }
+
+    pub async fn put_with_reason<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<T> {
+        let response = self
+            .send_json(Method::PUT, path, body, audit_log_reason)
+            .await?;
+        Self::parse_response(response).await
+    }
+
+    pub async fn put_typed_with_reason<T, B>(
+        &self,
+        path: &str,
+        body: &B,
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<T>
+    where
+        T: DeserializeOwned,
+        B: Serialize + ?Sized,
+    {
+        let response = self
+            .send_json(Method::PUT, path, Some(body), audit_log_reason)
+            .await?;
+        Self::parse_response(response).await
+    }
+
+    pub async fn put_void_with_reason(
+        &self,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<()> {
+        let response = self
+            .send_json(Method::PUT, path, body, audit_log_reason)
+            .await?;
+        Self::parse_void_response(response).await
+    }
+
+    pub async fn delete_void(&self, path: &str, body: Option<&serde_json::Value>) -> ApiResult<()> {
+        self.delete_void_with_reason(path, body, None).await
+    }
+
+    pub async fn delete_void_with_reason(
+        &self,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<()> {
+        let response = self
+            .send_json(Method::DELETE, path, body, audit_log_reason)
+            .await?;
+        Self::parse_void_response(response).await
+    }
+
+    pub async fn delete_with_reason<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<T> {
+        let response = self
+            .send_json(Method::DELETE, path, body, audit_log_reason)
+            .await?;
+        Self::parse_response(response).await
     }
 
     async fn parse_void_response(response: reqwest::Response) -> ApiResult<()> {
@@ -303,7 +432,7 @@ mod tests {
     use serde_json::{Value, json};
 
     #[test]
-    fn audit_log_reason_header_keeps_utf8_bytes() {
+    fn audit_log_reason_header_carries_utf8_bytes() {
         let reason = "§ 3 Regel – wiederholt 日本";
         let value = audit_log_reason_header(reason).expect("valid reason header");
         assert_eq!(value.as_bytes(), reason.as_bytes());

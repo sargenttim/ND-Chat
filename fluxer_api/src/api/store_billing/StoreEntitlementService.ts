@@ -44,7 +44,6 @@ import {
 	isTerminalStorePurchaseState,
 	isVoidedGooglePlaySubscriptionStillRenewing,
 	LIFETIME_REFUND_REASON,
-	normalizeAccountToken,
 	PAID_SUBSCRIPTION_STATES,
 	redactStoreKey,
 	type StoreEnvironment,
@@ -61,7 +60,7 @@ import {
 	scheduleStorePurchaseRefresh,
 } from '@app/api/store_billing/StorePurchaseRefresh';
 import type {StripeGiftReversalHandler} from '@app/api/stripe/services/StripeGiftReversalHandler';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {UserFlags, UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import {PremiumPurchaseBlockedError} from '@fluxer/errors/src/domains/payment/PremiumPurchaseBlockedError';
 import {StoreBillingUnavailableError} from '@fluxer/errors/src/domains/payment/StoreBillingUnavailableError';
@@ -80,7 +79,7 @@ const FAMILY_SHARED_OWNERSHIP = 'FAMILY_SHARED';
 
 interface StoreEntitlementServiceDeps {
 	repository: StoreBillingRepository;
-	userRepository: UserRepository;
+	userRepository: IUserRepository;
 	userCacheService: UserCacheService;
 	gatewayService: IGatewayService;
 	kvClient: IKVProvider;
@@ -152,6 +151,10 @@ interface PersistResult {
 const NOTIFICATION_CONTEXT: SyncContext = {claimerId: null, hintAccountToken: null};
 
 class StorePurchaseRejectedByStoreError extends StorePurchaseInvalidError {}
+
+function normalizeAccountToken(token: string | null | undefined): string | null {
+	return token ? token.toLowerCase() : null;
+}
 
 function toStoreBillingError(error: unknown): unknown {
 	if (error instanceof AppStoreJwsVerificationError || error instanceof AppStorePurchaseSyncError) {

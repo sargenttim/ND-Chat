@@ -3,7 +3,7 @@
 import {getDateFormatter} from '@fluxer/date_utils/src/DateFormatterCache';
 import {localeUses12Hour} from '@fluxer/date_utils/src/DateHourCycle';
 
-export const TimestampStyle = {
+const TimestampStyle = {
 	ShortTime: 'ShortTime',
 	LongTime: 'LongTime',
 	ShortDate: 'ShortDate',
@@ -14,7 +14,7 @@ export const TimestampStyle = {
 	ShortDateMediumTime: 'ShortDateMediumTime',
 	RelativeTime: 'RelativeTime',
 } as const;
-export type TimestampStyle = (typeof TimestampStyle)[keyof typeof TimestampStyle];
+type TimestampStyle = (typeof TimestampStyle)[keyof typeof TimestampStyle];
 
 const TIMESTAMP_STYLE_OPTIONS: Record<string, Intl.DateTimeFormatOptions> = {
 	[TimestampStyle.ShortTime]: {hour: 'numeric', minute: 'numeric'},

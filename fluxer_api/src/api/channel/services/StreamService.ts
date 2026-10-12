@@ -3,7 +3,6 @@
 import {type ChannelID, createChannelID, createGuildID, type GuildID, type UserID} from '@app/api/BrandedTypes';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
 import type {StreamPreviewService} from '@app/api/channel/services/StreamPreviewService';
-import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import {ChannelTypes, Permissions} from '@fluxer/constants/src/ChannelConstants';
 import {InvalidChannelTypeError} from '@fluxer/errors/src/domains/channel/InvalidChannelTypeError';
@@ -78,13 +77,11 @@ export class StreamService {
 
 	private async assertStreamChannelAccess(params: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		channelId: ChannelID;
 		parsedKey: ParsedStreamKey;
 	}): Promise<void> {
 		const channel = await this.channelService.channelData.operations.getChannel({
 			userId: params.userId,
-			viewer: params.viewer,
 			channelId: params.channelId,
 		});
 		if (channel.guildId) {
@@ -121,7 +118,6 @@ export class StreamService {
 
 	private async assertStreamMutationAccess(params: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		channelId: ChannelID;
 		parsedKey: ParsedStreamKey;
 	}): Promise<void> {
@@ -153,17 +149,11 @@ export class StreamService {
 		}
 	}
 
-	async updateStreamRegion(params: {
-		userId: UserID;
-		viewer: ThreadViewer;
-		streamKey: string;
-		region?: string;
-	}): Promise<void> {
+	async updateStreamRegion(params: {userId: UserID; streamKey: string; region?: string}): Promise<void> {
 		const parsedKey = this.getParsedStreamKeyOrThrow(params.streamKey);
 		const channelId = this.getChannelIdFromParsedKeyOrThrow(parsedKey);
 		await this.assertStreamMutationAccess({
 			userId: params.userId,
-			viewer: params.viewer,
 			channelId,
 			parsedKey,
 		});
@@ -174,7 +164,7 @@ export class StreamService {
 		);
 	}
 
-	async getPreview(params: {userId: UserID; viewer: ThreadViewer; streamKey: string}): Promise<{
+	async getPreview(params: {userId: UserID; streamKey: string}): Promise<{
 		buffer: Uint8Array;
 		contentType: string;
 	} | null> {
@@ -182,7 +172,6 @@ export class StreamService {
 		const channelId = this.getChannelIdFromParsedKeyOrThrow(parsedKey);
 		await this.assertStreamChannelAccess({
 			userId: params.userId,
-			viewer: params.viewer,
 			channelId,
 			parsedKey,
 		});
@@ -191,7 +180,6 @@ export class StreamService {
 
 	async uploadPreview(params: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		streamKey: string;
 		channelId: ChannelID;
 		thumbnail: string;
@@ -200,7 +188,6 @@ export class StreamService {
 		const parsedKey = this.getParsedStreamKeyOrThrow(params.streamKey);
 		await this.assertStreamMutationAccess({
 			userId: params.userId,
-			viewer: params.viewer,
 			channelId: params.channelId,
 			parsedKey,
 		});
@@ -219,7 +206,6 @@ export class StreamService {
 
 	async createPreviewUploadUrl(params: {
 		userId: UserID;
-		viewer: ThreadViewer;
 		streamKey: string;
 		channelId: ChannelID;
 		contentType?: string;
@@ -228,7 +214,6 @@ export class StreamService {
 		const parsedKey = this.getParsedStreamKeyOrThrow(params.streamKey);
 		await this.assertStreamMutationAccess({
 			userId: params.userId,
-			viewer: params.viewer,
 			channelId: params.channelId,
 			parsedKey,
 		});
@@ -241,12 +226,11 @@ export class StreamService {
 		});
 	}
 
-	async deletePreview(params: {userId: UserID; viewer: ThreadViewer; streamKey: string}): Promise<void> {
+	async deletePreview(params: {userId: UserID; streamKey: string}): Promise<void> {
 		const parsedKey = this.getParsedStreamKeyOrThrow(params.streamKey);
 		const channelId = this.getChannelIdFromParsedKeyOrThrow(parsedKey);
 		await this.assertStreamMutationAccess({
 			userId: params.userId,
-			viewer: params.viewer,
 			channelId,
 			parsedKey,
 		});

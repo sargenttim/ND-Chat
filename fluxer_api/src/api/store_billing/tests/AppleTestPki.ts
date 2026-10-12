@@ -20,7 +20,7 @@ export interface TestCertificateExtension {
 	value: Buffer;
 }
 
-interface TestCertificateOptions {
+export interface TestCertificateOptions {
 	commonName?: string;
 	notBefore?: Date;
 	notAfter?: Date;
@@ -35,7 +35,7 @@ export interface AppleTestPkiOptions {
 	leaf?: TestCertificateOptions;
 }
 
-interface SignJwsOptions {
+export interface SignJwsOptions {
 	header?: Record<string, unknown>;
 	signingKey?: KeyObject;
 }
@@ -78,7 +78,7 @@ function derInteger(value: Buffer): Buffer {
 	return der(0x02, trimmed);
 }
 
-function derObjectIdentifier(oid: string): Buffer {
+export function derObjectIdentifier(oid: string): Buffer {
 	const arcs = oid.split('.').map(Number);
 	const bytes = [arcs[0] * 40 + arcs[1]];
 	for (const arc of arcs.slice(2)) {

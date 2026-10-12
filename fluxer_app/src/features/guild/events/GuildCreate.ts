@@ -21,8 +21,6 @@ import Permission from '@app/features/permissions/state/Permission';
 import Presence from '@app/features/presence/state/Presence';
 import ReadStates from '@app/features/read_state/state/ReadStates';
 import QuickSwitcher from '@app/features/search/state/QuickSwitcher';
-import ChannelThreads from '@app/features/threads/state/ChannelThreads';
-import ThreadGuilds from '@app/features/threads/state/ThreadGuilds';
 import Nagbar from '@app/features/ui/state/Nagbar';
 import UserGuildSettings from '@app/features/user/state/UserGuildSettings';
 import UserProfile from '@app/features/user/state/UserProfile';
@@ -59,12 +57,8 @@ export function handleGuildCreate(data: GuildReadyData, _context: GatewayHandler
 		MemberSidebar.handleGuildCreate(data.id);
 		UserProfile.handleGuildCreate();
 	}
-	ThreadGuilds.handleGuild(data);
 	if (!data.unavailable) {
 		Channels.handleGuildCreate(data);
-	}
-	if (data.threads) {
-		ChannelThreads.ingestGuildThreads(data.id, data.threads);
 	}
 	GuildMembers.handleGuildCreate(data, {synced: isSync});
 	GuildReadState.handleGuildCreate({guild: data});

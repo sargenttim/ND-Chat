@@ -7,7 +7,6 @@ import {useMaybeMessageViewContext} from '@app/features/channel/components/Messa
 import {PAUSE_DESCRIPTOR, PLAY_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
 import {useAttachmentRefreshOnError} from '@app/features/messaging/hooks/useAttachmentRefreshOnError';
-import {resolveDesktopCrossOriginMediaURL} from '@app/features/messaging/utils/DesktopResourceUrl';
 import {buildMediaProxyURL} from '@app/features/messaging/utils/MediaProxyUtils';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
@@ -38,7 +37,7 @@ const WAVEFORM_BAR_COUNT = 32;
 const VOICE_PLAYBACK_RATE_STEPS = [0.75, 1, 1.5, 2] as const;
 const voicePlaybackStops = new Map<object, () => void>();
 
-interface VoiceMessagePlayerProps extends BaseMediaProps {
+export interface VoiceMessagePlayerProps extends BaseMediaProps {
 	src: string;
 	title?: string;
 	duration?: number;
@@ -49,7 +48,7 @@ interface VoiceMessagePlayerProps extends BaseMediaProps {
 	snapshotIndex?: number;
 }
 
-function decodeWaveform(waveform: string): Array<number> {
+export function decodeWaveform(waveform: string): Array<number> {
 	if (!waveform) return [];
 	try {
 		const decoded = atob(waveform);
@@ -64,7 +63,7 @@ function decodeWaveform(waveform: string): Array<number> {
 	}
 }
 
-function resampleWaveform(samples: ReadonlyArray<number>, barCount: number): Array<number> {
+export function resampleWaveform(samples: ReadonlyArray<number>, barCount: number): Array<number> {
 	if (samples.length === barCount) return [...samples];
 	if (samples.length < barCount) {
 		return [...samples, ...new Array<number>(barCount - samples.length).fill(0)];
@@ -86,12 +85,12 @@ function resampleWaveform(samples: ReadonlyArray<number>, barCount: number): Arr
 	return resampled;
 }
 
-function countPlayedBars(progressPercent: number, barCount: number): number {
+export function countPlayedBars(progressPercent: number, barCount: number): number {
 	if (barCount <= 0) return 0;
 	return Math.max(0, Math.min(barCount, Math.round((progressPercent / 100) * barCount)));
 }
 
-function waveformBarHeightPercent(value: number): number {
+export function waveformBarHeightPercent(value: number): number {
 	const clamped = Math.max(0, Math.min(1, value));
 	return ((22 * clamped + 2) / 24) * 100;
 }
@@ -325,7 +324,7 @@ const VoiceMessagePlayer: React.FC<VoiceMessagePlayerProps> = observer(
 			>
 				<audio
 					ref={mediaRef as React.RefObject<HTMLAudioElement>}
-					src={hasStarted || wantsMetadata ? resolveDesktopCrossOriginMediaURL(effectiveSrc) : undefined}
+					src={hasStarted || wantsMetadata ? effectiveSrc : undefined}
 					preload={wantsMetadata ? 'metadata' : 'none'}
 					onError={handleMediaError}
 					data-flx="channel.embeds.media.voice-message-player.audio"

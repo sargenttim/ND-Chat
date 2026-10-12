@@ -83,7 +83,7 @@ function isRemoteVisibleScreenShare(signals: VoiceParticipantTileScreenShareSign
 	return !signals.isFocusedPlaceholderTile;
 }
 
-function graphTileStateHoldsWatchIntent(graphTileState: VoiceMediaGraphStreamTileState): boolean {
+export function graphTileStateHoldsWatchIntent(graphTileState: VoiceMediaGraphStreamTileState): boolean {
 	switch (graphTileState) {
 		case 'watchDesired':
 			return true;
@@ -104,12 +104,12 @@ function graphTileStateHoldsWatchIntent(graphTileState: VoiceMediaGraphStreamTil
 	}
 }
 
-function shouldShowWatchFailed(signals: VoiceParticipantTileScreenShareSignals): boolean {
+export function shouldShowWatchFailed(signals: VoiceParticipantTileScreenShareSignals): boolean {
 	if (!isRemoteVisibleScreenShare(signals)) return false;
 	return signals.graphTileState === 'failed';
 }
 
-function shouldShowScreenShareBuffering(signals: VoiceParticipantTileScreenShareSignals): boolean {
+export function shouldShowScreenShareBuffering(signals: VoiceParticipantTileScreenShareSignals): boolean {
 	if (!isRemoteVisibleScreenShare(signals)) return false;
 	if (signals.cameraLocallyDisabled) return false;
 	switch (signals.graphTileState) {
@@ -147,7 +147,7 @@ export function selectScreenShareBufferingPresentation(
 	return 'spinner';
 }
 
-function shouldShowStreamEnded(signals: VoiceParticipantTileScreenShareSignals): boolean {
+export function shouldShowStreamEnded(signals: VoiceParticipantTileScreenShareSignals): boolean {
 	if (!isRemoteVisibleScreenShare(signals)) return false;
 	if (signals.isFocusPresentationTile) return false;
 	if (signals.graphTileState !== 'publicationMissing') return false;
@@ -155,7 +155,7 @@ function shouldShowStreamEnded(signals: VoiceParticipantTileScreenShareSignals):
 	return !signals.isTrackReference;
 }
 
-function shouldShowWatchPrompt(signals: VoiceParticipantTileScreenShareSignals): boolean {
+export function shouldShowWatchPrompt(signals: VoiceParticipantTileScreenShareSignals): boolean {
 	if (!isRemoteVisibleScreenShare(signals)) return false;
 	if (graphTileStateHoldsWatchIntent(signals.graphTileState)) return false;
 	if (!signals.isTrackReference) return false;
@@ -198,7 +198,7 @@ export function selectVoiceParticipantTileCameraActive(signals: VoiceParticipant
 	return false;
 }
 
-const voiceParticipantTileStateMachine = setup({
+export const voiceParticipantTileStateMachine = setup({
 	types: {} as {
 		context: VoiceParticipantTileContext;
 		events: VoiceParticipantTileEvent;

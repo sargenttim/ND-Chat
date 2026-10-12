@@ -14,6 +14,7 @@ interface CallHeaderState {
 	controlsVariant: CallHeaderControlsVariant;
 	isDeviceInRoomForChannelCall: boolean;
 	isDeviceConnectingToChannelCall: boolean;
+	isRingingForCurrentUserOnThisDevice: boolean;
 }
 
 export function useCallHeaderState(channel?: Channel | null): CallHeaderState {
@@ -58,5 +59,6 @@ export function useCallHeaderState(channel?: Channel | null): CallHeaderState {
 		controlsVariant,
 		isDeviceInRoomForChannelCall,
 		isDeviceConnectingToChannelCall,
+		isRingingForCurrentUserOnThisDevice,
 	};
 }

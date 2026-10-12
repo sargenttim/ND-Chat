@@ -11,14 +11,12 @@ import {
 import type {MessageRequest} from '@app/api/channel/MessageTypes';
 import {normalizeMessageRequestPayload} from '@app/api/channel/services/message/MessageRequestCompatibility';
 import {parseMultipartMessageData} from '@app/api/channel/services/message/MessageRequestParser';
-import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
 import {LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {BlockAppOriginMiddleware} from '@app/api/middleware/BlockAppOriginMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
-import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
 import {parseJsonPreservingLargeIntegers} from '@app/api/utils/LosslessJsonParser';
 import {Validator} from '@app/api/Validator';
 import type {WebhookExecuteMessageData} from '@app/api/webhook/WebhookService';
@@ -42,7 +40,6 @@ import {
 	WebhookCreateRequest,
 	WebhookExecuteQueryRequest,
 	WebhookMessageEditRequest,
-	WebhookMessageQueryRequest,
 	WebhookMessageRequest,
 	WebhookMultipartMessageRequest,
 	WebhookTokenUpdateRequest,
@@ -50,41 +47,26 @@ import {
 } from '@fluxer/schema/src/domains/webhook/WebhookRequestSchemas';
 import {
 	SlackWebhookResponse,
-	WebhookCreateResponse,
 	WebhookListResponse,
 	WebhookResponse,
 	WebhookTokenResponse,
 } from '@fluxer/schema/src/domains/webhook/WebhookSchemas';
 import type {Context} from 'hono';
-import type {z} from 'zod';
 
-const FORUM_POST_FIELDS = {thread_name: true, applied_tags: true} as const;
-const WebhookMessagePayload = WebhookMessageRequest.omit(FORUM_POST_FIELDS);
-const WebhookMultipartMessagePayload = WebhookMultipartMessageRequest.omit(FORUM_POST_FIELDS);
-
-function validateWebhookMessagePayload(data: unknown): z.infer<typeof WebhookMessagePayload> {
-	const validationResult = WebhookMessagePayload.safeParse(normalizeMessageRequestPayload(data));
+function validateWebhookMessagePayload(data: unknown): WebhookMessageRequest {
+	const validationResult = WebhookMessageRequest.safeParse(normalizeMessageRequestPayload(data));
 	if (!validationResult.success) {
 		throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
 	}
 	return validationResult.data;
 }
 
-function validateWebhookMultipartMessagePayload(data: unknown): z.infer<typeof WebhookMultipartMessagePayload> {
-	const validationResult = WebhookMultipartMessagePayload.safeParse(normalizeMessageRequestPayload(data));
+function validateWebhookMultipartMessagePayload(data: unknown): WebhookMultipartMessageRequest {
+	const validationResult = WebhookMultipartMessageRequest.safeParse(normalizeMessageRequestPayload(data));
 	if (!validationResult.success) {
 		throw InputValidationError.fromCode('message_data', ValidationErrorCodes.INVALID_MESSAGE_DATA);
 	}
 	return validationResult.data;
-}
-
-function pickForumPostFields(payload: unknown): Pick<WebhookExecuteMessageData, 'thread_name' | 'applied_tags'> {
-	if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return {};
-	const {thread_name, applied_tags} = payload as Record<string, unknown>;
-	return {
-		...(thread_name !== undefined ? {thread_name} : {}),
-		...(applied_tags !== undefined ? {applied_tags} : {}),
-	};
 }
 
 async function parseWebhookJsonMessageData(ctx: Context<HonoEnv>): Promise<WebhookExecuteMessageData> {
@@ -95,7 +77,7 @@ async function parseWebhookJsonMessageData(ctx: Context<HonoEnv>): Promise<Webho
 	} catch {
 		data = {};
 	}
-	return {...validateWebhookMessagePayload(data), ...pickForumPostFields(data)};
+	return validateWebhookMessagePayload(data);
 }
 
 async function parseWebhookMultipartMessageData(
@@ -134,7 +116,6 @@ async function parseWebhookMultipartMessageData(
 	return {
 		...webhookData,
 		...messageData,
-		...pickForumPostFields(parsedPayload),
 		attachments: messageData.attachments,
 		username: webhookData.username,
 		avatar_url: webhookData.avatar_url,
@@ -160,7 +141,6 @@ export function WebhookController(app: HonoApp) {
 		async (ctx) => {
 			const response = await ctx.get('webhookRequestService').listGuildWebhooks({
 				userId: ctx.get('user').id,
-				viewer: viewerFromCtx(ctx),
 				guildId: createGuildID(ctx.req.valid('param').guild_id),
 				requestCache: ctx.get('requestCache'),
 			});
@@ -184,7 +164,6 @@ export function WebhookController(app: HonoApp) {
 		Validator('param', ChannelIdParam),
 		async (ctx) => {
 			const response = await ctx.get('webhookRequestService').listChannelWebhooks({
-				viewer: viewerFromCtx(ctx),
 				userId: ctx.get('user').id,
 				channelId: createChannelID(ctx.req.valid('param').channel_id),
 				requestCache: ctx.get('requestCache'),
@@ -201,7 +180,7 @@ export function WebhookController(app: HonoApp) {
 			summary: 'Create webhook',
 			description:
 				'Creates a new webhook in the specified channel with the provided name and optional avatar. Returns the newly created webhook object including its ID and token.',
-			responseSchema: WebhookCreateResponse,
+			responseSchema: WebhookResponse,
 			statusCode: 200,
 			security: ['botToken', 'bearerToken', 'sessionToken'],
 			tags: ['Webhooks'],
@@ -209,10 +188,8 @@ export function WebhookController(app: HonoApp) {
 		Validator('param', ChannelIdParam),
 		Validator('json', WebhookCreateRequest),
 		async (ctx) => {
-			assertAccountNotLimited(ctx.get('user'));
 			const auditLogReason = ctx.get('auditLogReason') ?? null;
 			const response = await ctx.get('webhookRequestService').createWebhook({
-				viewer: viewerFromCtx(ctx),
 				userId: ctx.get('user').id,
 				channelId: createChannelID(ctx.req.valid('param').channel_id),
 				data: ctx.req.valid('json'),
@@ -240,7 +217,6 @@ export function WebhookController(app: HonoApp) {
 		async (ctx) => {
 			const response = await ctx.get('webhookRequestService').getWebhook({
 				userId: ctx.get('user').id,
-				viewer: viewerFromCtx(ctx),
 				webhookId: createWebhookID(ctx.req.valid('param').webhook_id),
 				requestCache: ctx.get('requestCache'),
 			});
@@ -267,7 +243,6 @@ export function WebhookController(app: HonoApp) {
 			const auditLogReason = ctx.get('auditLogReason') ?? null;
 			const response = await ctx.get('webhookRequestService').updateWebhook({
 				userId: ctx.get('user').id,
-				viewer: viewerFromCtx(ctx),
 				webhookId: createWebhookID(ctx.req.valid('param').webhook_id),
 				data: ctx.req.valid('json'),
 				requestCache: ctx.get('requestCache'),
@@ -295,7 +270,6 @@ export function WebhookController(app: HonoApp) {
 			const auditLogReason = ctx.get('auditLogReason') ?? null;
 			await ctx.get('webhookRequestService').deleteWebhook({
 				userId: ctx.get('user').id,
-				viewer: viewerFromCtx(ctx),
 				webhookId: createWebhookID(ctx.req.valid('param').webhook_id),
 				auditLogReason,
 			});
@@ -399,7 +373,6 @@ export function WebhookController(app: HonoApp) {
 			const response = await ctx.get('webhookRequestService').executeWebhook({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
-				threadId: ctx.req.query('thread_id'),
 				data,
 				wait,
 				requestCache: ctx.get('requestCache'),
@@ -424,13 +397,11 @@ export function WebhookController(app: HonoApp) {
 			tags: ['Webhooks'],
 		}),
 		Validator('param', WebhookIdTokenMessageIdParam),
-		Validator('query', WebhookMessageQueryRequest),
 		async (ctx) => {
 			const {webhook_id: webhookId, token, message_id: messageId} = ctx.req.valid('param');
 			const response = await ctx.get('webhookRequestService').getWebhookMessage({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
-				threadId: ctx.req.query('thread_id'),
 				messageId: createMessageID(messageId),
 				requestCache: ctx.get('requestCache'),
 			});
@@ -451,7 +422,6 @@ export function WebhookController(app: HonoApp) {
 			tags: ['Webhooks'],
 		}),
 		Validator('param', WebhookIdTokenMessageIdParam),
-		Validator('query', WebhookMessageQueryRequest),
 		Validator('json', WebhookMessageEditRequest),
 		async (ctx) => {
 			const {webhook_id: webhookId, token, message_id: messageId} = ctx.req.valid('param');
@@ -459,7 +429,6 @@ export function WebhookController(app: HonoApp) {
 			const response = await ctx.get('webhookRequestService').editWebhookMessage({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
-				threadId: ctx.req.query('thread_id'),
 				messageId: createMessageID(messageId),
 				data,
 				requestCache: ctx.get('requestCache'),
@@ -481,13 +450,11 @@ export function WebhookController(app: HonoApp) {
 			tags: ['Webhooks'],
 		}),
 		Validator('param', WebhookIdTokenMessageIdParam),
-		Validator('query', WebhookMessageQueryRequest),
 		async (ctx) => {
 			const {webhook_id: webhookId, token, message_id: messageId} = ctx.req.valid('param');
 			await ctx.get('webhookRequestService').deleteWebhookMessage({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
-				threadId: ctx.req.query('thread_id'),
 				messageId: createMessageID(messageId),
 				requestCache: ctx.get('requestCache'),
 			});
@@ -497,7 +464,6 @@ export function WebhookController(app: HonoApp) {
 	app.post(
 		'/webhooks/:webhook_id/:token/github',
 		RateLimitMiddleware(RateLimitConfigs.WEBHOOK_GITHUB),
-		BlockAppOriginMiddleware,
 		OpenAPI({
 			operationId: 'execute_github_webhook',
 			summary: 'Execute GitHub webhook',
@@ -508,14 +474,12 @@ export function WebhookController(app: HonoApp) {
 			tags: ['Webhooks'],
 		}),
 		Validator('param', WebhookIdTokenParam),
-		Validator('query', WebhookMessageQueryRequest),
 		Validator('json', GitHubWebhook),
 		async (ctx) => {
 			const {webhook_id: webhookId, token} = ctx.req.valid('param');
 			await ctx.get('webhookRequestService').executeGitHubWebhook({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
-				threadId: ctx.req.query('thread_id'),
 				event: ctx.req.header('X-GitHub-Event') ?? '',
 				delivery: ctx.req.header('X-GitHub-Delivery') ?? '',
 				data: ctx.req.valid('json'),
@@ -527,7 +491,6 @@ export function WebhookController(app: HonoApp) {
 	app.post(
 		'/webhooks/:webhook_id/:token/slack',
 		RateLimitMiddleware(RateLimitConfigs.WEBHOOK_EXECUTE),
-		BlockAppOriginMiddleware,
 		OpenAPI({
 			operationId: 'execute_slack_webhook',
 			summary: 'Execute Slack webhook',
@@ -538,14 +501,12 @@ export function WebhookController(app: HonoApp) {
 			tags: ['Webhooks'],
 		}),
 		Validator('param', WebhookIdTokenParam),
-		Validator('query', WebhookMessageQueryRequest),
 		Validator('json', SlackWebhookRequest),
 		async (ctx) => {
 			const {webhook_id: webhookId, token} = ctx.req.valid('param');
 			await ctx.get('webhookRequestService').executeSlackWebhook({
 				webhookId: createWebhookID(webhookId),
 				token: createWebhookToken(token),
-				threadId: ctx.req.query('thread_id'),
 				data: ctx.req.valid('json'),
 				requestCache: ctx.get('requestCache'),
 			});
@@ -556,7 +517,6 @@ export function WebhookController(app: HonoApp) {
 	app.post(
 		'/webhooks/:webhook_id/:token/instatus',
 		RateLimitMiddleware(RateLimitConfigs.WEBHOOK_INSTATUS),
-		BlockAppOriginMiddleware,
 		OpenAPI({
 			operationId: 'execute_instatus_webhook',
 			summary: 'Execute Instatus webhook',

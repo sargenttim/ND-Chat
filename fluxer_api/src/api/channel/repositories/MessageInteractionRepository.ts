@@ -2,6 +2,7 @@
 
 import type {ChannelID, EmojiID, MessageID, UserID} from '@app/api/BrandedTypes';
 import {createEmojiID} from '@app/api/BrandedTypes';
+import {IMessageInteractionRepository} from '@app/api/channel/repositories/IMessageInteractionRepository';
 import type {MessageRepository} from '@app/api/channel/repositories/MessageRepository';
 import {deleteOneOrMany, fetchMany, fetchOne, upsertOne} from '@app/api/database/CassandraQueryExecution';
 import {Db} from '@app/api/database/CassandraTypes';
@@ -65,10 +66,11 @@ const CHECK_USER_REACTION_EXISTS_QUERY = MessageReactions.selectCql({
 	limit: 1,
 });
 
-export class MessageInteractionRepository {
+export class MessageInteractionRepository extends IMessageInteractionRepository {
 	private messageRepository: MessageRepository;
 
 	constructor(messageRepository: MessageRepository) {
+		super();
 		this.messageRepository = messageRepository;
 	}
 

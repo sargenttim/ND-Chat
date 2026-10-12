@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {createChannelID, createGuildID} from '@app/api/BrandedTypes';
+import {createGuildID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
 import type {GuildDiscoveryRow} from '@app/api/database/types/GuildDiscoveryTypes';
-import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
-import {emitGuildJoinRefused} from '@app/api/infrastructure/activity/GuildEvents';
 import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
@@ -17,13 +15,12 @@ import {GuildFeatures, JoinSourceTypes} from '@fluxer/constants/src/GuildConstan
 import {DiscoveryDisabledError} from '@fluxer/errors/src/domains/discovery/DiscoveryDisabledError';
 import {DiscoveryNotDiscoverableError} from '@fluxer/errors/src/domains/discovery/DiscoveryNotDiscoverableError';
 import {InvitesDisabledError} from '@fluxer/errors/src/domains/invite/InvitesDisabledError';
-import {GuildIdChannelIdParam, GuildIdParam} from '@fluxer/schema/src/domains/common/CommonParamSchemas';
+import {GuildIdParam} from '@fluxer/schema/src/domains/common/CommonParamSchemas';
 import {
 	DiscoveryApplicationPatchRequest,
 	DiscoveryApplicationRequest,
 	DiscoveryApplicationResponse,
 	DiscoveryCategoryListResponse,
-	DiscoveryChannelPreviewResponse,
 	DiscoveryGuildListResponse,
 	DiscoverySearchQuery,
 	DiscoveryStatusResponse,
@@ -103,31 +100,6 @@ export function GuildDiscoveryController(app: HonoApp) {
 			return ctx.json(categories);
 		},
 	);
-	app.get(
-		'/discovery/guilds/:guild_id/channels/:channel_id',
-		RateLimitMiddleware(RateLimitConfigs.DISCOVERY_CHANNEL_PREVIEW),
-		LoginRequired,
-		DefaultUserOnly,
-		Validator('param', GuildIdChannelIdParam),
-		OpenAPI({
-			operationId: 'get_discovery_channel_preview',
-			summary: 'Preview a channel in a discoverable guild',
-			description:
-				'Returns the guild and channel behind a channel or message link when the guild is listed in discovery and new members can read the channel.',
-			responseSchema: DiscoveryChannelPreviewResponse,
-			statusCode: 200,
-			security: ['sessionToken', 'bearerToken'],
-			tags: ['Discovery'],
-		}),
-		async (ctx) => {
-			ensureDiscoveryEnabled();
-			const {guild_id, channel_id} = ctx.req.valid('param');
-			const preview = await ctx
-				.get('discoveryService')
-				.getChannelPreview(createGuildID(guild_id), createChannelID(channel_id), viewerFromCtx(ctx));
-			return ctx.json(preview);
-		},
-	);
 	app.post(
 		'/discovery/guilds/:guild_id/join',
 		RateLimitMiddleware(RateLimitConfigs.DISCOVERY_JOIN),
@@ -152,11 +124,8 @@ export function GuildDiscoveryController(app: HonoApp) {
 			if (!status || status.status !== DiscoveryApplicationStatus.APPROVED) {
 				throw new DiscoveryNotDiscoverableError();
 			}
-			const guild = await ctx.get('guildService').data.operations.getGuildSystem(guildId);
+			const guild = await ctx.get('guildService').data.getGuildSystem(guildId);
 			if (guild.features.has(GuildFeatures.INVITES_DISABLED)) {
-				if (!(await ctx.get('gatewayService').hasGuildMember({guildId, userId: user.id}))) {
-					await emitGuildJoinRefused({guildId, userId: user.id, joinSource: 'discovery'});
-				}
 				throw new InvitesDisabledError();
 			}
 			await ctx.get('guildService').members.addUserToGuild({

@@ -20,11 +20,79 @@ interface ProcessedMediaFile {
 	height?: number;
 }
 
+interface ProcessedMediaObject {
+	body: Uint8Array;
+	contentType: string;
+	contentHash: string;
+	contentLength: number;
+	width?: number;
+	height?: number;
+}
+
 interface StrippedMediaBuffer {
 	body: Uint8Array;
 	contentType: string;
 	width?: number;
 	height?: number;
+}
+
+function processedMediaObject(
+	body: Uint8Array,
+	contentType: string,
+	dimensions?: {width: number; height: number},
+): ProcessedMediaObject {
+	return {
+		body,
+		contentType,
+		contentHash: createHash('sha256').update(body).digest('hex'),
+		contentLength: body.length,
+		...dimensions,
+	};
+}
+
+async function processJpegData(sourceData: Uint8Array, contentType: string): Promise<ProcessedMediaObject> {
+	const inputPath = temporaryFile({extension: 'jpg'});
+	const outputPath = temporaryFile({extension: 'jpg'});
+	try {
+		await fs.promises.writeFile(inputPath, sourceData);
+		const metadata = await sharp(sourceData).metadata();
+		const needsRotation = metadata.orientation != null && metadata.orientation > 1;
+		let preserveIcc = true;
+		if (needsRotation) {
+			const sourceQuality = await getJpegQualityEstimate(inputPath);
+			const chromaSubsampling = metadata.chromaSubsampling === '4:4:4' ? '4:4:4' : '4:2:0';
+			const processedBuffer = await sharp(sourceData)
+				.rotate()
+				.jpeg({quality: sourceQuality ?? 95, chromaSubsampling})
+				.toBuffer();
+			await fs.promises.writeFile(outputPath, processedBuffer);
+			preserveIcc = metadata.space !== 'cmyk';
+		} else {
+			await fs.promises.copyFile(inputPath, outputPath);
+		}
+		await stripJpegMetadata(outputPath, inputPath, {preserveIcc, rotated: needsRotation});
+		const finalBuffer = await fs.promises.readFile(outputPath);
+		const dimensions =
+			metadata.width && metadata.height
+				? metadata.orientation != null && metadata.orientation >= 5 && metadata.orientation <= 8
+					? {width: metadata.height, height: metadata.width}
+					: {width: metadata.width, height: metadata.height}
+				: undefined;
+		const processed = processedMediaObject(new Uint8Array(finalBuffer), contentType, dimensions);
+		const cleanupErrors = await cleanupTempFiles([inputPath, outputPath]);
+		if (cleanupErrors.length > 0) {
+			throw new Error(
+				`Failed to cleanup temporary files: ${cleanupErrors.map((e) => e.path).join(', ')}. This may indicate disk space or permission issues.`,
+			);
+		}
+		return processed;
+	} catch (error) {
+		const cleanupErrors = await cleanupTempFiles([inputPath, outputPath]);
+		if (cleanupErrors.length > 0) {
+			Logger.error({cleanupErrors, originalError: error}, 'Failed to cleanup temp files after operation failure');
+		}
+		throw error;
+	}
 }
 
 function normalizeContentType(contentType: string): string {
@@ -37,6 +105,24 @@ function isMediaContentType(contentType: string): boolean {
 
 function isJpegContentType(contentType: string): boolean {
 	return contentType.includes('jpeg') || contentType.includes('jpg');
+}
+
+function contentTypeToMediaExtension(contentType: string): string {
+	if (contentType.includes('mp4') || contentType.includes('mpeg4')) return 'mp4';
+	if (contentType.includes('webm')) return 'webm';
+	if (contentType.includes('quicktime')) return 'mov';
+	if (contentType.includes('x-matroska')) return 'mkv';
+	if (contentType.includes('avi')) return 'avi';
+	if (contentType.includes('flv')) return 'flv';
+	if (contentType.includes('mp2t')) return 'ts';
+	if (contentType.includes('mpeg')) return contentType.startsWith('audio/') ? 'mp3' : 'mpeg';
+	if (contentType.includes('x-ms-wmv')) return 'wmv';
+	if (contentType.includes('wav')) return 'wav';
+	if (contentType.includes('flac')) return 'flac';
+	if (contentType.includes('aac')) return 'aac';
+	if (contentType.includes('aiff')) return 'aiff';
+	if (contentType.includes('ogg')) return 'ogg';
+	return 'mp4';
 }
 
 function imageContentTypeForSharpFormat(format: string | undefined, fallback: string): string {
@@ -228,59 +314,62 @@ async function stripMetadataWithExiftool(data: Uint8Array, extension: string): P
 	}
 }
 
-function ffmpegMuxerForContentType(contentType: string): string | null {
-	if (contentType.includes('3gpp')) return '3gp';
-	if (contentType.includes('mp4')) return 'mp4';
-	if (contentType.includes('webm')) return 'webm';
-	if (contentType.includes('quicktime')) return 'mov';
-	if (contentType.includes('x-matroska')) return 'matroska';
-	if (contentType.includes('x-msvideo')) return 'avi';
-	if (contentType.includes('x-flv')) return 'flv';
-	if (contentType.includes('mp2t')) return 'mpegts';
-	if (contentType.includes('mpeg')) return contentType.startsWith('audio/') ? 'mp3' : 'mpeg';
-	if (contentType.includes('x-ms-wmv')) return 'asf';
-	if (contentType.includes('wav')) return 'wav';
-	if (contentType.includes('flac')) return 'flac';
-	if (contentType.includes('aac')) return 'adts';
-	if (contentType.includes('aiff')) return 'aiff';
-	if (contentType.includes('ogg')) return 'ogg';
+async function stripMediaMetadata(data: Uint8Array, contentType: string): Promise<StrippedMediaBuffer | null> {
+	const normalizedContentType = normalizeContentType(contentType);
+	if (!isMediaContentType(normalizedContentType)) return null;
+	if (isJpegContentType(normalizedContentType)) {
+		const processed = await processJpegData(data, normalizedContentType);
+		return {
+			body: processed.body,
+			contentType: processed.contentType,
+			...(processed.width && processed.height ? {width: processed.width, height: processed.height} : {}),
+		};
+	}
+	if (normalizedContentType.startsWith('image/')) {
+		return stripNonJpegImageMetadataForUpload(data, normalizedContentType);
+	}
+	if (normalizedContentType.startsWith('video/') || normalizedContentType.startsWith('audio/')) {
+		return {
+			body: await stripVideoMetadata(data, normalizedContentType),
+			contentType: normalizedContentType,
+		};
+	}
 	return null;
 }
 
-const FFMPEG_FAST_START_MUXERS = new Set(['mp4', 'mov', '3gp']);
-const FFMPEG_DEMUXER_FOR_MUXER: Readonly<Record<string, string>> = {
-	'3gp': 'mp4',
-	mov: 'mp4',
-	webm: 'matroska',
-	adts: 'aac',
-};
-const FFMPEG_STRIP_TIMEOUT_MS = 10 * 60 * 1000;
-const FFMPEG_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
-const FFPROBE_TIMEOUT_MS = 30 * 1000;
-const FFPROBE_MAX_BUFFER_BYTES = 64 * 1024;
-
-function requireFfmpegMuxer(contentType: string): string {
-	const muxer = ffmpegMuxerForContentType(contentType);
-	if (!muxer) {
-		throw new Error(`No ffmpeg output format for content type ${contentType}`);
-	}
-	return muxer;
+export async function buildProcessedMediaObject(
+	data: Uint8Array,
+	contentType: string,
+): Promise<ProcessedMediaObject | null> {
+	const stripped = await stripMediaMetadata(data, contentType);
+	if (!stripped) return null;
+	const dimensions = stripped.width && stripped.height ? {width: stripped.width, height: stripped.height} : undefined;
+	return processedMediaObject(stripped.body, stripped.contentType, dimensions);
 }
 
-export function ffmpegMetadataStripArgs(inputPath: string, outputPath: string, contentType: string): Array<string> {
-	const muxer = requireFfmpegMuxer(contentType);
-	return [
+async function stripVideoMetadata(data: Uint8Array, contentType: string): Promise<Uint8Array> {
+	const ext = contentTypeToMediaExtension(contentType);
+	const inputPath = temporaryFile({extension: ext});
+	const outputPath = temporaryFile({extension: ext});
+	try {
+		await fs.promises.writeFile(inputPath, data);
+		await stripVideoMetadataInPlace(inputPath, outputPath);
+		const result = await fs.promises.readFile(outputPath);
+		return new Uint8Array(result);
+	} finally {
+		await cleanupTempFiles([inputPath, outputPath]);
+	}
+}
+
+async function stripVideoMetadataInPlace(inputPath: string, outputPath: string): Promise<void> {
+	await execFilePromise('ffmpeg', [
 		'-hide_banner',
 		'-loglevel',
-		'error',
+		'warning',
 		'-i',
 		inputPath,
 		'-map',
-		'0:v?',
-		'-map',
-		'0:a?',
-		'-map',
-		'0:s?',
+		'0',
 		'-map_metadata',
 		'-1',
 		'-map_metadata:s',
@@ -291,29 +380,9 @@ export function ffmpegMetadataStripArgs(inputPath: string, outputPath: string, c
 		'-1',
 		'-c',
 		'copy',
-		...(FFMPEG_FAST_START_MUXERS.has(muxer) ? ['-movflags', '+faststart'] : []),
-		'-f',
-		muxer,
 		'-y',
 		outputPath,
-	];
-}
-
-export function ffmpegContainerMatchesContentType(formatNames: string, contentType: string): boolean {
-	const muxer = requireFfmpegMuxer(contentType);
-	return formatNames
-		.trim()
-		.split(',')
-		.includes(FFMPEG_DEMUXER_FOR_MUXER[muxer] ?? muxer);
-}
-
-async function probeFfmpegContainer(inputPath: string): Promise<string> {
-	const {stdout} = await execFilePromise(
-		'ffprobe',
-		['-v', 'error', '-show_entries', 'format=format_name', '-of', 'default=nw=1:nk=1', inputPath],
-		{timeout: FFPROBE_TIMEOUT_MS, maxBuffer: FFPROBE_MAX_BUFFER_BYTES},
-	);
-	return stdout;
+	]);
 }
 
 async function cleanupTempFiles(paths: ReadonlyArray<string>): Promise<
@@ -456,16 +525,8 @@ async function stripVideoFileToFile(
 	outputPath: string,
 	contentType: string,
 ): Promise<{contentType: string; width?: number; height?: number}> {
-	const normalizedContentType = normalizeContentType(contentType);
-	const container = await probeFfmpegContainer(inputPath);
-	if (!ffmpegContainerMatchesContentType(container, normalizedContentType)) {
-		throw new Error(`Container ${container.trim()} does not match content type ${normalizedContentType}`);
-	}
-	await execFilePromise('ffmpeg', ffmpegMetadataStripArgs(inputPath, outputPath, normalizedContentType), {
-		timeout: FFMPEG_STRIP_TIMEOUT_MS,
-		maxBuffer: FFMPEG_MAX_BUFFER_BYTES,
-	});
-	return {contentType: normalizedContentType};
+	await stripVideoMetadataInPlace(inputPath, outputPath);
+	return {contentType: normalizeContentType(contentType)};
 }
 
 export async function processMediaFile(

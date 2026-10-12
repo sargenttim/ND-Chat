@@ -8,6 +8,7 @@ import {
 	fetchOne,
 	setCassandraQueryExecutorForTesting,
 } from '@app/api/database/CassandraQueryExecution';
+import type {CassandraParams, KvQueryMeta, PreparedQuery} from '@app/api/database/CassandraTypes';
 import type {
 	ChannelEmptyBucketRow,
 	ChannelMessageBucketRow,
@@ -31,6 +32,39 @@ const FETCH_EMPTY_BUCKETS = ChannelEmptyBuckets.select({
 	where: ChannelEmptyBuckets.where.eq('channel_id'),
 	orderBy: {col: 'bucket', direction: 'DESC'},
 });
+
+class RecordingCassandraQueryExecutor {
+	readonly statements: Array<string> = [];
+	readonly batchAtomicity: Array<boolean> = [];
+	private readonly inner = new InMemoryCassandraQueryExecutor();
+
+	async executeQuery<T = Record<string, unknown>, P extends CassandraParams = CassandraParams>(
+		query: PreparedQuery<P>,
+	): Promise<Array<T>> {
+		this.record(query.kvMeta);
+		return this.inner.executeQuery<T>(query);
+	}
+
+	async executeBatch(
+		queries: Array<{query: string; params: object; meta?: KvQueryMeta}>,
+		atomic = true,
+	): Promise<void> {
+		this.batchAtomicity.push(atomic);
+		for (const entry of queries) {
+			this.record(entry.meta);
+		}
+		await this.inner.executeBatch(queries);
+	}
+
+	countStatements(statement: string): number {
+		return this.statements.filter((entry) => entry === statement).length;
+	}
+
+	private record(meta: KvQueryMeta | undefined): void {
+		if (!meta) return;
+		this.statements.push(`${meta.action}:${meta.table.name}`);
+	}
+}
 
 function makeMessageRow(channelId: ChannelID, messageId: MessageID): MessageRow {
 	return {
@@ -61,11 +95,11 @@ function makeMessageRow(channelId: ChannelID, messageId: MessageID): MessageRow 
 	};
 }
 
-let executor: InMemoryCassandraQueryExecutor;
+let executor: RecordingCassandraQueryExecutor;
 
 describe('MessageDataRepository.upsertMessage round trips', () => {
 	beforeEach(() => {
-		executor = new InMemoryCassandraQueryExecutor();
+		executor = new RecordingCassandraQueryExecutor();
 		setCassandraQueryExecutorForTesting(executor);
 	});
 	afterEach(() => {
@@ -94,7 +128,7 @@ describe('MessageDataRepository.upsertMessage round trips', () => {
 		const olderMessageId = createMessageID(1720000000000000000n);
 		const repository = new MessageDataRepository();
 		await repository.upsertMessage(makeMessageRow(channelId, newerMessageId), null);
-		executor.executed.length = 0;
+		executor.statements.length = 0;
 		executor.batchAtomicity.length = 0;
 
 		await repository.upsertMessage(makeMessageRow(channelId, olderMessageId), null);
@@ -111,7 +145,7 @@ describe('MessageDataRepository.upsertMessage round trips', () => {
 
 describe('MessageDataRepository read scans maintain the bucket index', () => {
 	beforeEach(() => {
-		executor = new InMemoryCassandraQueryExecutor();
+		executor = new RecordingCassandraQueryExecutor();
 		setCassandraQueryExecutorForTesting(executor);
 	});
 	afterEach(() => {
@@ -125,7 +159,7 @@ describe('MessageDataRepository read scans maintain the bucket index', () => {
 		await repository.upsertMessage(makeMessageRow(channelId, messageId), null);
 		await deleteOneOrMany(ChannelMessageBuckets.deleteByPk({channel_id: channelId, bucket}));
 		expect(await loadIndexedBuckets(channelId)).toEqual([]);
-		executor.executed.length = 0;
+		executor.statements.length = 0;
 		executor.batchAtomicity.length = 0;
 
 		const messages = await repository.listMessages(channelId);
@@ -143,7 +177,7 @@ describe('MessageDataRepository read scans maintain the bucket index', () => {
 		const repository = new MessageDataRepository();
 		await repository.upsertMessage(makeMessageRow(channelId, messageId), null);
 		await deleteOneOrMany(Messages.deleteByPk({channel_id: channelId, bucket, message_id: messageId}));
-		executor.executed.length = 0;
+		executor.statements.length = 0;
 		executor.batchAtomicity.length = 0;
 
 		const messages = await repository.listMessages(channelId);

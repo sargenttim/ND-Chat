@@ -4,14 +4,14 @@ import type {UserID} from '@app/api/BrandedTypes';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {Application} from '@app/api/models/Application';
 import type {User} from '@app/api/models/User';
-import type {ApplicationRepository} from '@app/api/oauth/repositories/ApplicationRepository';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {dispatchUserUpdate} from '@app/api/user/UserMappers';
+import type {IApplicationRepository} from '@app/api/oauth/repositories/IApplicationRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
+import {mapUserToPrivateResponse} from '@app/api/user/UserMappers';
 
 export class BotMfaMirrorService {
 	constructor(
-		private readonly applicationRepository: ApplicationRepository,
-		private readonly userRepository: UserRepository,
+		private readonly applicationRepository: IApplicationRepository,
+		private readonly userRepository: IUserRepository,
 		private readonly gatewayService: IGatewayService,
 	) {}
 
@@ -40,8 +40,8 @@ export class BotMfaMirrorService {
 		const applications = await this.listApplications(owner.id);
 		await Promise.all(
 			applications.map(async (application) => {
-				if (application.botUserId === null) return;
-				const botUserId = application.botUserId;
+				if (!application.hasBotUser()) return;
+				const botUserId = application.getBotUserId();
 				if (!botUserId) return;
 				const botUser = await this.userRepository.findUnique(botUserId);
 				if (!botUser) return;
@@ -56,7 +56,11 @@ export class BotMfaMirrorService {
 					botUser.toRow(),
 				);
 				if (updatedBotUser) {
-					await dispatchUserUpdate(this.gatewayService, updatedBotUser);
+					await this.gatewayService.dispatchPresence({
+						userId: botUserId,
+						event: 'USER_UPDATE',
+						data: mapUserToPrivateResponse(updatedBotUser),
+					});
 				}
 			}),
 		);

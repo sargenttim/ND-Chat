@@ -14,11 +14,6 @@ import {Edge, type VerticalEdge} from '@app/features/ui/AxisOrientation';
 import type {ScrollerHandle} from '@app/features/ui/components/Scroller';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import {AnimeButton, AnimePresence} from '@app/features/ui/motion/AnimeElement';
-import {
-	cancelOwnedAnimationFrame,
-	type OwnedAnimationFrame,
-	requireOwnerWindow,
-} from '@app/features/ui/utils/OwnerWindow';
 import {resolveVisibleScrollViewportHeight} from '@app/features/ui/utils/ScrollViewportGeometry';
 import {flxElementClassName} from '@app/lib/react';
 import {clsx} from 'clsx';
@@ -172,6 +167,14 @@ function resolveScrollerNode(scroller: ScrollerHandle | null): HTMLElement | nul
 	return scroller.getViewportElement();
 }
 
+function resolveOwnerWindow(container: HTMLElement): Window & typeof globalThis {
+	const defaultView = container.ownerDocument.defaultView;
+	if (defaultView == null) {
+		throw new Error('Floating unread indicator container has no owner window');
+	}
+	return defaultView;
+}
+
 function observeScrollContentElements(
 	resizeObserver: ResizeObserver,
 	container: HTMLElement,
@@ -190,6 +193,11 @@ function observeScrollContentElements(
 	}
 }
 
+interface OwnedAnimationFrame {
+	readonly id: number;
+	readonly ownerWindow: Window & typeof globalThis;
+}
+
 interface OwnedSettleTimer {
 	readonly id: number;
 	readonly ownerWindow: Window & typeof globalThis;
@@ -200,6 +208,11 @@ interface AlignMountedTargetRequest {
 	readonly direction: VerticalEdge;
 	readonly scroller: ScrollerHandle;
 	readonly targetNode: HTMLElement;
+}
+
+function cancelOwnedAnimationFrame(frame: OwnedAnimationFrame | null): void {
+	if (frame == null) return;
+	frame.ownerWindow.cancelAnimationFrame(frame.id);
 }
 
 function cancelOwnedSettleTimer(timer: OwnedSettleTimer | null): void {
@@ -308,7 +321,7 @@ export const FloatingUnreadIndicators = observer(
 					geometrySettleArmedRef.current = false;
 				} else if (!geometrySettleArmedRef.current) {
 					geometrySettleArmedRef.current = true;
-					const settleOwnerWindow = requireOwnerWindow(container, 'Floating unread indicator container');
+					const settleOwnerWindow = resolveOwnerWindow(container);
 					const settleId = settleOwnerWindow.setTimeout(() => {
 						geometrySettleTimerRef.current = null;
 						geometrySettleArmedRef.current = false;
@@ -358,7 +371,7 @@ export const FloatingUnreadIndicators = observer(
 					refreshNow();
 					return;
 				}
-				const ownerWindow = requireOwnerWindow(container, 'Floating unread indicator container');
+				const ownerWindow = resolveOwnerWindow(container);
 				const pendingFrame = rafRef.current;
 				if (pendingFrame != null && pendingFrame.ownerWindow === ownerWindow) return;
 				cancelOwnedAnimationFrame(pendingFrame);
@@ -380,7 +393,7 @@ export const FloatingUnreadIndicators = observer(
 			geometryInvalidatedRef.current = true;
 			targetIndexInvalidatedRef.current = true;
 			refreshNow();
-			const ownerWindow = requireOwnerWindow(container, 'Floating unread indicator container');
+			const ownerWindow = resolveOwnerWindow(container);
 			const handleScroll = () => {
 				pendingScrollTopRef.current = container.scrollTop;
 				scheduleRefresh(FloatingUnreadRefreshScope.SCROLL);
@@ -440,7 +453,7 @@ export const FloatingUnreadIndicators = observer(
 					if (scroller == null) return;
 					const scrollNode = scroller.getViewportElement();
 					if (scrollNode == null) return;
-					const ownerWindow = requireOwnerWindow(scrollNode, 'Floating unread indicator container');
+					const ownerWindow = resolveOwnerWindow(scrollNode);
 					cancelOwnedAnimationFrame(targetAlignmentFrameRef.current);
 					const id = ownerWindow.requestAnimationFrame(() => {
 						targetAlignmentFrameRef.current = null;
@@ -456,7 +469,7 @@ export const FloatingUnreadIndicators = observer(
 				if (scroller == null) return;
 				const scrollNode = scroller.getViewportElement();
 				if (scrollNode == null) return;
-				const ownerWindow = requireOwnerWindow(scrollNode, 'Floating unread indicator container');
+				const ownerWindow = resolveOwnerWindow(scrollNode);
 				cancelOwnedSettleTimer(settleTimerRef.current);
 				const id = ownerWindow.setTimeout(() => {
 					settleTimerRef.current = null;

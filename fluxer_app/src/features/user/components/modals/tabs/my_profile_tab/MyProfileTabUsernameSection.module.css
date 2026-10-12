@@ -33,3 +33,8 @@
 		display: block;
 	}
 }
+
+.description {
+	color: var(--text-primary-muted);
+	font-size: 0.875rem;
+}

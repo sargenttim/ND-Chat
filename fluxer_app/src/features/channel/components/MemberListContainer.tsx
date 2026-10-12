@@ -6,7 +6,6 @@ import {MEMBERS_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescript
 import {Scroller, type ScrollerHandle} from '@app/features/ui/components/Scroller';
 import KeyboardMode from '@app/features/ui/state/KeyboardMode';
 import {useLingui} from '@lingui/react/macro';
-import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import type {UIEvent} from 'react';
@@ -17,7 +16,6 @@ interface MemberListContainerProps {
 	channelId: string;
 	identityKey?: string;
 	children: React.ReactNode;
-	className?: string;
 	scrollerRef?: React.RefObject<ScrollerHandle | null>;
 	estimatedContentSize?: number | null;
 	onScroll?: (event: UIEvent<HTMLDivElement>) => void;
@@ -28,7 +26,6 @@ export const MemberListContainer: React.FC<MemberListContainerProps> = observer(
 	channelId,
 	identityKey,
 	children,
-	className,
 	scrollerRef,
 	estimatedContentSize,
 	onScroll,
@@ -37,14 +34,16 @@ export const MemberListContainer: React.FC<MemberListContainerProps> = observer(
 	const {i18n} = useLingui();
 	const navigationRef = useRovingFocusList<HTMLElement>({
 		focusableSelector: '[data-member-list-focus-item="true"]',
-
+		orientation: 'vertical',
+		loop: true,
 		enabled: KeyboardMode.keyboardModeEnabled,
 		restoreFocusOnWindowFocus: false,
+		manageTabIndex: true,
 	});
 	return (
 		<aside
 			ref={navigationRef}
-			className={clsx(styles.memberListContainer, className)}
+			className={styles.memberListContainer}
 			aria-label={i18n._(MEMBERS_DESCRIPTOR)}
 			data-flx="channel.member-list-container.member-list-container"
 		>

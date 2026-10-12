@@ -4,20 +4,20 @@ import type {Channel} from '@app/features/channel/models/Channel';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import {assign, initialTransition, type SnapshotFrom, setup, transition} from 'xstate';
 
-interface SearchMachineStateIdle {
+export interface SearchMachineStateIdle {
 	status: 'idle';
 }
 
-interface SearchMachineStateLoading {
+export interface SearchMachineStateLoading {
 	status: 'loading';
 }
 
-interface SearchMachineStateIndexing {
+export interface SearchMachineStateIndexing {
 	status: 'indexing';
 	pollCount: number;
 }
 
-interface SearchMachineStateSuccess {
+export interface SearchMachineStateSuccess {
 	status: 'success';
 	results: Array<Message>;
 	channels: Array<Channel>;
@@ -26,7 +26,7 @@ interface SearchMachineStateSuccess {
 	page: number;
 }
 
-interface SearchMachineStateError {
+export interface SearchMachineStateError {
 	status: 'error';
 	error: string;
 }
@@ -73,7 +73,7 @@ const createInitialSearchMachineContext = (): SearchMachineContext => ({
 	error: '',
 });
 
-const searchStateMachine = setup({
+export const searchStateMachine = setup({
 	types: {} as {
 		context: SearchMachineContext;
 		events: SearchMachineEvent;

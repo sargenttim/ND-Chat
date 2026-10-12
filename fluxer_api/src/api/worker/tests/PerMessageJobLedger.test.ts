@@ -4,10 +4,51 @@ import {createChannelID, createMessageID, createRoleID, createUserID} from '@app
 import {MessageMentionService} from '@app/api/channel/services/message/MessageMentionService';
 import {EmbedService} from '@app/api/infrastructure/EmbedService';
 import type {Message} from '@app/api/models/Message';
-import {RecordingWorkerService} from '@app/api/test/RecordingWorkerService';
+import type {WorkerTaskName} from '@app/api/worker/WorkerLaneConfig';
 import {WorkerQueueOverflowError} from '@app/api/worker/WorkerQueueOverflowError';
 import {MessageTypes} from '@fluxer/constants/src/ChannelConstants';
+import type {IWorkerService} from '@pkgs/worker/src/contracts/IWorkerService';
+import type {WorkerJobOptions, WorkerJobPayload} from '@pkgs/worker/src/contracts/WorkerTypes';
 import {describe, expect, it} from 'vitest';
+
+class RecordingWorkerService implements IWorkerService<WorkerTaskName> {
+	readonly jobs: Array<{taskType: WorkerTaskName; options: WorkerJobOptions | undefined}> = [];
+
+	async addJob<TPayload extends WorkerJobPayload = WorkerJobPayload>(
+		taskType: WorkerTaskName,
+		_payload: TPayload,
+		options?: WorkerJobOptions,
+	): Promise<bigint> {
+		this.jobs.push({taskType, options});
+		return 1n;
+	}
+
+	async cancelJob(): Promise<boolean> {
+		return false;
+	}
+
+	async retryDeadLetterJob(): Promise<boolean> {
+		return false;
+	}
+}
+
+class OverflowingWorkerService implements IWorkerService<WorkerTaskName> {
+	async addJob<TPayload extends WorkerJobPayload = WorkerJobPayload>(
+		taskType: WorkerTaskName,
+		_payload: TPayload,
+		_options?: WorkerJobOptions,
+	): Promise<bigint> {
+		throw new WorkerQueueOverflowError(taskType, 'maximum messages per subject exceeded');
+	}
+
+	async cancelJob(): Promise<boolean> {
+		return false;
+	}
+
+	async retryDeadLetterJob(): Promise<boolean> {
+		return false;
+	}
+}
 
 function makeMentionMessage(): Message {
 	return {
@@ -19,12 +60,6 @@ function makeMentionMessage(): Message {
 		mentionedUserIds: new Set([createUserID(4n)]),
 		mentionedRoleIds: new Set([createRoleID(5n)]),
 	} as never;
-}
-
-function createOverflowingWorkerService(): RecordingWorkerService {
-	const service = new RecordingWorkerService();
-	service.failure = (taskType) => new WorkerQueueOverflowError(taskType, 'maximum messages per subject exceeded');
-	return service;
 }
 
 describe('per-message worker jobs', () => {
@@ -49,7 +84,7 @@ describe('per-message worker jobs', () => {
 
 	it('enqueues extractEmbeds without a ledger row', async () => {
 		const workerService = new RecordingWorkerService();
-		const embedService = new EmbedService(null as never, null as never, workerService);
+		const embedService = new EmbedService(null as never, null as never, null as never, workerService);
 		await embedService.enqueueUrlEmbedExtraction(createChannelID(3n), createMessageID(2n), null, 'block');
 		expect(workerService.jobs).toHaveLength(1);
 		expect(workerService.jobs[0]!.taskType).toBe('extractEmbeds');
@@ -61,7 +96,7 @@ describe('per-message worker jobs', () => {
 			null as never,
 			null as never,
 			null as never,
-			createOverflowingWorkerService(),
+			new OverflowingWorkerService(),
 			null as never,
 		);
 		await expect(
@@ -74,7 +109,7 @@ describe('per-message worker jobs', () => {
 	});
 
 	it('drops embed extraction instead of failing the send when the jobs stream is full', async () => {
-		const embedService = new EmbedService(null as never, null as never, createOverflowingWorkerService());
+		const embedService = new EmbedService(null as never, null as never, null as never, new OverflowingWorkerService());
 		await expect(
 			embedService.enqueueUrlEmbedExtraction(createChannelID(3n), createMessageID(2n), null, 'block'),
 		).resolves.toBeUndefined();

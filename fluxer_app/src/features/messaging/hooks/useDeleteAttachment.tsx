@@ -26,9 +26,8 @@ export function useDeleteAttachment(
 			e.stopPropagation();
 			if (!message || !attachmentId) return;
 			const deleteAttachment = async () => {
-				if (await MessageCommands.deleteAttachment(message.channelId, message.id, attachmentId)) {
-					onDeleted?.();
-				}
+				await MessageCommands.deleteAttachment(message.channelId, message.id, attachmentId);
+				onDeleted?.();
 			};
 			if (e.shiftKey) {
 				void deleteAttachment();

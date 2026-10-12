@@ -2,7 +2,7 @@
 
 import type {LimitKey} from '@fluxer/constants/src/LimitConfigMetadata';
 
-function isToggleActive(limitValue: number): boolean {
+export function isToggleActive(limitValue: number): boolean {
 	return limitValue > 0;
 }
 

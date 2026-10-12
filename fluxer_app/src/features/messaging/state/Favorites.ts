@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Channels from '@app/features/channel/state/Channels';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
-import {isSyncExcludedChannelId} from '@app/features/threads/utils/SyncedPreferenceGuard';
 import {makeSyncedField} from '@app/features/user/state/SyncedField';
 import UserGuildSettings from '@app/features/user/state/UserGuildSettings';
 import {FavoritesStateSchema} from '@fluxer/schema/src/gen/fluxer/user/preferences/v1/preferences_pb';
@@ -16,7 +14,7 @@ export interface FavoriteChannel {
 	nickname: string | null;
 }
 
-interface FavoriteCategory {
+export interface FavoriteCategory {
 	id: string;
 	name: string;
 	position: number;
@@ -31,7 +29,7 @@ class Favorites {
 
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
-		initializeStore(this, () => this.initPersistence());
+		void this.initPersistence();
 	}
 
 	private async initPersistence(): Promise<void> {
@@ -92,6 +90,10 @@ class Favorites {
 		return this.channels.find((ch) => ch.channelId === channelId);
 	}
 
+	getCategory(categoryId: string): FavoriteCategory | undefined {
+		return this.categories.find((cat) => cat.id === categoryId);
+	}
+
 	getChannelsInCategory(categoryId: string | null): ReadonlyArray<FavoriteChannel> {
 		return this.sortedChannels.filter((ch) => ch.parentId === categoryId);
 	}
@@ -128,7 +130,6 @@ class Favorites {
 	}
 
 	addChannel(channelId: string, guildId: string, parentId: string | null = null): void {
-		if (isSyncExcludedChannelId(channelId)) return;
 		const existing = this.channels.find((ch) => ch.channelId === channelId);
 		if (existing) return;
 		const position = this.channels.length;
@@ -139,6 +140,12 @@ class Favorites {
 			position,
 			nickname: null,
 		});
+	}
+
+	addChannels(channelIds: Array<string>, guildId: string, parentId: string | null = null): void {
+		for (const channelId of channelIds) {
+			this.addChannel(channelId, guildId, parentId);
+		}
 	}
 
 	removeChannel(channelId: string): void {
@@ -229,6 +236,10 @@ class Favorites {
 
 	setHideMutedChannels(value: boolean): void {
 		this.hideMutedChannels = value;
+	}
+
+	toggleMuted(): void {
+		this.isMuted = !this.isMuted;
 	}
 
 	private reorderChannels(): void {

@@ -1,28 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createGuildID, createUserID} from '@app/api/BrandedTypes';
-import {viewerActive, viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
 import {LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
-import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
+import type {HonoApp} from '@app/api/types/HonoEnv';
 import {Validator} from '@app/api/Validator';
 import {GuildIdParam} from '@fluxer/schema/src/domains/common/CommonParamSchemas';
-import {
-	GuildAuditLogListQuery,
-	GuildAuditLogListQueryWithThreads,
-	GuildAuditLogListResponse,
-} from '@fluxer/schema/src/domains/guild/GuildAuditLogSchemas';
-import type {MiddlewareHandler} from 'hono';
-
-const controlAuditLogQuery = Validator('query', GuildAuditLogListQuery) as unknown as MiddlewareHandler<HonoEnv>;
-
-const ControlAuditLogQueryForNonViewers: MiddlewareHandler<HonoEnv> = async (ctx, next) => {
-	const guildId = ctx.req.param('guild_id');
-	if (guildId !== undefined && viewerActive(viewerFromCtx(ctx), guildId)) return next();
-	return controlAuditLogQuery(ctx, next);
-};
+import {GuildAuditLogListQuery, GuildAuditLogListResponse} from '@fluxer/schema/src/domains/guild/GuildAuditLogSchemas';
 
 export function GuildAuditLogController(app: HonoApp) {
 	app.get(
@@ -30,8 +16,7 @@ export function GuildAuditLogController(app: HonoApp) {
 		RateLimitMiddleware(RateLimitConfigs.GUILD_AUDIT_LOGS),
 		LoginRequired,
 		Validator('param', GuildIdParam),
-		ControlAuditLogQueryForNonViewers,
-		Validator('query', GuildAuditLogListQueryWithThreads),
+		Validator('query', GuildAuditLogListQuery),
 		OpenAPI({
 			operationId: 'list_guild_audit_logs',
 			summary: 'List guild audit logs',
@@ -49,7 +34,6 @@ export function GuildAuditLogController(app: HonoApp) {
 			const requestCache = ctx.get('requestCache');
 			const response = await ctx.get('guildService').listGuildAuditLogs({
 				userId,
-				viewer: viewerFromCtx(ctx),
 				guildId,
 				requestCache,
 				limit: query.limit ?? undefined,

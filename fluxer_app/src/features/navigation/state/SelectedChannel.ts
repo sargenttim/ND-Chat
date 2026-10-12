@@ -3,12 +3,7 @@
 import Channels from '@app/features/channel/state/Channels';
 import Favorites from '@app/features/messaging/state/Favorites';
 import Navigation from '@app/features/navigation/state/Navigation';
-import {
-	type AppStorageScopeChangeEvent,
-	UNAUTHENTICATED_APP_STORAGE_SCOPE,
-} from '@app/features/platform/state/PersistentStorage';
 import {makePersistent} from '@app/features/platform/utils/MobXPersistence';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import {FAVORITES_GUILD_ID, ME} from '@fluxer/constants/src/AppConstants';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import type {Channel} from '@fluxer/schema/src/domains/channel/ChannelSchemas';
@@ -46,13 +41,11 @@ class SelectedChannel {
 			},
 			{autoBind: true},
 		);
-		initializeStore(this, () => this.initPersistence());
+		void this.initPersistence();
 	}
 
 	private async initPersistence(): Promise<void> {
-		await makePersistent(this, 'SelectedChannel', ['selectedChannelIds', 'recentlyVisitedChannels'], {
-			onRehydrated: this.selectNavigatedChannel,
-		});
+		await makePersistent(this, 'SelectedChannel', ['selectedChannelIds', 'recentlyVisitedChannels']);
 		this.migrateRecentVisits();
 		this.setupNavigationReaction();
 	}
@@ -71,17 +64,6 @@ class SelectedChannel {
 				fireImmediately: true,
 			},
 		);
-	}
-
-	private selectNavigatedChannel(event: AppStorageScopeChangeEvent | null): void {
-		if (event !== null && event.previousScope !== UNAUTHENTICATED_APP_STORAGE_SCOPE) {
-			return;
-		}
-		const {guildId, channelId} = Navigation;
-		if (!guildId || !channelId) {
-			return;
-		}
-		this.selectChannel(guildId, channelId);
 	}
 
 	private normalizeGuildId(guildId: string | null | undefined): string | null {
@@ -225,6 +207,13 @@ class SelectedChannel {
 			this.isApplyingViewedChannelHistory = false;
 		}
 		return true;
+	}
+
+	deselectChannel(): void {
+		const guildId = this.getCurrentGuildId();
+		if (guildId != null) {
+			this.removeGuildSelection(guildId);
+		}
 	}
 
 	clearGuildSelection(guildId: string): void {

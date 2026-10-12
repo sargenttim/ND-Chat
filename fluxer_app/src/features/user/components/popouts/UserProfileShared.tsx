@@ -1,19 +1,18 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {BLUESKY_PROVIDER_NAME} from '@app/features/app/config/I18nDisplayConstants';
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {BLUESKY_PROVIDER_NAME, PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {GuildIcon} from '@app/features/guild/components/popouts/GuildIcon';
 import {AddRoleButton, RoleList} from '@app/features/guild/components/RoleManagement';
 import type {GuildRole} from '@app/features/guild/models/GuildRole';
 import {
 	DOMAIN_DESCRIPTOR,
-	MINUTES_DURATION_PLURAL_DESCRIPTOR as MINUTES_DURATION_DESCRIPTOR,
 	OPEN_LINK_DESCRIPTOR,
 	ROLES_DESCRIPTOR,
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {getCachedDateTimeFormat} from '@app/features/i18n/utils/IntlCache';
 import {SafeMarkdown} from '@app/features/messaging/components/markdown';
 import {MarkdownContext} from '@app/features/messaging/components/markdown/renderers/RendererTypes';
-import {handleExternalLinkAuxClick, openExternalUrlWithWarning} from '@app/features/messaging/utils/ExternalLinkUtils';
+import {openExternalUrlWithWarning} from '@app/features/messaging/utils/ExternalLinkUtils';
 import StreamerMode from '@app/features/streamer_mode/state/StreamerMode';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import markupStyles from '@app/features/theme/styles/Markup.module.css';
@@ -28,13 +27,7 @@ import type {Profile} from '@app/features/user/models/Profile';
 import type {User} from '@app/features/user/models/User';
 import * as DateUtils from '@app/features/user/utils/DateFormatting';
 import {getCurrentLocale} from '@app/features/user/utils/LocaleUtils';
-import {
-	ABOUT_ME_DESCRIPTOR,
-	THIS_CONNECTION_HAS_BEEN_VERIFIED_DESCRIPTOR,
-	THIS_CONNECTION_HAS_NOT_BEEN_VERIFIED_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
 import {ConnectionTypes} from '@fluxer/constants/src/ConnectionConstants';
-import {getDateFormatter} from '@fluxer/date_utils/src/DateFormatterCache';
 import type {UserProfile} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
@@ -45,6 +38,18 @@ import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 
+const ABOUT_ME_DESCRIPTOR = msg({
+	message: 'About me',
+	comment: 'Short label in the user profile shared popout. Keep it concise.',
+});
+const THIS_CONNECTION_HAS_BEEN_VERIFIED_DESCRIPTOR = msg({
+	message: 'This connection has been verified.',
+	comment: 'Description text in the user profile shared popout.',
+});
+const THIS_CONNECTION_HAS_NOT_BEEN_VERIFIED_DESCRIPTOR = msg({
+	message: 'This connection has not been verified.',
+	comment: 'Description text in the user profile shared popout.',
+});
 const PRODUCT_MEMBER_SINCE_DESCRIPTOR = msg({
 	message: '{productName} member since',
 	comment: 'Profile membership label showing when the user account was created.',
@@ -74,6 +79,10 @@ const HOURS_MINUTES_DURATION_DESCRIPTOR = msg({
 const HOURS_DURATION_DESCRIPTOR = msg({
 	message: '{hours, plural, one {# hour} other {# hours}}',
 	comment: 'Duration phrase in the profile timezone section. hours is a positive integer.',
+});
+const MINUTES_DURATION_DESCRIPTOR = msg({
+	message: '{minutes, plural, one {# minute} other {# minutes}}',
+	comment: 'Duration phrase in the profile timezone section. minutes is a positive integer.',
 });
 
 function formatOffsetDifferenceDuration(i18n: I18n, minutes: number): string {
@@ -225,7 +234,7 @@ export const UserProfileTimezoneInfo: React.FC<{profile: Profile}> = observer(({
 		return null;
 	}
 	const locale = getCurrentLocale();
-	const localTime = getDateFormatter(locale, {
+	const localTime = getCachedDateTimeFormat(locale, {
 		hour: 'numeric',
 		minute: '2-digit',
 		hour12: DateUtils.shouldUse12HourFormat(locale),
@@ -281,10 +290,7 @@ export const UserProfileMembershipInfo: React.FC<{profile: Profile; user: User}>
 						className={styles.membershipDate}
 						data-flx="user.user-profile-shared.user-profile-membership-info.membership-date"
 					>
-						<Tooltip
-							text={RuntimeConfig.productName}
-							data-flx="user.user-profile-shared.user-profile-membership-info.tooltip"
-						>
+						<Tooltip text={PRODUCT_NAME} data-flx="user.user-profile-shared.user-profile-membership-info.tooltip">
 							<div
 								className={styles.membershipIcon}
 								data-flx="user.user-profile-shared.user-profile-membership-info.membership-icon"
@@ -344,7 +350,7 @@ export const UserProfileMembershipInfo: React.FC<{profile: Profile; user: User}>
 				className={styles.membershipTitle}
 				data-flx="user.user-profile-shared.user-profile-membership-info.membership-title--2"
 			>
-				{i18n._(PRODUCT_MEMBER_SINCE_DESCRIPTOR, {productName: RuntimeConfig.productName})}
+				{i18n._(PRODUCT_MEMBER_SINCE_DESCRIPTOR, {productName: PRODUCT_NAME})}
 			</span>
 			<span
 				className={styles.membershipDateText}
@@ -463,7 +469,6 @@ const ConnectionCard: React.FC<{
 				rel="noopener noreferrer"
 				className={styles.connectionCard}
 				onClick={(e) => onLinkClick(e, url)}
-				onAuxClick={(e) => handleExternalLinkAuxClick(e, url)}
 				data-flx="user.user-profile-shared.connection-card.connection-card.link-click"
 			>
 				{icon}
@@ -489,7 +494,6 @@ const ConnectionCard: React.FC<{
 						rel="noopener noreferrer"
 						className={styles.connectionExternalLink}
 						onClick={(e) => onLinkClick(e, url)}
-						onAuxClick={(e) => handleExternalLinkAuxClick(e, url)}
 						data-flx="user.user-profile-shared.connection-card.connection-external-link.link-click"
 					>
 						<ArrowSquareOutIcon
@@ -573,7 +577,6 @@ export const UserProfileConnections: React.FC<{
 										rel="noopener noreferrer"
 										className={styles.connectionCompactIcon}
 										onClick={(e) => handleConnectionClick(e, url)}
-										onAuxClick={(e) => handleExternalLinkAuxClick(e, url)}
 										data-flx="user.user-profile-shared.user-profile-connections.connection-compact-icon.connection-click"
 									>
 										{connection.type === ConnectionTypes.BLUESKY ? (

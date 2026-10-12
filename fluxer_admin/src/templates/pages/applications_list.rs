@@ -189,12 +189,7 @@ fn render_application_card(config: &AdminConfig, base: &str, app: &Application) 
 
 fn format_owner_display(app: &Application) -> String {
     if let (Some(un), Some(disc)) = (&app.owner_username, &app.owner_discriminator) {
-        format_user_display(
-            app.owner_global_name.as_deref(),
-            Some(un),
-            Some(disc),
-            false,
-        )
+        format_user_display(app.owner_global_name.as_deref(), Some(un), Some(disc))
     } else {
         app.owner_user_id.clone()
     }
@@ -204,7 +199,7 @@ fn format_bot_display(app: &Application) -> String {
     if let (Some(_bid), Some(un), Some(disc)) =
         (&app.bot_user_id, &app.bot_username, &app.bot_discriminator)
     {
-        format_user_display(app.bot_global_name.as_deref(), Some(un), Some(disc), true)
+        format_user_display(app.bot_global_name.as_deref(), Some(un), Some(disc))
     } else {
         app.bot_user_id.clone().unwrap_or_default()
     }

@@ -3,7 +3,7 @@
 import type {GatewayHandlerContext} from '@app/features/gateway/events/EventRouter';
 import ReadStates from '@app/features/read_state/state/ReadStates';
 
-export interface ChannelPinsAckPayload {
+interface ChannelPinsAckPayload {
 	channel_id: string;
 	last_pin_timestamp?: string | null;
 }

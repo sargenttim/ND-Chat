@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::common::{CommandSpec, command_succeeds, output_text, run_command};
+use crate::common::{CommandSpec, command_succeeds, env_bool, output_text, run_command};
 use anyhow::{Context, Result, anyhow, ensure};
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -13,9 +13,8 @@ use tempfile::TempDir;
 
 const LIBFLUXCORE_WASM_BINDGEN_VERSION: &str = "0.2.128";
 const LIBFLUXCORE_WASM_SIZE_BUDGET_BYTES: u64 = 300 * 1024;
-const LIBFLUXCORE_INDEX: &str = "// SPDX-License-Identifier: AGPL-3.0-or-later\n\n\
-export * from './libfluxcore_bindgen.js';\n\
-export {default} from './libfluxcore_bindgen.js';\n";
+const LIBFLUXCORE_WRAPPER_JS: &str = include_str!("../templates/libfluxcore_wrapper.js");
+const LIBFLUXCORE_WRAPPER_DTS: &str = include_str!("../templates/libfluxcore_wrapper.d.ts");
 const LIBFLUXWEBP_SIMD_WASM_SIZE_BUDGET_BYTES: u64 = 672 * 1024;
 const LIBFLUXWEBP_SCALAR_WASM_SIZE_BUDGET_BYTES: u64 = 288 * 1024;
 const LIBFLUXWEBP_WASM_IMPORT_MODULE: &str = "./libfluxwebp_bg.js";
@@ -28,11 +27,22 @@ pub struct BuildAppWasmArgs {
     app_dir: Option<PathBuf>,
 }
 
+#[derive(Debug, Args, Clone)]
+pub struct BuildMarkdownParserWasmArgs {
+    #[arg(long)]
+    app_dir: Option<PathBuf>,
+}
+
 pub fn run_build_app_wasm(args: BuildAppWasmArgs) -> Result<()> {
-    let app_dir = resolve_app_dir(args.app_dir)?;
+    let app_dir = args.app_dir.unwrap_or(resolve_app_dir()?);
     build_markdown_parser_wasm(&app_dir)?;
     build_libfluxcore_wasm(&app_dir)?;
     build_libfluxwebp_wasm(&app_dir)
+}
+
+pub fn run_build_markdown_parser_wasm(args: BuildMarkdownParserWasmArgs) -> Result<()> {
+    let app_dir = args.app_dir.unwrap_or(resolve_app_dir()?);
+    build_markdown_parser_wasm(&app_dir)
 }
 
 const WASM_CC_ENV: &str = "CC_wasm32_unknown_unknown";
@@ -166,24 +176,6 @@ fn build_markdown_parser_wasm(app_dir: &Path) -> Result<()> {
         .with_context(|| format!("Failed to write {}", bytes_path.display()))
 }
 
-fn libfluxcore_build_command(rust_package_dir: &Path, target_dir: &Path) -> CommandSpec {
-    CommandSpec::new("cargo")
-        .args([
-            "build",
-            "--release",
-            "--target",
-            "wasm32-unknown-unknown",
-            "--manifest-path",
-        ])
-        .arg(rust_package_dir.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", target_dir.as_os_str())
-        .current_dir(rust_package_dir)
-}
-
-fn libfluxcore_wasm_path(target_dir: &Path) -> PathBuf {
-    target_dir.join("wasm32-unknown-unknown/release/libfluxcore.wasm")
-}
-
 fn build_libfluxcore_wasm(app_dir: &Path) -> Result<()> {
     let rust_package_dir = app_dir.join("rust/libfluxcore");
     let out_dir = app_dir.join("pkgs/libfluxcore");
@@ -193,14 +185,30 @@ fn build_libfluxcore_wasm(app_dir: &Path) -> Result<()> {
     fs::create_dir_all(&out_dir)
         .with_context(|| format!("Failed to create {}", out_dir.display()))?;
 
-    let target_dir = rust_package_dir.join("target");
-    let build = libfluxcore_build_command(&rust_package_dir, &target_dir);
+    let mut build = CommandSpec::new("cargo")
+        .args([
+            "build",
+            "--release",
+            "--target",
+            "wasm32-unknown-unknown",
+            "--manifest-path",
+        ])
+        .arg(rust_package_dir.join("Cargo.toml"))
+        .current_dir(&rust_package_dir);
+
+    if env_bool("FLUXCORE_WASM_SIMD") {
+        let rustflags = match env::var("RUSTFLAGS") {
+            Ok(value) if !value.trim().is_empty() => format!("{value} -C target-feature=+simd128"),
+            _ => "-C target-feature=+simd128".to_string(),
+        };
+        build = build.env("RUSTFLAGS", rustflags);
+    }
 
     run_command(apply_wasm_c_toolchain(build)?)?;
     let temp = TempDir::new().context("Failed to create libfluxcore wasm-bindgen temp dir")?;
     let bindgen_dir = temp.path().join("bindgen");
     run_wasm_bindgen(
-        &libfluxcore_wasm_path(&target_dir),
+        &rust_package_dir.join("target/wasm32-unknown-unknown/release/libfluxcore.wasm"),
         &bindgen_dir,
         "libfluxcore",
     )?;
@@ -237,13 +245,21 @@ fn build_libfluxcore_wasm(app_dir: &Path) -> Result<()> {
     )
     .with_context(|| format!("Failed to copy {}", bindgen_wasm_dts_path.display()))?;
 
-    fs::write(out_dir.join("libfluxcore.js"), LIBFLUXCORE_INDEX).with_context(|| {
+    fs::write(
+        out_dir.join("libfluxcore.js"),
+        libfluxcore_index_js_content(),
+    )
+    .with_context(|| {
         format!(
             "Failed to write {}",
             out_dir.join("libfluxcore.js").display()
         )
     })?;
-    fs::write(out_dir.join("libfluxcore.d.ts"), LIBFLUXCORE_INDEX).with_context(|| {
+    fs::write(
+        out_dir.join("libfluxcore.d.ts"),
+        libfluxcore_index_dts_content(),
+    )
+    .with_context(|| {
         format!(
             "Failed to write {}",
             out_dir.join("libfluxcore.d.ts").display()
@@ -596,11 +612,7 @@ fn patch_libfluxcore_bindgen_dts(content: &str) -> Result<String> {
     Ok(content.replacen(MARKER, &format!("{RESET_EXPORT}{MARKER}"), 1))
 }
 
-pub(crate) fn resolve_app_dir(explicit: Option<PathBuf>) -> Result<PathBuf> {
-    if let Some(app_dir) = explicit {
-        return fs::canonicalize(&app_dir)
-            .with_context(|| format!("Failed to resolve app directory {}", app_dir.display()));
-    }
+pub(crate) fn resolve_app_dir() -> Result<PathBuf> {
     let cwd = env::current_dir().context("Failed to resolve current directory")?;
     if cwd.file_name().and_then(|value| value.to_str()) == Some("fluxer_app") {
         return Ok(cwd);
@@ -654,6 +666,25 @@ fn write_with_spdx(path: &Path, content: &str) -> Result<()> {
     .with_context(|| format!("Failed to write {}", path.display()))
 }
 
+fn libfluxcore_index_js_content() -> String {
+    format!(
+        "// SPDX-License-Identifier: AGPL-3.0-or-later\n\n\
+import {{crop_rotate_rgba_raw}} from './libfluxcore_bindgen.js';\n\
+{LIBFLUXCORE_WRAPPER_JS}\n\
+export * from './libfluxcore_bindgen.js';\n\
+export {{default}} from './libfluxcore_bindgen.js';\n"
+    )
+}
+
+fn libfluxcore_index_dts_content() -> String {
+    format!(
+        "// SPDX-License-Identifier: AGPL-3.0-or-later\n\n\
+export * from './libfluxcore_bindgen.js';\n\
+export {{default}} from './libfluxcore_bindgen.js';\n\n\
+{LIBFLUXCORE_WRAPPER_DTS}"
+    )
+}
+
 fn libfluxcore_package_json_content() -> String {
     let manifest = serde_json::json!({
         "name": "libfluxcore",
@@ -688,7 +719,7 @@ fn libfluxcore_package_json_content() -> String {
 fn libfluxcore_readme_content() -> &'static str {
     "<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->\n\
 # libfluxcore\n\n\
-Rust WebAssembly helpers for Fluxer media processing.\n"
+Rust WebAssembly helpers and JavaScript codec wrappers for Fluxer media processing.\n"
 }
 
 fn markdown_wasm_bytes_content(wasm: &[u8]) -> String {
@@ -705,61 +736,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn explicit_app_dir_is_used_without_looking_at_the_current_directory() {
-        let temp = TempDir::new().unwrap();
-        let app_dir = temp.path().join("my_app");
-        fs::create_dir(&app_dir).unwrap();
-        let resolved = resolve_app_dir(Some(app_dir.clone())).unwrap();
-        assert_eq!(resolved, fs::canonicalize(&app_dir).unwrap());
-    }
-
-    #[test]
-    fn relative_explicit_app_dir_becomes_absolute() {
-        let resolved = resolve_app_dir(Some(PathBuf::from("."))).unwrap();
-        assert!(resolved.is_absolute());
+    fn markdown_wasm_bytes_content_matches_legacy_node_output() {
         assert_eq!(
-            resolved,
-            fs::canonicalize(env::current_dir().unwrap()).unwrap()
+            markdown_wasm_bytes_content(b"hello"),
+            "// SPDX-License-Identifier: AGPL-3.0-or-later\n\n\
+export const MARKDOWN_PARSER_WASM_BASE64 =\n\
+\t'aGVsbG8=';\n"
         );
     }
 
     #[test]
-    fn missing_explicit_app_dir_is_an_error() {
-        let temp = TempDir::new().unwrap();
-        let error = resolve_app_dir(Some(temp.path().join("missing"))).unwrap_err();
-        assert!(
-            error
-                .to_string()
-                .contains("Failed to resolve app directory")
-        );
-    }
-
-    #[test]
-    fn libfluxcore_build_keeps_its_output_in_the_crate_target_dir() {
-        let package_dir = Path::new("/repo/fluxer_app/rust/libfluxcore");
-        let target_dir = package_dir.join("target");
-        let command = libfluxcore_build_command(package_dir, &target_dir);
-
-        assert_eq!(
-            command.env,
-            vec![(
-                OsString::from("CARGO_TARGET_DIR"),
-                OsString::from("/repo/fluxer_app/rust/libfluxcore/target"),
-            )]
-        );
-        assert_eq!(command.cwd.as_deref(), Some(package_dir));
-        assert_eq!(
-            command.args.last(),
-            Some(&OsString::from(
-                "/repo/fluxer_app/rust/libfluxcore/Cargo.toml"
-            ))
-        );
-        assert_eq!(
-            libfluxcore_wasm_path(&target_dir),
-            Path::new(
-                "/repo/fluxer_app/rust/libfluxcore/target/wasm32-unknown-unknown/release/libfluxcore.wasm"
-            )
-        );
+    fn libfluxcore_index_reexports_bindgen_module() {
+        let content = libfluxcore_index_js_content();
+        assert!(content.contains("import {crop_rotate_rgba_raw} from './libfluxcore_bindgen.js';"));
+        assert!(content.contains("export * from './libfluxcore_bindgen.js';"));
+        assert!(content.contains("export function crop_rotate_rgba("));
     }
 
     #[test]

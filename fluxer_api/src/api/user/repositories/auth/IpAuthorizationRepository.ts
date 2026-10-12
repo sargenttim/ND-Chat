@@ -8,7 +8,7 @@ import type {
 	IpAuthorizationTokenRow,
 } from '@app/api/database/types/AuthTypes';
 import {AuthorizedIps, AuthorizedIpTrustKeys, IpAuthorizationTokens} from '@app/api/Tables';
-import type {UserAccountRepository} from '@app/api/user/repositories/account/UserAccountRepository';
+import type {IUserAccountRepository} from '@app/api/user/repositories/IUserAccountRepository';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {getSameIpDecisionKey, normalizeIpString, parseIpAddress} from '@fluxer/ip_utils/src/IpAddress';
 
@@ -40,7 +40,7 @@ function getAuthorizedIpTrustKey(ip: string): string | null {
 }
 
 export class IpAuthorizationRepository {
-	constructor(private userAccountRepository: UserAccountRepository) {}
+	constructor(private userAccountRepository: IUserAccountRepository) {}
 
 	async checkIpAuthorized(userId: UserID, ip: string): Promise<boolean> {
 		const normalizedIp = normalizeAuthorizedIp(ip);

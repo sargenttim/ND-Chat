@@ -13,11 +13,9 @@ import {observer} from 'mobx-react-lite';
 interface ChannelTextareaProps {
 	readonly channel: Channel;
 	readonly inputSuppressed?: boolean;
-	readonly placeholder?: string;
 }
 
-export const ChannelTextarea = observer(({channel, inputSuppressed = false, placeholder}: ChannelTextareaProps) => {
-	const accountKey = Users.viewAccountKey;
+export const ChannelTextarea = observer(({channel, inputSuppressed = false}: ChannelTextareaProps) => {
 	const draft = Drafts.getDraft(channel.id);
 	const draftSegments = Drafts.getDraftSegments(channel.id);
 	const forceNoSendMessages = DeveloperOptions.forceNoSendMessages;
@@ -34,14 +32,12 @@ export const ChannelTextarea = observer(({channel, inputSuppressed = false, plac
 	}
 	return (
 		<LexicalChannelTextareaContent
-			key={`${accountKey ?? ''}:${channel.id}`}
-			accountKey={accountKey}
+			key={channel.id}
 			channel={channel}
 			draft={draft}
 			draftSegments={draftSegments}
 			disabled={disabled}
 			inputSuppressed={inputSuppressed}
-			placeholder={placeholder}
 			data-flx="channel.channel-textarea.lexical-channel-textarea-content"
 		/>
 	);

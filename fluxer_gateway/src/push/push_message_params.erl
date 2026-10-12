@@ -149,7 +149,7 @@ normalize_message_type(_Type) ->
 -spec owner_fallback_key(map()) -> term().
 owner_fallback_key(Params) ->
     case snowflake_id:parse_maybe(maps:get(author_id, Params, undefined)) of
-        undefined -> snowflake_id:parse_maybe(maps:get(guild_id, Params, undefined));
+        undefined -> push_normalize:optional_guild_id(maps:get(guild_id, Params, undefined));
         AuthorId -> AuthorId
     end.
 
@@ -233,7 +233,7 @@ context_rejects_every_non_authored_message_type_test() ->
                 context(params_with_message_type(Type))
             )
         end,
-        [1, 2, 3, 4, 5, 6, 7, 12, 99]
+        [1, 2, 3, 4, 5, 6, 7, 99]
     ).
 
 context_treats_a_missing_message_type_as_pushable_test() ->

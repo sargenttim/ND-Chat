@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {mapBadgeIds} from '@app/api/badge/BadgeUtils';
 import {mapGuildFeatures} from '@app/api/guild/GuildFeatureUtils';
 import {
 	stripGuildBannerForFeatures,
@@ -14,7 +15,7 @@ import type {GuildEmoji} from '@app/api/models/GuildEmoji';
 import type {GuildMember} from '@app/api/models/GuildMember';
 import type {GuildRole} from '@app/api/models/GuildRole';
 import type {GuildSticker} from '@app/api/models/GuildSticker';
-import {hiddenGuildMember, isHiddenPartial} from '@app/api/user/ProfileVisibility';
+import {getCachedUserPartialResponse, getCachedUserPartialResponses} from '@app/api/user/UserCacheHelpers';
 import type {
 	GuildEmojiResponse,
 	GuildEmojiWithUserResponse,
@@ -47,6 +48,7 @@ export function mapGuildToPartialResponse(guild: Guild): GuildPartialResponse {
 		embed_splash_height: embedSplashHash ? guild.embedSplashHeight : null,
 		splash_card_alignment: guild.splashCardAlignment,
 		features: mapGuildFeatures(guild.features),
+		badges: mapBadgeIds(guild.badgeIds),
 	};
 }
 
@@ -82,6 +84,7 @@ export function mapGuildToGuildResponse(
 		afk_channel_id: guild.afkChannelId ? guild.afkChannelId.toString() : null,
 		afk_timeout: guild.afkTimeout,
 		features: mapGuildFeatures(guild.features),
+		badges: Array.from(guild.badgeIds, String),
 		verification_level: guild.verificationLevel,
 		mfa_level: guild.mfaLevel,
 		nsfw_level: guild.nsfwLevel,
@@ -132,11 +135,6 @@ export function mapGuildStickerToResponse(sticker: GuildSticker): GuildStickerRe
 }
 
 function mapMemberWithUser(member: GuildMember, userPartial: UserPartialResponse): GuildMemberResponse {
-	const response = mapMemberFields(member, userPartial);
-	return isHiddenPartial(userPartial) ? hiddenGuildMember(response) : response;
-}
-
-function mapMemberFields(member: GuildMember, userPartial: UserPartialResponse): GuildMemberResponse {
 	const now = Date.now();
 	const isTimedOut = member.communicationDisabledUntil != null && member.communicationDisabledUntil.getTime() > now;
 	return {
@@ -168,7 +166,7 @@ export async function mapGuildMemberToResponse(
 	userCacheService: Pick<UserCacheService, 'getUserPartialResponse'>,
 	requestCache: RequestCache,
 ): Promise<GuildMemberResponse> {
-	const userPartial = await userCacheService.getUserPartialResponse(member.userId, requestCache);
+	const userPartial = await getCachedUserPartialResponse({userId: member.userId, userCacheService, requestCache});
 	return mapMemberWithUser(member, userPartial);
 }
 
@@ -189,7 +187,7 @@ export async function mapGuildEmojisWithUsersToResponse(
 	requestCache: RequestCache,
 ): Promise<Array<GuildEmojiWithUserResponse>> {
 	const userIds = [...new Set(emojis.map((emoji) => emoji.creatorId))];
-	const userPartials = await userCacheService.getUserPartialResponses(userIds, requestCache);
+	const userPartials = await getCachedUserPartialResponses({userIds, userCacheService, requestCache});
 	return emojis
 		.filter((emoji) => userPartials.has(emoji.creatorId))
 		.map((emoji) => mapEmojiWithUser(emoji, userPartials.get(emoji.creatorId)!));
@@ -213,7 +211,7 @@ export async function mapGuildStickersWithUsersToResponse(
 	requestCache: RequestCache,
 ): Promise<Array<GuildStickerWithUserResponse>> {
 	const userIds = [...new Set(stickers.map((sticker) => sticker.creatorId))];
-	const userPartials = await userCacheService.getUserPartialResponses(userIds, requestCache);
+	const userPartials = await getCachedUserPartialResponses({userIds, userCacheService, requestCache});
 	return stickers
 		.filter((sticker) => userPartials.has(sticker.creatorId))
 		.map((sticker) => mapStickerWithUser(sticker, userPartials.get(sticker.creatorId)!));
@@ -235,7 +233,7 @@ export async function mapGuildBansToResponse(
 	requestCache: RequestCache,
 ): Promise<Array<GuildBanResponse>> {
 	const userIds = [...new Set(bans.map((ban) => ban.userId))];
-	const userPartials = await userCacheService.getUserPartialResponses(userIds, requestCache);
+	const userPartials = await getCachedUserPartialResponses({userIds, userCacheService, requestCache});
 	return bans
 		.filter((ban) => userPartials.has(ban.userId))
 		.map((ban) => mapBanWithUser(ban, userPartials.get(ban.userId)!));

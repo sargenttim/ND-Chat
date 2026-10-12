@@ -8,6 +8,7 @@ import type {Channel} from '@app/features/channel/models/Channel';
 import * as ChannelUtils from '@app/features/channel/utils/ChannelUtils';
 import type {Guild} from '@app/features/guild/models/Guild';
 import Guilds from '@app/features/guild/state/Guilds';
+import type {GuildMember} from '@app/features/member/models/GuildMember';
 import GuildMembers from '@app/features/member/state/GuildMembers';
 import {resolveSearchChannelDisplayName} from '@app/features/search/utils/SearchQueryParser';
 import type {SearchSegment} from '@app/features/search/utils/SearchSegmentManager';
@@ -38,7 +39,7 @@ export function filterRequiresValue(filter: SearchFilterOption): boolean {
 
 export const PLAINTEXT_SUGGESTION_FILTER_KEYS: ReadonlyArray<string> = ['from', 'in', 'mentions'];
 export const PLAINTEXT_SUGGESTIONS_PER_FILTER = 3;
-const INLINE_FILTER_KEYS: ReadonlyArray<string> = ['from', 'in', 'has', 'mentions'];
+export const INLINE_FILTER_KEYS: ReadonlyArray<string> = ['from', 'in', 'has', 'mentions'];
 
 export interface SearchFilterEligibility {
 	isInGuildChannel: boolean;
@@ -70,7 +71,7 @@ export function orderInlineFilterOptions(
 	return ordered;
 }
 
-function listDiscoverableFilterOptions(
+export function listDiscoverableFilterOptions(
 	options: ReadonlyArray<SearchFilterOption>,
 	eligibility: SearchFilterEligibility,
 ): Array<SearchFilterOption> {
@@ -113,14 +114,14 @@ export function resolveMessageSearchCurrentWord({value, cursorPosition}: Message
 	return value.slice(wordStart, boundedCursorPosition);
 }
 
-interface TokenInsertionResult {
+export interface TokenInsertionResult {
 	newText: string;
 	newCursorPos: number;
 	insertedDisplay: string;
 	insertedLength: number;
 }
 
-interface TokenInsertionInput {
+export interface TokenInsertionInput {
 	textBeforeCursor: string;
 	textAfterCursor: string;
 	lastWordStart: number;
@@ -132,12 +133,12 @@ interface TokenInsertionInput {
 const SEARCH_TOKEN_QUOTE_TRIGGER = /[\\" ]/;
 const SEARCH_TOKEN_ESCAPE = /[\\"]/g;
 
-function quoteSearchTokenValue(value: string): string {
+export function quoteSearchTokenValue(value: string): string {
 	if (!SEARCH_TOKEN_QUOTE_TRIGGER.test(value)) return value;
 	return `"${value.replace(SEARCH_TOKEN_ESCAPE, (match) => `\\${match}`)}"`;
 }
 
-function computeTokenInsertion({
+export function computeTokenInsertion({
 	textBeforeCursor,
 	textAfterCursor,
 	lastWordStart,
@@ -233,6 +234,18 @@ export function replaceSearchTokenAtCursor(input: SearchTokenReplacementInput): 
 	};
 }
 
+export function deduplicateMembers(members: Array<GuildMember>): Array<GuildMember> {
+	const seen = new Set<string>();
+	const result: Array<GuildMember> = [];
+	for (const member of members) {
+		if (!seen.has(member.user.id)) {
+			seen.add(member.user.id);
+			result.push(member);
+		}
+	}
+	return result;
+}
+
 export function assignRef<T>(ref: React.Ref<T> | undefined, value: T | null): void {
 	if (!ref) {
 		return;
@@ -270,8 +283,8 @@ export function isUserFilterKey(filterKey: string): boolean {
 	}
 }
 
-type DmChannelSuggestionMode = 'none' | 'current' | 'open' | 'all';
-type GuildChannelSuggestionMode = 'none' | 'current_guild' | 'all_guilds';
+export type DmChannelSuggestionMode = 'none' | 'current' | 'open' | 'all';
+export type GuildChannelSuggestionMode = 'none' | 'current_guild' | 'all_guilds';
 
 export interface ChannelSuggestionSearchPlan {
 	dmMode: DmChannelSuggestionMode;
@@ -364,7 +377,7 @@ export function getUserGuildSearchPlan(
 	};
 }
 
-type MemberSearchBoosters = Record<string, number>;
+export type MemberSearchBoosters = Record<string, number>;
 
 export function buildUserSearchBoosters(
 	channel: Channel | undefined,

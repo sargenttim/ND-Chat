@@ -6,7 +6,9 @@ import {
 	COPY_COMMUNITY_ID_DESCRIPTOR,
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
-import {CopyIdIcon} from '@app/features/ui/action_menu/ContextMenuIcons';
+import {REPORT_COMMUNITY_DESCRIPTOR} from '@app/features/moderation/utils/ModerationMessageDescriptors';
+import {openReportGuildModal} from '@app/features/moderation/utils/ReportActionUtils';
+import {CopyIdIcon, ReportUserIcon} from '@app/features/ui/action_menu/ContextMenuIcons';
 import {MenuGroup} from '@app/features/ui/action_menu/MenuGroup';
 import {MenuItem} from '@app/features/ui/action_menu/MenuItem';
 import {MessageContextMenu} from '@app/features/ui/action_menu/MessageContextMenu';
@@ -22,12 +24,13 @@ interface InviteEmbedContextMenuProps {
 	linkUrl?: string;
 	guild?: {id: string; name: string} | null;
 	channelId?: string | null;
+	inviteCode?: string | null;
 	onDelete?: (bypassConfirm?: boolean) => void;
 	onClose: () => void;
 }
 
 export const InviteEmbedContextMenu: React.FC<InviteEmbedContextMenuProps> = observer(
-	({message, sourceChannel, linkUrl, guild, channelId, onDelete, onClose}) => {
+	({message, sourceChannel, linkUrl, guild, channelId, inviteCode, onDelete, onClose}) => {
 		const {i18n} = useLingui();
 		const handleCopyGuildId = useCallback(() => {
 			if (!guild) return;
@@ -39,9 +42,15 @@ export const InviteEmbedContextMenu: React.FC<InviteEmbedContextMenuProps> = obs
 			void TextCopyCommands.copy(i18n, channelId);
 			onClose();
 		}, [channelId, i18n, onClose]);
+		const handleReportGuild = useCallback(() => {
+			if (!guild) return;
+			onClose();
+			openReportGuildModal({i18n, guild, inviteCode: inviteCode ?? undefined});
+		}, [guild, i18n, inviteCode, onClose]);
 		const hasAnyCopy = guild != null || channelId != null;
+		const canReport = guild != null && inviteCode != null;
 		const canRenderMessageMenu = message != null && onDelete != null;
-		if (!canRenderMessageMenu && !hasAnyCopy) {
+		if (!canRenderMessageMenu && !hasAnyCopy && !canReport) {
 			return null;
 		}
 		return (
@@ -76,6 +85,18 @@ export const InviteEmbedContextMenu: React.FC<InviteEmbedContextMenuProps> = obs
 								{i18n._(COPY_CHANNEL_ID_DESCRIPTOR)}
 							</MenuItem>
 						)}
+					</MenuGroup>
+				)}
+				{canReport && (
+					<MenuGroup data-flx="ui.action-menu.invite-embed-context-menu.menu-group--2">
+						<MenuItem
+							icon={<ReportUserIcon data-flx="ui.action-menu.invite-embed-context-menu.report-user-icon" />}
+							onClick={handleReportGuild}
+							danger
+							data-flx="ui.action-menu.invite-embed-context-menu.menu-item.report-guild"
+						>
+							{i18n._(REPORT_COMMUNITY_DESCRIPTOR)}
+						</MenuItem>
 					</MenuGroup>
 				)}
 			</>

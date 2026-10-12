@@ -4,13 +4,12 @@ import type {UserID} from '@app/api/BrandedTypes';
 import type {UserContactChangeLogRow} from '@app/api/database/types/UserTypes';
 import type {User} from '@app/api/models/User';
 import type {UserContactChangeLogRepository} from '@app/api/user/repositories/UserContactChangeLogRepository';
-import {formatUserTag} from '@app/api/user/UserTag';
 import {awaitAll} from '@app/api/utils/ConcurrencyUtils';
 
 type ContactChangeReason = 'user_requested' | 'admin_action';
 
 interface ContactChange {
-	field: 'email' | 'fluxer_tag';
+	field: 'email' | 'has_verified_phone' | 'fluxer_tag';
 	oldValue: string | null;
 	newValue: string | null;
 }
@@ -41,6 +40,11 @@ export class UserContactChangeLogService {
 				field: 'email',
 				oldValue: oldUser?.email?.toLowerCase() ?? null,
 				newValue: newUser.email?.toLowerCase() ?? null,
+			},
+			{
+				field: 'has_verified_phone',
+				oldValue: String(oldUser?.hasVerifiedPhone ?? false),
+				newValue: String(newUser.hasVerifiedPhone),
 			},
 			{
 				field: 'fluxer_tag',
@@ -76,6 +80,7 @@ export class UserContactChangeLogService {
 		if (!user.username || discriminator === '') {
 			return null;
 		}
-		return formatUserTag(user);
+		const paddedDiscriminator = discriminator.padStart(4, '0');
+		return `${user.username}#${paddedDiscriminator}`;
 	}
 }

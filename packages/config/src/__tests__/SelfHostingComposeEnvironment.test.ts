@@ -15,16 +15,14 @@ const API_SETTINGS_NOT_FORWARDED: Record<string, string> = {
 	FLUXER_API_WORKER_LANE: 'the one worker container runs every lane',
 	FLUXER_API_WORKER_TASK: 'the one worker container runs every lane',
 	FLUXER_API_WORKER_ENABLE_CRON_SCHEDULER: 'the one worker container hosts cron',
-	FLUXER_API_WORKER_METRICS_PORT: 'the stack scrapes no worker metrics',
 	FLUXER_RELAX_REGISTRATION_RATE_LIMITS: 'test and development only',
 	FLUXER_DISABLE_RATE_LIMITS: 'test and development only',
 	FLUXER_TEST_MODE_ENABLED: 'test and development only',
 	FLUXER_TEST_HARNESS_TOKEN: 'test and development only',
 	FLUXER_VALIDATE_RESPONSES: 'test and development only',
-	FLUXER_API_AUTOMATED_MESSAGE_DELETION_DELAY_DAYS: 'automated account actions run only on the hosted service',
 	...Object.fromEntries(
 		['MONTHLY', 'YEARLY', 'GIFT_1_MONTH', 'GIFT_1_YEAR'].flatMap((slot) =>
-			['USD', 'EUR', 'BRL', 'DKK', 'INR', 'ISK', 'NOK', 'PLN', 'SEK', 'TRY'].map((currency) => [
+			['USD', 'EUR', 'BRL', 'DKK', 'INR', 'NOK', 'PLN', 'SEK', 'TRY'].map((currency) => [
 				`FLUXER_STRIPE_PRICE_${slot}_${currency}`,
 				'FLUXER_STRIPE_PRICES or the dashboard sets prices',
 			]),
@@ -50,7 +48,6 @@ const INPUT_NAMES: Record<string, string> = {
 	MEILI_ENV: 'FLUXER_MEILISEARCH_ENV',
 	MEILI_NO_ANALYTICS: 'FLUXER_MEILISEARCH_NO_ANALYTICS',
 	MEILI_MAX_INDEXING_MEMORY: 'FLUXER_MEILISEARCH_MAX_INDEXING_MEMORY',
-	MEILI_MAX_INDEXING_THREADS: 'FLUXER_MEILISEARCH_MAX_INDEXING_THREADS',
 	GOMEMLIMIT: 'FLUXER_SEAWEEDFS_GOMEMLIMIT',
 	WEED_MASTER_VOLUME_GROWTH_COPY_1: 'FLUXER_SEAWEEDFS_VOLUME_GROWTH',
 	LIVEKIT_KEYS: 'LIVEKIT_API_KEY',
@@ -95,13 +92,5 @@ describe('the shipped compose stack forwards settings from .env', () => {
 			.filter(({service, key, name}) => name !== inputName(service, key))
 			.map(({service, key, name}) => `${service}.${key} reads ${name}`);
 		expect(renamed).toEqual([]);
-	});
-
-	test.each([
-		'FLUXER_REPORT_RETENTION_DAYS',
-		'FLUXER_RESOLVED_REPORT_RETENTION_DAYS',
-		'FLUXER_REPORT_RETENTION_DRY_RUN',
-	])('the worker is handed %s and gets no value when .env leaves it out', (name) => {
-		expect(serviceEnvironment('worker')[name]).toBe(`\${${name}:-}`);
 	});
 });

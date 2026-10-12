@@ -21,6 +21,7 @@
     handle_resume/3,
     handle_resume_offline_timeout/2,
     handle_presence_update_cast/2,
+    handle_initial_global_presences/2,
     send_guild_push_hold/2
 ]).
 
@@ -568,6 +569,20 @@ send_presence_update(#{presence_pid := Pid}, SessionId, NewStatus, NewAfk, NewMo
     gen_server:cast(Pid, {presence_update, Msg}),
     ok.
 
+-spec handle_initial_global_presences([map()], session_state()) -> {noreply, session_state()}.
+handle_initial_global_presences(Presences, State) ->
+    NewState = lists:foldl(
+        fun(Presence, AccState) ->
+            {noreply, Updated} = session_dispatch:handle_dispatch(
+                presence_update, Presence, AccState
+            ),
+            Updated
+        end,
+        State,
+        Presences
+    ),
+    {noreply, NewState}.
+
 -spec serialize_state(session_state()) -> map().
 serialize_state(State) ->
     #{
@@ -588,8 +603,6 @@ serialize_state(State) ->
         bot => maps:get(bot, State, false),
         shard => maps:get(shard, State, undefined),
         e2ee_capable => maps:get(e2ee_capable, State, false),
-        thread_channels_capable => maps:get(thread_channels_capable, State, false),
-        geoip_country_code => maps:get(geoip_country_code, State, undefined),
         guilds => maps:get(guilds, State, #{}),
         active_guilds => maps:get(active_guilds, State, sets:new()),
         collected_guild_states => maps:get(collected_guild_states, State),
@@ -624,12 +637,10 @@ serialize_transfer_identity(State) ->
         bot => maps:get(bot, State, false),
         shard => maps:get(shard, State, undefined),
         e2ee_capable => maps:get(e2ee_capable, State, false),
-        geoip_country_code => maps:get(geoip_country_code, State, undefined),
         ignored_events => maps:keys(maps:get(ignored_events, State, #{})),
         initial_guild_id => maps:get(initial_guild_id, State, undefined),
         active_guilds => maps:get(active_guilds, State, sets:new()),
-        debounce_reactions => maps:get(debounce_reactions, State, false),
-        thread_channels_capable => maps:get(thread_channels_capable, State, false)
+        debounce_reactions => maps:get(debounce_reactions, State, false)
     }.
 
 -spec serialize_transfer_runtime(session_state()) -> map().

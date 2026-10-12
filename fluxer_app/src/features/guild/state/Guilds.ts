@@ -56,10 +56,6 @@ class Guilds {
 		}, {});
 	}
 
-	hydrateFromSnapshot(guilds: Array<GuildReadyData>): void {
-		this.handleGatewayReady({guilds});
-	}
-
 	handleGuildCreate(guild: GuildReadyData): void {
 		if (guild.unavailable) {
 			return;

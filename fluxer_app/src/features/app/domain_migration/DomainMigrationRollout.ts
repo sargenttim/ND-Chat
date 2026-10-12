@@ -52,6 +52,6 @@ class DomainMigrationRolloutSelector {
 	}
 }
 
-const DomainMigrationRollout = new DomainMigrationRolloutSelector();
+export const DomainMigrationRollout = new DomainMigrationRolloutSelector();
 
 export default DomainMigrationRollout;

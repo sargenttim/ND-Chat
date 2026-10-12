@@ -1,25 +1,17 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
 import ExperimentAssignments from '@app/features/experiment/state/ExperimentAssignments';
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import SessionManager from '@app/features/platform/state/AuthSession';
-import {Logger} from '@app/features/platform/utils/AppLogger';
+import type {ValueOf} from '@fluxer/constants/src/ValueOf';
 import type {UserPrivate} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 import {computed, makeAutoObservable} from 'mobx';
 
-const logger = new Logger('Authentication');
+const LoginState = {
+	Default: 'default',
+	Mfa: 'mfa',
+} as const;
 
-function persistToken(token: string | null): void {
-	void SessionManager.setToken(token).catch((error) => logger.error('Failed to persist the session token', error));
-}
-
-export const LoginState = Object.freeze({
-	DEFAULT: 'default',
-	MFA: 'mfa',
-} as const);
-
-export type LoginState = (typeof LoginState)[keyof typeof LoginState];
+export type LoginState = ValueOf<typeof LoginState>;
 
 export interface MfaMethods {
 	totp: boolean;
@@ -28,28 +20,56 @@ export interface MfaMethods {
 }
 
 class Authentication {
-	loginState: LoginState = LoginState.DEFAULT;
-	currentMfaTicket: string | null = null;
-	availableMfaMethods: MfaMethods | null = null;
-	currentMfaRuntimeSnapshot: RuntimeConfigSnapshot | null = null;
+	loginState: LoginState = LoginState.Default;
+	mfaTicket: string | null = null;
+	mfaMethods: MfaMethods | null = null;
 
 	constructor() {
 		makeAutoObservable(
 			this,
 			{
 				isAuthenticated: computed,
+				authToken: computed,
 				currentUserId: computed,
 			},
 			{autoBind: true},
 		);
 	}
 
+	get isInMfaState(): boolean {
+		return this.loginState === LoginState.Mfa;
+	}
+
 	get isAuthenticated(): boolean {
 		return SessionManager.isAuthenticated;
 	}
 
+	get authToken(): string | null {
+		return SessionManager.token;
+	}
+
+	get token(): string | null {
+		return SessionManager.token;
+	}
+
+	get currentMfaTicket(): string | null {
+		return this.mfaTicket;
+	}
+
+	get availableMfaMethods(): MfaMethods | null {
+		return this.mfaMethods;
+	}
+
 	get currentUserId(): string | null {
 		return SessionManager.userId;
+	}
+
+	get userId(): string | null {
+		return SessionManager.userId;
+	}
+
+	setUserId(userId: string | null): void {
+		SessionManager.setUserId(userId);
 	}
 
 	handleGatewayReady({user}: {user: UserPrivate}): void {
@@ -57,20 +77,26 @@ class Authentication {
 		SessionManager.handleConnectionReady();
 	}
 
-	async handleConnectionClosed({code, accountKey}: {code: number; accountKey?: string | null}): Promise<void> {
-		const failedAccountKey = accountKey === undefined ? SessionManager.currentAccountKey : accountKey;
-		const result = await SessionManager.handleConnectionClosed(code, failedAccountKey);
-		if (code === 4004 && result.invalidatedCurrentSession && !AccountScopedWork.isSuspended) {
+	handleAuthSessionChange({token}: {token: string}): void {
+		SessionManager.setToken(token || null);
+	}
+
+	handleConnectionClosed({code}: {code: number}): void {
+		SessionManager.handleConnectionClosed(code);
+		if (code === 4004) {
 			this.handleLogout();
 		}
 	}
 
 	handleSessionStart({token}: {token: string | null | undefined}): void {
-		persistToken(token ?? null);
-		this.loginState = LoginState.DEFAULT;
-		this.currentMfaTicket = null;
-		this.availableMfaMethods = null;
-		this.currentMfaRuntimeSnapshot = null;
+		if (token) {
+			SessionManager.setToken(token);
+		} else {
+			SessionManager.setToken(null);
+		}
+		this.loginState = LoginState.Default;
+		this.mfaTicket = null;
+		this.mfaMethods = null;
 	}
 
 	handleMfaTicketSet({
@@ -78,35 +104,34 @@ class Authentication {
 		totp,
 		webauthn,
 		backupCodes,
-		runtimeSnapshot,
 	}: {
 		ticket: string;
-		runtimeSnapshot: RuntimeConfigSnapshot | null;
 	} & MfaMethods): void {
-		this.loginState = LoginState.MFA;
-		this.currentMfaTicket = ticket;
-		this.availableMfaMethods = {totp, webauthn, backupCodes};
-		this.currentMfaRuntimeSnapshot = runtimeSnapshot;
+		this.loginState = LoginState.Mfa;
+		this.mfaTicket = ticket;
+		this.mfaMethods = {totp, webauthn, backupCodes};
 	}
 
 	handleMfaTicketClear(): void {
-		this.loginState = LoginState.DEFAULT;
-		this.currentMfaTicket = null;
-		this.availableMfaMethods = null;
-		this.currentMfaRuntimeSnapshot = null;
+		this.loginState = LoginState.Default;
+		this.mfaTicket = null;
+		this.mfaMethods = null;
 	}
 
 	handleLogout(options?: {skipRedirect?: boolean}): void {
 		ExperimentAssignments.reset();
-		this.loginState = LoginState.DEFAULT;
-		this.currentMfaTicket = null;
-		this.availableMfaMethods = null;
-		this.currentMfaRuntimeSnapshot = null;
+		this.loginState = LoginState.Default;
+		this.mfaTicket = null;
+		this.mfaMethods = null;
 		if (!options?.skipRedirect) {
 			void import('@app/features/navigation/utils/RouterUtils').then((module) => {
 				module.replaceWith('/login');
 			});
 		}
+	}
+
+	async fetchGatewayToken(): Promise<string | null> {
+		return SessionManager.token;
 	}
 }
 

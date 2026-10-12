@@ -1,30 +1,27 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ApiContext} from '@app/api/ApiContext';
+import * as AuthMfa from '@app/api/auth/AuthMfa';
 import * as AuthPassword from '@app/api/auth/AuthPassword';
 import * as AuthSession from '@app/api/auth/AuthSession';
 import {assertEmailNotBlocklisted} from '@app/api/auth/EmailBlocklist';
-import {createSudoModeRequiredError} from '@app/api/auth/services/SudoMethods';
+import {deriveSudoMethods, userHasSudoCapability} from '@app/api/auth/services/SudoMethods';
 import type {SudoVerificationResult} from '@app/api/auth/services/SudoVerificationService';
 import {Config} from '@app/api/Config';
 import type {UserRow} from '@app/api/database/types/UserTypes';
-import type {DiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
+import type {IDiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
 import {resolveLimitSafe} from '@app/api/limits/LimitConfigUtils';
 import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder';
 import {profileSubstringBlocklistCache} from '@app/api/middleware/ProfileSubstringBlocklistCache';
-import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
 import type {AuthSession as AuthSessionModel} from '@app/api/models/AuthSession';
 import type {User} from '@app/api/models/User';
 import {enforceFluxerTagChangeRateLimit} from '@app/api/user/FluxerTagChangeRateLimit';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {assertNoDiscriminatorChange, reserveUsername, type UsernameReservation} from '@app/api/user/UniqueUsernames';
+import type {IUserAccountRepository} from '@app/api/user/repositories/IUserAccountRepository';
 import {isProfileSubstringExempt} from '@app/api/user/UserHelpers';
-import {USERNAME_MODE_DISCRIMINATOR} from '@app/api/user/UserTag';
-import {hashPassword} from '@app/api/utils/PasswordUtils';
-import {AccountIdentityModes, TagStyles} from '@fluxer/constants/src/AccountIdentityConstants';
 import {PremiumFlags, UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
+import {SudoModeRequiredError} from '@fluxer/errors/src/domains/auth/SudoModeRequiredError';
 import {ContentBlockedError} from '@fluxer/errors/src/domains/content/ContentBlockedError';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import type {UserUpdateRequest} from '@fluxer/schema/src/domains/user/UserRequestSchemas';
@@ -32,22 +29,16 @@ import type {IRateLimitService} from '@pkgs/rate_limit/src/IRateLimitService';
 
 interface UserUpdateMetadata {
 	invalidateAuthSessions?: boolean;
-	usernameReservation?: UsernameReservation;
 }
 
 type UserFieldUpdates = Partial<UserRow>;
 
 interface UserAccountSecurityServiceDeps {
 	apiContext: ApiContext;
-	userAccountRepository: UserRepository;
-	discriminatorService: DiscriminatorService;
+	userAccountRepository: IUserAccountRepository;
+	discriminatorService: IDiscriminatorService;
 	rateLimitService: IRateLimitService;
 	limitConfigService: LimitConfigService;
-}
-
-export interface AuthSessionReplacement {
-	token: string;
-	authSessionIdHash: string;
 }
 
 export class UserAccountSecurityService {
@@ -77,13 +68,6 @@ export class UserAccountSecurityService {
 		const identityVerifiedViaPassword = sudoContext?.method === 'password';
 		const rawEmail = data.email?.trim();
 		const normalizedEmail = rawEmail?.toLowerCase();
-		const tagChangeRequested = data.username !== undefined || data.discriminator !== undefined;
-		const accountIdentity = tagChangeRequested ? await getInstanceConfigRepository().getAccountIdentity() : null;
-		const usernameSignIn = accountIdentity?.mode === AccountIdentityModes.USERNAME;
-		const uniqueUsernames = !user.isBot && accountIdentity?.tagStyle === TagStyles.NONE;
-		if (uniqueUsernames) {
-			assertNoDiscriminatorChange(data.discriminator, user.discriminator);
-		}
 		const hasPasswordRequiredChanges =
 			(data.username !== undefined && data.username !== user.username) ||
 			(data.discriminator !== undefined && data.discriminator !== user.discriminator) ||
@@ -91,7 +75,7 @@ export class UserAccountSecurityService {
 			data.new_password !== undefined;
 		const requiresVerification = hasPasswordRequiredChanges && !isUnclaimedAccount;
 		if (requiresVerification && !identityVerifiedViaSudo && !identityVerifiedViaPassword) {
-			throw await createSudoModeRequiredError(this.deps.apiContext, user);
+			throw await this.createSudoModeRequiredError(user);
 		}
 		if (isUnclaimedAccount && data.new_password) {
 			updates.password_hash = await this.hashNewPassword(data.new_password);
@@ -102,20 +86,18 @@ export class UserAccountSecurityService {
 				throw InputValidationError.fromCode('password', ValidationErrorCodes.PASSWORD_NOT_SET);
 			}
 			if (!identityVerifiedViaSudo && !identityVerifiedViaPassword) {
-				throw await createSudoModeRequiredError(this.deps.apiContext, user);
+				throw await this.createSudoModeRequiredError(user);
 			}
 			updates.password_hash = await this.hashNewPassword(data.new_password);
 			updates.password_last_changed_at = new Date();
 			metadata.invalidateAuthSessions = true;
 		}
 		if (data.username !== undefined) {
-			const {newUsername, newDiscriminator} = uniqueUsernames
-				? {newUsername: data.username, newDiscriminator: USERNAME_MODE_DISCRIMINATOR}
-				: await this.updateUsername({
-						user,
-						username: data.username,
-						requestedDiscriminator: data.discriminator,
-					});
+			const {newUsername, newDiscriminator} = await this.updateUsername({
+				user,
+				username: data.username,
+				requestedDiscriminator: data.discriminator,
+			});
 			if (
 				!isProfileSubstringExempt(user) &&
 				profileSubstringBlocklistCache.containsBannedSubstring('username', newUsername)
@@ -125,9 +107,7 @@ export class UserAccountSecurityService {
 			updates.username = newUsername;
 			updates.discriminator = newDiscriminator;
 		} else if (data.discriminator !== undefined) {
-			updates.discriminator = uniqueUsernames
-				? data.discriminator
-				: await this.updateDiscriminator({user, discriminator: data.discriminator});
+			updates.discriminator = await this.updateDiscriminator({user, discriminator: data.discriminator});
 		}
 		await this.enforceFluxerTagChangeRateLimit({
 			user,
@@ -139,8 +119,6 @@ export class UserAccountSecurityService {
 			data.username !== undefined && data.username.toLowerCase() !== user.username.toLowerCase();
 		const discriminatorChanged = updates.discriminator !== user.discriminator;
 		const shouldMarkPremiumDiscriminator =
-			!usernameSignIn &&
-			(accountIdentity?.tagStyle ?? TagStyles.RANDOM) === TagStyles.RANDOM &&
 			(discriminatorChanged || usernameRealChange) &&
 			user.isPremium() &&
 			user.premiumType !== UserPremiumTypes.LIFETIME;
@@ -169,13 +147,6 @@ export class UserAccountSecurityService {
 			}
 			updates.email = rawEmail;
 		}
-		if (uniqueUsernames && (usernameRealChange || discriminatorChanged)) {
-			metadata.usernameReservation = await reserveUsername(
-				{users: this.deps.apiContext.services.users, cache: this.deps.apiContext.services.cache},
-				updates.username!,
-				user.id,
-			);
-		}
 		return {updates, metadata};
 	}
 
@@ -187,20 +158,29 @@ export class UserAccountSecurityService {
 		user: User;
 		oldAuthSession: AuthSessionModel;
 		request: Request;
-	}): Promise<AuthSessionReplacement> {
-		const replacement = await AuthSession.replaceCurrentAuthSession(this.deps.apiContext, {
+	}): Promise<void> {
+		await AuthSession.replaceCurrentAuthSession(this.deps.apiContext, {
 			user,
 			currentAuthSession: oldAuthSession,
 			request,
 		});
-		return {token: replacement.token, authSessionIdHash: replacement.newAuthSessionIdHash};
+	}
+
+	private async createSudoModeRequiredError(user: User): Promise<SudoModeRequiredError> {
+		const credentials = await this.deps.apiContext.services.users.listWebAuthnCredentials(user.id);
+		const hasPasskeyCredentials = credentials.length > 0;
+		const hasBackupCodes = await AuthMfa.hasUnconsumedBackupCodes(this.deps.apiContext, user.id);
+		return new SudoModeRequiredError(
+			userHasSudoCapability(user, hasPasskeyCredentials),
+			deriveSudoMethods(user, hasPasskeyCredentials, hasBackupCodes),
+		);
 	}
 
 	private async hashNewPassword(newPassword: string): Promise<string> {
 		if (await AuthPassword.isPasswordPwned(this.deps.apiContext, newPassword)) {
 			throw InputValidationError.fromCode('new_password', ValidationErrorCodes.PASSWORD_IS_TOO_COMMON);
 		}
-		return await hashPassword(newPassword);
+		return await AuthPassword.hashPassword(this.deps.apiContext, newPassword);
 	}
 
 	private async updateUsername({

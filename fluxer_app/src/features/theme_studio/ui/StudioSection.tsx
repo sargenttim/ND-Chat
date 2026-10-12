@@ -11,17 +11,27 @@ import {useCallback, useId} from 'react';
 
 interface StudioSectionProps {
 	title: ReactNode;
+	icon?: ReactNode;
 	count?: number;
 	open: boolean;
 	onToggle: (next: boolean) => void;
+	className?: string;
 	children?: ReactNode;
 }
 
-export const StudioSection: React.FC<StudioSectionProps> = ({title, count, open, onToggle, children}) => {
+export const StudioSection: React.FC<StudioSectionProps> = ({
+	title,
+	icon,
+	count,
+	open,
+	onToggle,
+	className,
+	children,
+}) => {
 	const id = useId();
 	const handleToggle = useCallback(() => onToggle(!open), [open, onToggle]);
 	return (
-		<div className={styles.section} data-flx="theme-studio.ui.studio-section.section">
+		<div className={clsx(styles.section, className)} data-flx="theme-studio.ui.studio-section.section">
 			<FocusRing offset={-2} data-flx="theme-studio.ui.studio-section.focus-ring">
 				<button
 					type="button"
@@ -41,7 +51,11 @@ export const StudioSection: React.FC<StudioSectionProps> = ({title, count, open,
 							data-flx="theme-studio.ui.studio-section.caret-right-icon"
 						/>
 					</span>
-
+					{icon ? (
+						<span className={styles.icon} data-flx="theme-studio.ui.studio-section.icon">
+							{icon}
+						</span>
+					) : null}
 					<span className={styles.title} data-flx="theme-studio.ui.studio-section.title">
 						{title}
 					</span>

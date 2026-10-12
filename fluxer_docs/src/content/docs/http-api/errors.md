@@ -20,14 +20,14 @@ An OAuth2 protocol failure raised by the [OAuth2 resource](/http-api/oauth2/) an
 
 ## Supplementary members
 
-The error code determines which supplementary members a failure has, and most codes have none. A client reads only the members documented for the code it matched. `errors` is the list of field violations. `retry_after` is the delay before another attempt is admitted. `global` is `true` on a global rate limit denial and `false` on a route one. `required_scope` is the OAuth2 scope the request is missing. `has_mfa` and `methods` are the [sudo mode](/http-api/users/mfa/#sudo-mode) proofs an account can supply. `captcha_provider` and `altcha_challenge` are the challenge described in [CAPTCHA handling](/topics/captcha/). `step_index` is the zero-based index of the first [report flow step](/http-api/reports/#report-flow-step-object) that does not fit the current flow, on `INVALID_REPORT_FLOW_ANSWERS`.
+The error code determines which supplementary members a failure has, and most codes have none. A client reads only the members documented for the code it matched. `errors` is the list of field violations. `retry_after` is the delay before another attempt is admitted. `global` is `true` on a global rate limit denial and `false` on a route one. `required_scope` is the OAuth2 scope the request is missing. `has_mfa` and `methods` are the [sudo mode](/http-api/users/mfa/#sudo-mode) proofs an account can supply. `captcha_provider` and `altcha_challenge` are the challenge described in [CAPTCHA handling](/topics/captcha/).
 
 `GLOBAL_IP_BANNED` and `GLOBAL_IP_TEMPORARILY_BANNED` have their own members:
 
 - `ip_address` is the normalised client address.
-- `appeal_email` is the address an appeal is sent to. It is `null` on a self-hosted instance, where `message` points at the administrators of the instance and names no address.
-- `appeals_supported` is `true` for both kinds of ban.
-- `ban_kind` is `permanent` or `temporary_24h`. `temporary_24h` covers every ban that records an expiry, whatever its length.
+- `appeal_email` is the address an appeal is sent to.
+- `appeals_supported` is `true` only for the permanent ban.
+- `ban_kind` is `permanent` or `temporary_24h`.
 - `expires_at` is an ISO 8601 timestamp when the ban records an expiry, and `null` otherwise, including on every permanent ban.
 
 ## Validation failure codes
@@ -102,7 +102,7 @@ Fluxer answers an unrecognised failure with 500 `INTERNAL_SERVER_ERROR` and a ge
 | 504 | GATEWAY_TIMEOUT | An upstream dependency did not respond in time |
 | default<sup>3</sup> | GENERAL_ERROR | Any status without a specific mapping |
 
-<sup>1</sup> Also the code a request that matches no route receives, so an unrouted path and an unreadable resource are indistinguishable from the body alone. A route with a route header on [Threads](/http-api/threads/), [Thread members](/http-api/thread-members/) or [Forums](/http-api/forums/) returns it to a user request without the [`channel_threads` client capability](/http-api/threads/#client-capability)
+<sup>1</sup> Also the code a request that matches no route receives, so an unrouted path and an unreadable resource are indistinguishable from the body alone
 
 <sup>2</sup> Also the code an unrecognised failure receives, with the generic localised message
 
@@ -120,8 +120,6 @@ A temporary ban lasts 24 hours by default. Requests from the banned address retu
 
 These codes appear in the top-level `code` field of an error response, sent as the exact JSON string shown. The registry is closed. Each entry states the leading sentence of the English source message, without its final full stop. Those messages call a [guild](/http-api/guilds/) a community.
 
-The [OpenAPI document](/http-api/instance/#get-openapi-document) and the Admin API specification publish the same list as the `APIErrorCode` schema. The `code` member of their error schemas stays a plain string that refers to it.
-
 :::note[The rendered `message` fills in the braced values]
 A description containing a value in braces is an ICU MessageFormat template. `You've reached the maximum of {count, plural, one {# emoji} other {# emojis}}` renders as a complete sentence with the applicable limit.
 :::
@@ -134,14 +132,6 @@ Several source messages append a further recovery sentence with a template value
 
 You don't have access to this resource or feature
 
-### `ACCOUNT_IDENTITY_LOCKED`
-
-The sign-in method is already set and can't be changed
-
-### `ACCOUNT_LIMITED`
-
-Messaging is paused on your account
-
 ### `ACCOUNT_SUSPENDED_PERMANENTLY`
 
 This account has been permanently suspended
@@ -149,6 +139,10 @@ This account has been permanently suspended
 ### `ACCOUNT_SUSPENDED_TEMPORARILY`
 
 This account has been temporarily suspended
+
+### `ACCOUNT_SUSPICIOUS_ACTIVITY`
+
+Your account is locked due to suspicious activity
 
 ### `ACCOUNT_TOO_NEW_FOR_GUILD`
 
@@ -170,9 +164,9 @@ You've already completed age verification
 
 You're already friends with this user
 
-### `ANNOUNCEMENT_CHANNEL_REQUIRED`
+### `APPLICATION_NOT_OWNED`
 
-This action is only available in announcement channels
+You don't own this application
 
 ### `BAD_GATEWAY`
 
@@ -282,6 +276,10 @@ You can't send messages in a non-text channel
 
 You can't send messages to this user
 
+### `CANNOT_SHRINK_RESERVED_SLOTS`
+
+You can't shrink reserved slots
+
 ### `CANNOT_TRANSFER_OWNERSHIP_TO_BOT`
 
 Community ownership can't be transferred to a bot
@@ -289,26 +287,6 @@ Community ownership can't be transferred to a bot
 ### `CAPTCHA_REQUIRED`
 
 Verification required. Try again
-
-### `CHANNEL_ALREADY_FOLLOWED`
-
-This channel already receives updates from that announcement channel
-
-### `CHANNEL_HAS_FOLLOWED_CHANNELS`
-
-Remove the followed channels posting here before converting it to an announcement channel
-
-### `CHANNEL_HAS_THREADS`
-
-Channels with threads can't be converted to announcement channels
-
-### `CHANNEL_TYPE_CONVERSION_NOT_SUPPORTED`
-
-Only text and announcement channels can be converted into each other
-
-### `NEW_CONVERSATIONS_LIMITED`
-
-You can't start new conversations right now. Please try again later
 
 ### `COMMUNICATION_DISABLED`
 
@@ -406,10 +384,6 @@ Magic link has already been used
 
 Email service is temporarily unavailable
 
-### `EMAIL_UNAVAILABLE_ON_INSTANCE`
-
-This instance doesn't use email
-
 ### `EMAIL_VERIFICATION_REQUIRED`
 
 Email verification is required for this action
@@ -430,25 +404,9 @@ This feature is temporarily disabled
 
 File size is too large
 
-### `FOLLOW_TARGET_CONTENT_WARNING_REQUIRED`
-
-Updates from a channel with a content warning can only go to a channel with a content warning or an age restriction
-
-### `FOLLOW_TARGET_NOT_AGE_RESTRICTED`
-
-Updates from an age-restricted channel can only go to an age-restricted channel
-
 ### `FORBIDDEN`
 
 Forbidden
-
-### `FORUM_TAG_NAMES_MUST_BE_UNIQUE`
-
-Tag names must be unique
-
-### `FORUM_TAG_REQUIRED`
-
-A tag is required to create a post in this channel
 
 ### `FRIEND_REQUEST_BLOCKED`
 
@@ -472,19 +430,15 @@ Gift code is already redeemed
 
 ### `GLOBAL_IP_BANNED`
 
-Your IP address {ipAddress} has been permanently blocked from the {product_name} API by platform administrators
+Your IP address {ipAddress} has been permanently blocked from the Fluxer API by platform administrators
 
 ### `GLOBAL_IP_TEMPORARILY_BANNED`
 
-Your IP address {ipAddress} has been temporarily blocked from the {product_name} API
+Your IP address {ipAddress} has been temporarily blocked from the Fluxer API for 24 hours because of abusive or unusual access patterns
 
 ### `GONE`
 
 Gone
-
-### `GROUP_DM_MATURE_CONTENT_INELIGIBLE`
-
-Not everyone in this group is eligible for mature content
 
 ### `GROUP_DM_RECIPIENTS_NOT_ADDABLE`
 
@@ -501,6 +455,10 @@ You don't have permission to create communities on this instance
 ### `GUILD_EMAIL_VERIFICATION_REQUIRED`
 
 Email verification is required for this action
+
+### `GUILD_PHONE_VERIFICATION_REQUIRED`
+
+You need to add a phone number to send messages in this community
 
 ### `GUILD_TEMPLATE_INVALID`
 
@@ -525,10 +483,6 @@ Your data export request failed
 ### `HARVEST_NOT_READY`
 
 Your data export is still being prepared
-
-### `HIDE_MEDIA_DOWNLOAD_OPTION_MEDIA_ONLY`
-
-Hiding media download options is only available in media channels
 
 ### `INSTANCE_POLICY_TRANSITION_NOT_ALLOWED`
 
@@ -582,10 +536,6 @@ Invalid DSA verification code
 
 Invalid flags format
 
-### `INVALID_FOLLOW_TARGET_CHANNEL`
-
-Followed channels can only post into text channels
-
 ### `INVALID_FORM_BODY`
 
 Invalid form body
@@ -610,9 +560,13 @@ Permissions must be a valid integer
 
 Permissions must be non-negative
 
-### `INVALID_REPORT_FLOW_ANSWERS`
+### `INVALID_PHONE_NUMBER`
 
-These answers don't match the report form
+Invalid phone number
+
+### `INVALID_PHONE_VERIFICATION_CODE`
+
+Invalid phone verification code
 
 ### `INVALID_REQUEST`
 
@@ -626,13 +580,13 @@ Invalid stream key format
 
 Invalid stream thumbnail payload
 
+### `INVALID_SUSPICIOUS_FLAGS_FORMAT`
+
+Invalid suspicious flags format
+
 ### `INVALID_SYSTEM_FLAG`
 
 Invalid system flag
-
-### `INVALID_THREAD_NOTIFICATION_SETTINGS`
-
-Invalid thread notification settings
 
 ### `INVALID_TIMESTAMP`
 
@@ -678,13 +632,13 @@ IP authorization resend limit exceeded
 
 This IP address cannot be added to the blocklist
 
-### `MAX_ACTIVE_THREADS`
-
-This community has reached its active thread limit of {count}
-
 ### `MAX_APPLICATIONS`
 
 You've reached the maximum of {limit, plural, one {# application} other {# applications}}
+
+### `MAX_BADGES`
+
+You've reached the maximum number of badges
 
 ### `MAX_BOOKMARKS`
 
@@ -701,10 +655,6 @@ You've reached the maximum of {count, plural, one {# emoji} other {# emojis}}
 ### `MAX_FAVORITE_MEMES`
 
 You've reached the maximum of {count, plural, one {# favorite meme} other {# favorite memes}}
-
-### `MAX_FORUM_TAGS`
-
-This channel has reached its tag limit of {count}
 
 ### `MAX_FRIENDS`
 
@@ -738,10 +688,6 @@ You've reached the maximum of {count, plural, one {# community role} other {# co
 
 You've reached the maximum of {count, plural, one {# invite} other {# invites}}
 
-### `MAX_PINNED_THREADS_IN_FORUM`
-
-This channel has reached its pinned post limit of {count}
-
 ### `MAX_REACTIONS`
 
 You've reached the maximum of {count, plural, one {# reaction} other {# reactions}}
@@ -749,10 +695,6 @@ You've reached the maximum of {count, plural, one {# reaction} other {# reaction
 ### `MAX_STICKERS`
 
 You've reached the maximum of {count, plural, one {# sticker} other {# stickers}}
-
-### `MAX_THREAD_MEMBERS`
-
-This thread has reached its member limit of {count}
 
 ### `MAX_WEBHOOKS_PER_CHANNEL`
 
@@ -765,18 +707,6 @@ You've reached the maximum of {count, plural, one {# webhook} other {# webhooks}
 ### `MEDIA_METADATA_ERROR`
 
 Media metadata error
-
-### `MESSAGE_ALREADY_CROSSPOSTED`
-
-This message has already been published
-
-### `MESSAGE_CROSSPOST_RATE_LIMITED`
-
-This channel has reached its publishing limit
-
-### `MESSAGE_NOT_CROSSPOSTABLE`
-
-This message cannot be published
 
 ### `METHOD_NOT_ALLOWED`
 
@@ -805,6 +735,14 @@ The requested scope isn't supported or you don't have permission to request it
 ### `MISSING_PERMISSIONS`
 
 You don't have the permissions required to perform this action
+
+### `NCMEC_ALREADY_SUBMITTED`
+
+This content has already been submitted to NCMEC
+
+### `NCMEC_SUBMISSION_FAILED`
+
+We couldn't submit the report to NCMEC
 
 ### `NOT_A_BOT_APPLICATION`
 
@@ -838,10 +776,6 @@ No passkeys are registered
 
 Invalid request
 
-### `NO_TAGS_AVAILABLE_TO_NON_MODERATORS`
-
-A tag is required, but only moderators can apply the tags in this channel
-
 ### `NO_USERS_WITH_FLUXERTAG_EXIST`
 
 There are too many users with this username
@@ -853,6 +787,50 @@ NSFW content is age restricted
 ### `PASSKEY_AUTHENTICATION_FAILED`
 
 Passkey authentication failed
+
+### `PHONE_ADD_NOT_ELIGIBLE`
+
+You are not eligible to add a phone number to your account
+
+### `PHONE_ALREADY_USED`
+
+Phone number is already in use
+
+### `PHONE_COUNTRY_NOT_SUPPORTED`
+
+We don't send verification texts to this country. Use a mobile number from another country, or email support@fluxer.app and a person will review your account
+
+### `PHONE_GATE_ESCAPE_UNAVAILABLE`
+
+This account cannot postpone the phone verification check
+
+### `PHONE_INBOUND_VERIFICATION_REQUIRED`
+
+This number is verified by texting us instead of us texting you. Start phone verification again to get the code and the number to text
+
+### `PHONE_LOOKUP_UNAVAILABLE`
+
+Our phone number check is down right now, so we stopped before sending your code. This is on us, not your number. Wait a few minutes and try the same number again
+
+### `PHONE_NUMBER_NOT_IN_SERVICE`
+
+Your carrier says this number isn't in service. Check the number and try again, or email support@fluxer.app if it's correct
+
+### `PHONE_NUMBER_NOT_MOBILE`
+
+This isn't a mobile number, so it can't receive our text. Use a mobile number, or email support@fluxer.app if you think that's wrong
+
+### `PHONE_RATE_LIMIT_EXCEEDED`
+
+Phone rate limit exceeded
+
+### `PHONE_VERIFICATION_NEEDS_REVIEW`
+
+We couldn't verify this number automatically. Email support@fluxer.app and a person will review your account
+
+### `PHONE_VERIFICATION_REQUIRED`
+
+Phone verification is required
 
 ### `PREMIUM_PURCHASE_BLOCKED`
 
@@ -869,10 +847,6 @@ We couldn't process the request
 ### `PROFILE_EMAIL_VERIFICATION_REQUIRED`
 
 Email verification is required for this action
-
-### `PUBLISHED_MESSAGE_EDIT_RATE_LIMITED`
-
-This published message has reached its editing limit
 
 ### `PURCHASE_EMAIL_VERIFICATION_REQUIRED`
 
@@ -914,14 +888,6 @@ You've been banned from submitting reports
 
 Email verification is required for this action
 
-### `REPORT_FLOW_OUTDATED`
-
-The report form changed while you were filling it in
-
-### `REPORT_UNDER_LEGAL_HOLD`
-
-This report is under a legal hold and can't be deleted
-
 ### `RESOURCE_LOCKED`
 
 This resource is being modified
@@ -929,10 +895,6 @@ This resource is being modified
 ### `RESPONSE_VALIDATION_ERROR`
 
 Response validation failed: {errors}
-
-### `SEARCH_INDEX_NOT_READY`
-
-The search index isn't ready yet
 
 ### `SERVICE_UNAVAILABLE`
 
@@ -957,6 +919,10 @@ You cannot leave the community for this instance
 ### `SLOWMODE_RATE_LIMITED`
 
 Slowmode rate limited
+
+### `SMS_VERIFICATION_UNAVAILABLE`
+
+Service unavailable
 
 ### `SSO_REQUIRED`
 
@@ -1070,18 +1036,6 @@ Test harness is disabled
 
 Test harness is forbidden
 
-### `THREAD_ALREADY_CREATED_FOR_MESSAGE`
-
-A thread has already been created for this message
-
-### `THREAD_ARCHIVED`
-
-This thread is archived
-
-### `THREAD_LOCKED`
-
-This thread is locked
-
 ### `TWO_FACTOR_REQUIRED`
 
 Two-factor authentication is required
@@ -1146,6 +1100,10 @@ You need to complete your account setup before you can submit reports
 
 Unknown application
 
+### `UNKNOWN_BADGE`
+
+Badge wasn't found
+
 ### `UNKNOWN_CHANNEL`
 
 Channel wasn't found
@@ -1157,10 +1115,6 @@ Unknown emoji
 ### `UNKNOWN_FAVORITE_MEME`
 
 Unknown favorite meme
-
-### `UNKNOWN_FORUM_TAG`
-
-Tag wasn't found
 
 ### `UNKNOWN_GIFT_CODE`
 
@@ -1214,9 +1168,9 @@ Unknown sticker
 
 Unknown store purchase
 
-### `UNKNOWN_THREAD_MEMBER`
+### `UNKNOWN_SUSPICIOUS_FLAG`
 
-Thread member wasn't found
+Unknown suspicious flag
 
 ### `UNKNOWN_USER`
 
@@ -1250,10 +1204,6 @@ We couldn't update the resource
 
 This username is not available
 
-### `USERNAME_SIGN_IN_ONLY`
-
-This is only available on instances where people sign in with a username
-
 ### `USER_BANNED_FROM_GUILD`
 
 This user is banned from this community
@@ -1281,22 +1231,6 @@ Voice channel is full
 ### `WEBAUTHN_CREDENTIAL_LIMIT_REACHED`
 
 You've reached the maximum of {count, plural, one {# WebAuthn credential} other {# WebAuthn credentials}}
-
-### `WEBHOOK_FORUM_TARGET_CONFLICT`
-
-You can't specify both `thread_id` and `thread_name`
-
-### `WEBHOOK_FORUM_TARGET_REQUIRED`
-
-Webhooks posting to this channel need a `thread_id` or a `thread_name`
-
-### `WEBHOOK_SERVICE_FORUM_UNSUPPORTED`
-
-This webhook service can't post to a forum or media channel without a `thread_id`
-
-### `WEBHOOK_THREAD_NAME_REQUIRES_FORUM`
-
-`thread_name` and `applied_tags` only work in forum and media channels
 
 
 ## Validation error code registry
@@ -1334,6 +1268,14 @@ Animated community banner requires ANIMATED_BANNER feature
 ### `ATTACHMENTS_NOT_ALLOWED_FOR_MESSAGE`
 
 Attachments aren't allowed for this message
+
+### `ATTACHMENT_FIELDS_REQUIRED`
+
+`attachment_id`, `channel_id`, `message_id`, and `expires_at` are required
+
+### `ATTACHMENT_IDS_MUST_BE_VALID_INTEGERS`
+
+`attachment_id`, `channel_id`, and `message_id` must be valid integers
 
 ### `ATTACHMENT_ID_NOT_FOUND_IN_MESSAGE`
 
@@ -1378,6 +1320,10 @@ Bot discriminator can't be changed
 ### `BOT_SEARCH_SCOPE_UNAVAILABLE`
 
 Bots can only search within a single community or channel
+
+### `BUCKET_IS_REQUIRED`
+
+`bucket` is required
 
 ### `CANNOT_ADD_YOURSELF_TO_GROUP_DM`
 
@@ -1502,10 +1448,6 @@ Discoverable communities must have a verification level of at least Low
 ### `DISCRIMINATOR_INVALID_FORMAT`
 
 `Discriminator must be {min}–{max} digits`
-
-### `DISCRIMINATOR_NOT_SUPPORTED_ON_INSTANCE`
-
-This instance doesn't use tags. Your username is unique on its own
 
 ### `DISCRIMINATOR_OUT_OF_RANGE`
 
@@ -1663,10 +1605,6 @@ Community ID is required for channel message and member search indexes
 
 Image size exceeds {maxSize} bytes
 
-### `INSTANCE_ADDRESS_REQUIRED`
-
-This server uses usernames. Enter the username you want followed by @{host}
-
 ### `INTEGER_OUT_OF_INT64_RANGE`
 
 Integer value is out of the valid int64 range
@@ -1735,10 +1673,6 @@ Must be a valid ISO timestamp
 
 Invalid JSON in `payload_json`
 
-### `INVALID_LOGIN_OR_PASSWORD`
-
-Invalid username or password
-
 ### `INVALID_MESSAGE_DATA`
 
 Invalid message data
@@ -1790,10 +1724,6 @@ Invalid email or password
 ### `INVALID_PROOF_TOKEN`
 
 Invalid proof token
-
-### `INVALID_RECOVERY_KEY`
-
-Invalid username or recovery key
 
 ### `INVALID_ROLE_ID`
 
@@ -1903,6 +1833,10 @@ You must start a session before sending messages
 
 Name can't be empty after normalization
 
+### `NCMEC_ATTACHMENT_MUST_BE_IMAGE_OR_VIDEO`
+
+Only image or video attachments can be reported to NCMEC
+
 ### `NEW_EMAIL_MUST_BE_DIFFERENT`
 
 New email must be different from your current email
@@ -1971,6 +1905,10 @@ String length must be between {min} and {max} characters
 
 Password isn't set
 
+### `PHONE_NUMBER_INVALID_FORMAT`
+
+Phone number must be in E.164 format (for example, +1234567890)
+
 ### `PRECEDING_CHANNEL_MUST_SHARE_PARENT`
 
 Preceding channel must share the same parent as the moved channel
@@ -1999,9 +1937,17 @@ Recipient IDs must be valid snowflakes
 
 Referenced attachment "{filename}" wasn't found in message attachments
 
+### `ROWS_IS_REQUIRED`
+
+`rows` is required
+
 ### `SESSION_TIMEOUT`
 
 Session timed out
+
+### `SIZE_BYTES_MUST_BE_VALID_INTEGER`
+
+`size_bytes` must be a valid integer
 
 ### `SNOWFLAKE_OUT_OF_RANGE`
 
@@ -2046,10 +1992,6 @@ System channel must be a text channel
 ### `TAG_ALREADY_TAKEN`
 
 This tag is already taken
-
-### `TAG_STYLE_REQUIRES_EMAIL_SIGN_IN`
-
-Tags are only available when people sign in with email
 
 ### `THIS_VANITY_URL_IS_ALREADY_TAKEN`
 
@@ -2106,10 +2048,6 @@ URL must be between {min} and {max} characters
 ### `URL_NOT_PUBLICLY_ROUTABLE`
 
 URL must resolve to a publicly routable address
-
-### `USERNAME_ALREADY_TAKEN`
-
-This username is already taken
 
 ### `USERNAME_CANNOT_CONTAIN_RESERVED_TERMS`
 

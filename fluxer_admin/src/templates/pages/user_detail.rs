@@ -10,12 +10,12 @@ use crate::{
             detail_tabs::{build_detail_tabs, detail_tabs},
             empty_state::not_found_state,
             media::{user_avatar_url, user_banner_url},
-            user_profile_badges::user_profile_badges,
+            user_profile_badges::{ProfileBadges, user_profile_badges},
         },
         layout::admin_layout,
         pages::user_detail_tabs,
     },
-    utils::{bigint::format_discriminator, user_tag::user_tag},
+    utils::bigint::format_discriminator,
 };
 use maud::{Markup, html};
 
@@ -33,6 +33,26 @@ pub const USER_TABS: &[(&str, &str)] = &[
     ("audit_logs", "Audit Logs"),
 ];
 
+pub fn user_detail_page(
+    config: &AdminConfig,
+    auth: &AuthContext,
+    user: Option<&AdminUser>,
+    user_id: &str,
+    profile_badges: ProfileBadges<'_>,
+    is_htmx: bool,
+) -> Markup {
+    user_detail_with_tab(
+        config,
+        auth,
+        user,
+        user_id,
+        "overview",
+        None,
+        profile_badges,
+        is_htmx,
+    )
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn user_detail_with_tab(
     config: &AdminConfig,
@@ -41,13 +61,11 @@ pub fn user_detail_with_tab(
     user_id: &str,
     active_tab: &str,
     tab_body: Option<Markup>,
-    premium_badge_name: Option<&str>,
+    profile_badges: ProfileBadges<'_>,
     is_htmx: bool,
 ) -> Markup {
     let content = match user {
-        Some(user) => {
-            render_user_detail(config, auth, user, active_tab, tab_body, premium_badge_name)
-        }
+        Some(user) => render_user_detail(config, auth, user, active_tab, tab_body, profile_badges),
         None => not_found_state("User", user_id, None, None),
     };
     let title = user
@@ -73,7 +91,7 @@ fn render_user_detail(
     user: &AdminUser,
     active_tab: &str,
     tab_body: Option<Markup>,
-    premium_badge_name: Option<&str>,
+    profile_badges: ProfileBadges<'_>,
 ) -> Markup {
     let display_name = user
         .global_name
@@ -112,9 +130,9 @@ fn render_user_detail(
         @if let Some(banner) = banner_url {
             div class="mb-4 space-y-2" {
                 a href=(banner) target="_blank" rel="noreferrer noopener"
-                    class="block max-w-2xl rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2" {
+                    class="block rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2" {
                     img src=(banner) alt={(user.username) "'s banner"}
-                        class="aspect-[17/6] w-full rounded-lg border border-neutral-200 bg-neutral-50 object-cover"
+                        class="h-32 w-full rounded-lg border border-neutral-200 bg-neutral-50 object-cover sm:h-48"
                         loading="lazy";
                 }
                 @if let Some(hash) = &user.banner {
@@ -135,15 +153,16 @@ fn render_user_detail(
                     (user_profile_badges(
                         &config.static_cdn_endpoint,
                         user.flags,
+                        profile_badges,
+                        &user.badge_ids,
                         user.premium_type,
                         user.premium_since.as_deref(),
                         config.self_hosted,
-                        premium_badge_name,
                         false,
                     ))
                 }
                 p class="break-words text-sm text-neutral-500" {
-                    (user_tag(&user.username, &format_discriminator(&user.discriminator), user.bot))
+                    (user.username) "#" (format_discriminator(&user.discriminator))
                 }
                 p class="break-all text-sm text-neutral-500" {
                     (user.id)

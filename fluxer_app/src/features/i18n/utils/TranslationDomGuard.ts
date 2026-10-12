@@ -148,7 +148,7 @@ export function getTranslationDomGuardStats(): TranslationDomGuardStats {
 	return {...stats};
 }
 
-function uninstallTranslationDomGuard(): boolean {
+export function uninstallTranslationDomGuard(): boolean {
 	const wasInstalled = restorePrototypes != null;
 	stopWatchingKillSwitch?.();
 	stopWatchingKillSwitch = null;

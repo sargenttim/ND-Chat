@@ -19,7 +19,7 @@ export type MenuActionEvent =
 	| {
 			readonly shiftKey?: boolean;
 	  };
-type MenuActionHandler = {bivarianceHack(event?: MenuActionEvent): void}['bivarianceHack'];
+export type MenuActionHandler = {bivarianceHack(event?: MenuActionEvent): void}['bivarianceHack'];
 
 export interface MenuItemType {
 	id?: string;
@@ -70,7 +70,7 @@ export interface MenuRadioType {
 	disabled?: boolean;
 }
 
-type MenuLeafItem = MenuItemType | MenuSliderType | MenuCheckboxType | MenuRadioType;
+export type MenuLeafItem = MenuItemType | MenuSliderType | MenuCheckboxType | MenuRadioType;
 export type MenuSheetItem = MenuLeafItem | MenuSubmenuItemType;
 
 export interface MenuGroupType {

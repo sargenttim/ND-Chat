@@ -8,7 +8,7 @@ import RouteHeader from '@/components/RouteHeader.astro';
 
 User settings include account-wide [preferences](/http-api/users/#user-settings-object) and [notification settings](#user-guild-settings-object) for each guild and for private channels.
 
-Every route here is user-only and rejects a bot or OAuth2 bearer credential with 403 `ACCESS_DENIED`.
+Every route here is user-only and rejects a bot or OAuth2 bearer credential with 403 `ACCESS_DENIED`. Every route except [Get current user settings](#get-current-user-settings) also rejects an account with an outstanding required action, with 403 `ACCOUNT_SUSPICIOUS_ACTIVITY`.
 
 ## Presence status values
 
@@ -46,7 +46,7 @@ Gateway presence also uses offline, which describes an account with no active se
 
 ## Guild mute configuration object
 
-Mute expiry for a guild, a private channel group, a channel override, or a [thread member](/http-api/thread-members/#thread-member-object).
+Mute expiry for a guild, a private channel group, or a channel override.
 
 ### Structure
 
@@ -85,13 +85,10 @@ Notification settings stored for one channel.
 | muted | boolean | Whether channel notifications are muted |
 | mute_config | ?[guild mute configuration](#guild-mute-configuration-object) object | The mute configuration of the channel, or null when none is stored |
 | unread_badges<sup>1</sup> <sup>2</sup> | ?integer | [Notification level](#notification-levels) for unread badges, or null to inherit |
-| flags?<sup>3</sup> | integer | The [new post notification](/http-api/forums/#new-post-notifications) flags, `NEW_FORUM_THREADS_OFF` (`1 << 13`) and `NEW_FORUM_THREADS_ON` (`1 << 14`) |
 
 <sup>1</sup> The value controls client display and does not affect notification delivery
 
 <sup>2</sup> Every response has the member, with null meaning no level is set
-
-<sup>3</sup> Present only in the settings of a guild, when the stored value is non-zero and the caller is a user session that declares the [`channel_threads` client capability](/http-api/threads/#client-capability)
 
 ## Channel notification override input object
 
@@ -106,11 +103,6 @@ The input form of the [channel notification override object](#channel-notificati
 | muted | boolean | Whether channel notifications are muted |
 | mute_config? | ?[guild mute configuration input](#guild-mute-configuration-input-object) object | The mute configuration of the channel, or null to clear it |
 | unread_badges? | ?integer | [Notification level](#notification-levels) for unread badges, or null to inherit |
-| flags?<sup>1</sup> | integer | The [new post notification](/http-api/forums/#new-post-notifications) flags |
-
-<sup>1</sup> Fluxer discards every bit other than `NEW_FORUM_THREADS_OFF` and `NEW_FORUM_THREADS_ON`
-
-Fluxer ignores `flags` in the private channel settings and from a caller other than a user session that declares `channel_threads`. An omitted or ignored `flags` keeps the stored value.
 
 ## User guild settings object
 
@@ -128,7 +120,7 @@ Notification settings for one guild, or for every private channel when `guild_id
 | suppress_everyone | boolean | Whether `@everyone` mentions are suppressed |
 | suppress_roles | boolean | Whether role mentions are suppressed |
 | hide_muted_channels<sup>3</sup> | boolean | Whether muted channels are hidden |
-| channel_overrides<sup>2</sup> <sup>6</sup> | ?map[snowflake, [channel notification override](#channel-notification-override-object) object] | The per-channel overrides, or null when none are set |
+| channel_overrides<sup>2</sup> | ?map[snowflake, [channel notification override](#channel-notification-override-object) object] | The per-channel overrides, or null when none are set |
 | unread_badges<sup>3</sup> <sup>5</sup> | ?integer | The default [notification level](#notification-levels) for unread badges, or null to follow `message_notifications` |
 | version<sup>4</sup> | integer | The monotonic revision of this settings object |
 
@@ -141,8 +133,6 @@ Notification settings for one guild, or for every private channel when `guild_id
 <sup>4</sup> The value increases on every stored write, including one that changes no other member, so a client can discard a stale [User Guild Settings Update](/gateway/events/#user-guild-settings-update)
 
 <sup>5</sup> Every response has the member, with null meaning no level is set
-
-<sup>6</sup> A user session that does not declare `channel_threads` receives no override for a forum or media channel
 
 ### Example
 
@@ -180,15 +170,13 @@ Both notification settings operations accept exactly these fields. Every field i
 | channel_overrides?<sup>1</sup> | ?map[snowflake, [channel notification override input](#channel-notification-override-input-object) object] | The complete per-channel override map, or null to clear it |
 | unread_badges? | ?integer | The default [notification level](#notification-levels) for unread badges, or null to follow `message_notifications` |
 
-<sup>1</sup> The supplied map becomes the complete override set, and an empty map clears every override. A write from a user session that does not declare `channel_threads` keeps the stored overrides of forum and media channels
+<sup>1</sup> The supplied map becomes the complete override set, and an empty map clears every override
 
 :::note[Which of these fields the server reads]
-Fluxer reads `suppress_everyone` and `suppress_roles` when it counts the mentions in a guild message. Push notification delivery reads `muted`, `mute_config`, `mobile_push`, `message_notifications`, `suppress_everyone`, and `suppress_roles`, and the `muted`, `mute_config`, `message_notifications`, and `flags` members of a channel override. Every other field is stored and returned unchanged.
+Fluxer reads `suppress_everyone` and `suppress_roles` when it counts the mentions in a guild message. Push notification delivery reads `muted`, `mute_config`, `mobile_push`, `message_notifications`, `suppress_everyone`, and `suppress_roles`, and the `muted` and `message_notifications` members of a channel override. Every other field is stored and returned unchanged.
 :::
 
-For a message in a thread, push delivery reads the override of the parent channel and the `muted` and `mute_config` of the override of the parent category. It reads no override keyed by a thread ID. [Thread member flags](/http-api/thread-members/#thread-member-flags) and the thread mute set by [Modify thread member settings](/http-api/thread-members/#modify-thread-member-settings) apply to a member. A user who has not joined the thread is notified only for a direct mention or a role mention.
-
-A direct mention of the account always counts. An `@everyone` or `@here` mention counts only while `suppress_everyone` is false, and a role mention only while `suppress_roles` is false. In a thread, an `@everyone` or `@here` mention counts only for a [thread member](/http-api/thread-members/). A mention that counts increments `mention_count` on the channel's [read state](/http-api/read-states/#read-state-object) and adds an entry to the [recent mention history](/http-api/users/content/#list-recent-mentions). A guild message whose every mention is suppressed records nothing.
+A direct mention of the account always counts. An `@everyone` or `@here` mention counts only while `suppress_everyone` is false, and a role mention only while `suppress_roles` is false. A mention that counts increments `mention_count` on the channel's [read state](/http-api/read-states/#read-state-object) and adds an entry to the [recent mention history](/http-api/users/content/#list-recent-mentions). A guild message whose every mention is suppressed records nothing.
 
 Neither field is read outside a guild. A direct message and a group DM collect only direct mentions, and every one of them counts whatever the private channel settings hold.
 
@@ -198,7 +186,7 @@ The input form of the [user settings object](/http-api/users/#user-settings-obje
 
 The staff-only fields are the exception. Every update resets `suppress_unprivileged_self_mentions`, `suppress_unprivileged_self_mentions_bypass_user_ids`, and `staff_dm_access_user_ids` to false, empty, and empty for an ordinary account, including an update that names none of them.
 
-Further members are accepted and ignored. Nothing reads `guild_positions`, and only [Modify voice activity sharing](#modify-voice-activity-sharing) writes `default_share_voice_activity`.
+Further members are accepted and ignored. `guild_positions` is an array of at most 200 guild snowflakes, and nothing reads it. `default_share_voice_activity` belongs to [Modify voice activity sharing](#modify-voice-activity-sharing).
 
 ### Structure
 
@@ -240,10 +228,7 @@ Further members are accepted and ignored. Nothing reads `guild_positions`, and o
 | suppress_unprivileged_self_mentions_bypass_user_ids?<sup>12</sup> | ?array[snowflake] | The users exempt from mention suppression |
 | staff_dm_access_user_ids?<sup>12</sup> | ?array[snowflake] | The users granted staff direct message access |
 | profile_privacy? | integer | [Profile privacy level](/http-api/users/#profile-privacy-levels) |
-| privacy_setup_version?<sup>14</sup> | integer | The privacy setup version the user just reviewed (1-1000) |
 | synced_preferences?<sup>13</sup> | ?string | The base64-encoded `fluxer.user.preferences.v1.SyncedPreferences` snapshot, or null to clear it |
-| guild_positions? | array[snowflake] | Accepted and ignored (max 200) |
-| default_share_voice_activity? | boolean | Accepted and ignored |
 
 <sup>1</sup> A string matches ISO 8601 and an integer is Unix milliseconds between 0 and 8640000000000000. Anything else is rejected with `INVALID_ISO_TIMESTAMP`
 
@@ -270,8 +255,6 @@ Further members are accepted and ignored. Nothing reads `guild_positions`, and o
 <sup>12</sup> The field is staff-only
 
 <sup>13</sup> The value runs to at most 699052 characters of base64 and decodes to at most 524288 bytes, the 512 KiB ceiling. A longer string returns 400 `INVALID_FORM_BODY`, an oversized decode fails with `TOO_LARGE`, and an undecodable value fails with `INVALID_FORMAT`
-
-<sup>14</sup> Fluxer stores the value as given and sets `privacy_setup_completed_at` to the time of the update
 
 Fluxer decodes an accepted `synced_preferences` value, re-encodes it canonically, and stores the result, so a snapshot with only zero values is stored as cleared and read back as the empty string.
 
@@ -358,7 +341,7 @@ A new account starts with these values. Every field not listed starts empty, so 
 
 Returns the [user settings](/http-api/users/#user-settings-object) object.
 
-An account with no stored settings record returns 404 `UNKNOWN_USER`.
+An account with an outstanding required action can still call this route. An account with no stored settings record returns 404 `UNKNOWN_USER`.
 
 ### Response
 
@@ -392,7 +375,6 @@ The body uses the [user settings update object](#user-settings-update-object).
 | 200 | [user settings](/http-api/users/#user-settings-object) object | Settings were applied and returned |
 | 400 | [error response](/http-api/#error-response) | A field value, the custom status emoji, the trusted domain combination, an age-restricted filter, or the synced preferences snapshot is invalid |
 | 403 | [error response](/http-api/#error-response) | Custom status text is blocked and the request returns `CONTENT_BLOCKED` |
-| 403 | [error response](/http-api/#error-response) | The account is [limited](/http-api/users/#account-limitation) and the body sets a custom status, and the request returns `ACCOUNT_LIMITED` |
 | 404 | [error response](/http-api/#error-response) | Settings do not exist and the request returns `UNKNOWN_USER` |
 
 ### Side effects

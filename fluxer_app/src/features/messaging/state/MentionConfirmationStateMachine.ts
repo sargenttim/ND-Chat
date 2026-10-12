@@ -49,7 +49,7 @@ function isCurrentRequest(event: MentionConfirmationEvent): boolean {
 	return event.type === 'mentionConfirmation.requested' && event.info.sourceContent === event.currentSourceContent;
 }
 
-const mentionConfirmationStateMachine = setup({
+export const mentionConfirmationStateMachine = setup({
 	types: {} as {
 		context: MentionConfirmationContext;
 		events: MentionConfirmationEvent;

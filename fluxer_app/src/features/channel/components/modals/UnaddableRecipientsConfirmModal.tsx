@@ -93,13 +93,7 @@ export const UnaddableRecipientsConfirmModal = observer(
 					<p data-flx="channel.unaddable-recipients-confirm-modal.p--2">
 						<Trans>
 							Create the group DM with the remaining{' '}
-							<Plural
-								value={addableCount}
-								one="# recipient"
-								other="# recipients"
-								data-flx="channel.unaddable-recipients-confirm-modal.plural"
-							/>{' '}
-							and skip the others?
+							<Plural value={addableCount} one="# recipient" other="# recipients" /> and skip the others?
 						</Trans>
 					</p>
 				) : (

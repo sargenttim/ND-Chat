@@ -10,6 +10,7 @@ import {i18n, type MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {
 	$applyNodeReplacement,
+	$isTextNode,
 	type EditorConfig,
 	ElementNode,
 	type LexicalNode,
@@ -365,6 +366,16 @@ export class SlashSlotNode extends ElementNode {
 		}
 		const placeholder = latest.ensurePlaceholder();
 		placeholder.select(0, 0);
+	}
+
+	selectValueStart(): void {
+		const latest = this.getLatest();
+		const first = latest.getFirstChild();
+		if ($isTextNode(first)) {
+			first.select(0, 0);
+			return;
+		}
+		latest.select(0, 0);
 	}
 
 	ensurePlaceholder(): SlashSlotPlaceholderNode {

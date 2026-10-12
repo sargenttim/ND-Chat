@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {randomUuid} from '@app/features/platform/utils/RandomUuid';
 import type {ThemePreferenceSnapshot} from '@app/features/theme/state/Theme';
 import {useEffect} from 'react';
 
@@ -12,11 +11,16 @@ export type ThemeStudioBroadcastInput =
 	| {type: 'customThemeCss'; value: string | null}
 	| {type: 'themeLibrary'; revision: number}
 	| {type: 'themePreference'; snapshot: ThemePreferenceSnapshot}
+	| {type: 'studio:opened-popout'}
 	| {type: 'studio:closed-popout'}
+	| {type: 'studio:close-popout'}
 	| {type: 'studio:focus-popout'};
 export type ThemeStudioBroadcastMessage = ThemeStudioBroadcastInput & {origin: string};
 
-const senderId = randomUuid();
+const senderId =
+	typeof globalThis.crypto?.randomUUID === 'function'
+		? globalThis.crypto.randomUUID()
+		: `studio-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
 let channel: BroadcastChannel | null = null;
 
@@ -46,6 +50,7 @@ const ensureChannel = (): BroadcastChannel | null => {
 	}
 	return channel;
 };
+export const broadcastSenderId = senderId;
 
 export function broadcastThemeStudioMessage(message: ThemeStudioBroadcastInput): void {
 	const ch = ensureChannel();
@@ -57,7 +62,7 @@ export function broadcastThemeStudioMessage(message: ThemeStudioBroadcastInput):
 	}
 }
 
-function subscribeThemeStudioBroadcast(listener: (message: ThemeStudioBroadcastMessage) => void): () => void {
+export function subscribeThemeStudioBroadcast(listener: (message: ThemeStudioBroadcastMessage) => void): () => void {
 	ensureChannel();
 	listeners.add(listener);
 	return () => {

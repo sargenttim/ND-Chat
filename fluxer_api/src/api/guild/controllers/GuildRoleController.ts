@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createGuildID, createRoleID} from '@app/api/BrandedTypes';
-import {viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
 import {LoginRequired} from '@app/api/middleware/AuthMiddleware';
 import {requireOAuth2ScopeForBearer} from '@app/api/middleware/OAuth2ScopeMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
 import {RateLimitConfigs} from '@app/api/RateLimitConfig';
 import type {HonoApp} from '@app/api/types/HonoEnv';
+import {CLIENT_FEATURES_HEADER, parseClientFeaturesHeader} from '@app/api/utils/featureUtils';
 import {Validator} from '@app/api/Validator';
 import {GuildIdParam, GuildIdRoleIdParam} from '@fluxer/schema/src/domains/common/CommonParamSchemas';
 import {
@@ -38,7 +38,7 @@ export function GuildRoleController(app: HonoApp) {
 		async (ctx) => {
 			const userId = ctx.get('user').id;
 			const guildId = createGuildID(ctx.req.valid('param').guild_id);
-			return ctx.json(await ctx.get('guildService').roles.listRoles({userId, guildId, viewer: viewerFromCtx(ctx)}));
+			return ctx.json(await ctx.get('guildService').roles.listRoles({userId, guildId}));
 		},
 	);
 	app.post(
@@ -61,12 +61,10 @@ export function GuildRoleController(app: HonoApp) {
 			const userId = ctx.get('user').id;
 			const guildId = createGuildID(ctx.req.valid('param').guild_id);
 			const data = ctx.req.valid('json');
-			const clientFeatures = ctx.get('clientFeatures');
+			const clientFeatures = parseClientFeaturesHeader(ctx.req.header(CLIENT_FEATURES_HEADER));
 			const auditLogReason = ctx.get('auditLogReason') ?? null;
 			return ctx.json(
-				await ctx
-					.get('guildService')
-					.roles.createRole({userId, guildId, data, clientFeatures, viewer: viewerFromCtx(ctx)}, auditLogReason),
+				await ctx.get('guildService').roles.createRole({userId, guildId, data, clientFeatures}, auditLogReason),
 			);
 		},
 	);
@@ -147,15 +145,10 @@ export function GuildRoleController(app: HonoApp) {
 			const guildId = createGuildID(guild_id);
 			const roleId = createRoleID(role_id);
 			const data = ctx.req.valid('json');
-			const clientFeatures = ctx.get('clientFeatures');
+			const clientFeatures = parseClientFeaturesHeader(ctx.req.header(CLIENT_FEATURES_HEADER));
 			const auditLogReason = ctx.get('auditLogReason') ?? null;
 			return ctx.json(
-				await ctx
-					.get('guildService')
-					.roles.updateRole(
-						{userId, guildId, roleId, data, clientFeatures, viewer: viewerFromCtx(ctx)},
-						auditLogReason,
-					),
+				await ctx.get('guildService').roles.updateRole({userId, guildId, roleId, data, clientFeatures}, auditLogReason),
 			);
 		},
 	);

@@ -160,23 +160,10 @@ export default abstract class LocalTrack<TrackKind extends Track.Kind = Track.Ki
 		track.removeEventListener('unmute', this.handleTrackUnmuteEvent);
 	}
 
-	protected muteTargetFor(rawTrack: MediaStreamTrack, _processedTrack: MediaStreamTrack | undefined): MediaStreamTrack {
-		return rawTrack;
-	}
-
-	protected applyMuteState(
-		rawTrack: MediaStreamTrack,
-		processedTrack: MediaStreamTrack | undefined,
-		isUnmuting = false,
-	) {
-		const muteTarget = this.muteTargetFor(rawTrack, processedTrack);
-		muteTarget.enabled = isUnmuting || !this.isMuted;
-		if (muteTarget !== rawTrack) rawTrack.enabled = true;
-	}
-
 	private async restoreMediaStreamTrackAfterFailure(
 		previousTrack: MediaStreamTrack,
 		previousConstraints: MediaTrackConstraints,
+		previousEnabled: boolean,
 		failedTrack: MediaStreamTrack,
 		failedProcessedTrack: MediaStreamTrack | undefined,
 		previousTrackEndedListenerDeferred: boolean,
@@ -194,6 +181,7 @@ export default abstract class LocalTrack<TrackKind extends Track.Kind = Track.Ki
 		this.mediaStream = new MediaStream([previousTrack]);
 		this._mediaStreamTrack = previousTrack;
 		this._constraints = previousConstraints;
+		previousTrack.enabled = previousEnabled;
 		this.addMediaStreamTrackListeners(previousTrack, !previousTrackEndedListenerDeferred);
 		let restoredProcessedTrack: MediaStreamTrack | undefined;
 		if (this.processor) {
@@ -212,11 +200,9 @@ export default abstract class LocalTrack<TrackKind extends Track.Kind = Track.Ki
 			});
 			restoredProcessedTrack = this.processor.processedTrack;
 		}
-		this.muteTargetFor(previousTrack, restoredProcessedTrack).enabled = !this.isMuted;
 		if (this.sender && this.sender.transport?.state !== 'closed') {
 			await this.sender.replaceTrack(restoredProcessedTrack ?? previousTrack);
 		}
-		this.applyMuteState(previousTrack, restoredProcessedTrack);
 		await this.resumeUpstream();
 		for (const element of this.attachedElements) {
 			attachToElement(restoredProcessedTrack ?? previousTrack, element);
@@ -230,6 +216,7 @@ export default abstract class LocalTrack<TrackKind extends Track.Kind = Track.Ki
 		}
 		const previousTrack = this._mediaStreamTrack;
 		const previousConstraints = this._constraints;
+		const previousEnabled = previousTrack.enabled;
 		const previousTrackEndedListenerDeferred = this.stagedReplacementTrack === previousTrack;
 		const nextTrackEndedListenerDeferred = deferEndedListener || this.stagedReplacementTrack === newTrack;
 		let processedTrack: MediaStreamTrack | undefined;
@@ -260,12 +247,11 @@ export default abstract class LocalTrack<TrackKind extends Track.Kind = Track.Ki
 				});
 				processedTrack = this.processor.processedTrack;
 			}
-			this.muteTargetFor(newTrack, processedTrack).enabled = isUnmuting || !this.isMuted;
 			if (this.sender && this.sender.transport?.state !== 'closed') {
 				await this.sender.replaceTrack(processedTrack ?? newTrack);
 			}
 			this._mediaStreamTrack = newTrack;
-			this.applyMuteState(newTrack, processedTrack, isUnmuting);
+			this._mediaStreamTrack.enabled = isUnmuting ? true : !this.isMuted;
 			await this.resumeUpstream();
 			this.attachedElements.forEach((el) => {
 				attachToElement(processedTrack ?? newTrack, el);
@@ -278,6 +264,7 @@ export default abstract class LocalTrack<TrackKind extends Track.Kind = Track.Ki
 				await this.restoreMediaStreamTrackAfterFailure(
 					previousTrack,
 					previousConstraints,
+					previousEnabled,
 					newTrack,
 					processedTrack,
 					previousTrackEndedListenerDeferred,
@@ -538,13 +525,12 @@ export default abstract class LocalTrack<TrackKind extends Track.Kind = Track.Ki
 	protected setTrackMuted(muted: boolean) {
 		this.log.debug(`setting ${this.kind} track ${muted ? 'muted' : 'unmuted'}`, this.logContext);
 
-		const processedTrack = this.processor?.processedTrack;
-		if (this.isMuted === muted && this.muteTargetFor(this._mediaStreamTrack, processedTrack).enabled !== muted) {
+		if (this.isMuted === muted && this._mediaStreamTrack.enabled !== muted) {
 			return;
 		}
 
 		this.isMuted = muted;
-		this.applyMuteState(this._mediaStreamTrack, processedTrack);
+		this._mediaStreamTrack.enabled = !muted;
 		this.emit(muted ? TrackEvent.Muted : TrackEvent.Unmuted, this);
 	}
 

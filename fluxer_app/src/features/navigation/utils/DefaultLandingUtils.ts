@@ -35,3 +35,10 @@ export function getDefaultLandingPath(): string {
 	}
 	return Routes.ME;
 }
+
+export function shouldRedirectAwayFromDirectMessages(pathname: string): boolean {
+	if (!RuntimeConfig.directMessagesDisabled) {
+		return false;
+	}
+	return Routes.isDMRoute(pathname);
+}

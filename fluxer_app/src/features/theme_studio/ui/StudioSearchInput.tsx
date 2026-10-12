@@ -6,6 +6,7 @@ import styles from '@app/features/theme_studio/ui/StudioSearchInput.module.css';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {MagnifyingGlassIcon, XCircleIcon} from '@phosphor-icons/react';
+import {clsx} from 'clsx';
 import {forwardRef, type InputHTMLAttributes, useImperativeHandle, useRef} from 'react';
 
 const SEARCH_DESCRIPTOR = msg({
@@ -21,14 +22,15 @@ export interface StudioSearchInputHandle {
 	focus: () => void;
 }
 
-interface StudioSearchInputProps
-	extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type' | 'className'> {
+interface StudioSearchInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'> {
 	value: string;
 	onChange: (next: string) => void;
+	shortcut?: string;
+	className?: string;
 }
 
 export const StudioSearchInput = forwardRef<StudioSearchInputHandle, StudioSearchInputProps>(function StudioSearchInput(
-	{value, onChange, placeholder, ...rest},
+	{value, onChange, shortcut, className, placeholder, ...rest},
 	ref,
 ) {
 	const {i18n} = useLingui();
@@ -37,7 +39,7 @@ export const StudioSearchInput = forwardRef<StudioSearchInputHandle, StudioSearc
 		focus: () => inputRef.current?.focus(),
 	}));
 	return (
-		<label className={styles.wrapper} data-flx="theme-studio.ui.studio-search-input.wrapper">
+		<label className={clsx(styles.wrapper, className)} data-flx="theme-studio.ui.studio-search-input.wrapper">
 			<span className={styles.icon} data-flx="theme-studio.ui.studio-search-input.icon">
 				<MagnifyingGlassIcon
 					size={remFromPx(14)}
@@ -73,6 +75,10 @@ export const StudioSearchInput = forwardRef<StudioSearchInputHandle, StudioSearc
 						data-flx="theme-studio.ui.studio-search-input.x-circle-icon"
 					/>
 				</button>
+			) : shortcut ? (
+				<span className={styles.shortcut} data-flx="theme-studio.ui.studio-search-input.shortcut">
+					{shortcut}
+				</span>
 			) : null}
 		</label>
 	);

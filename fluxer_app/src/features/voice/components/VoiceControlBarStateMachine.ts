@@ -28,7 +28,7 @@ export interface VoiceControlBarSignals {
 	screenShareDisabled: boolean;
 }
 
-interface VoiceControlButtonState<Label extends string> {
+export interface VoiceControlButtonState<Label extends string> {
 	disabled: boolean;
 	pressed: boolean;
 	label: Label;
@@ -95,7 +95,7 @@ function selectScreenShareLabel(signals: VoiceControlBarSignals): VoiceControlBa
 	return signals.isScreenShareEnabled ? 'end' : 'start';
 }
 
-function selectVoiceControlBarState(signals: VoiceControlBarSignals): VoiceControlBarState {
+export function selectVoiceControlBarState(signals: VoiceControlBarSignals): VoiceControlBarState {
 	const isMicLocked = signals.isGuildMuted || signals.isGuildDeafened || signals.isPermissionMuted;
 	const isMuteToggleLocked = isMicLocked || signals.isPushToTalkEffective;
 	return {
@@ -125,7 +125,7 @@ function selectVoiceControlBarState(signals: VoiceControlBarSignals): VoiceContr
 	};
 }
 
-const voiceControlBarStateMachine = setup({
+export const voiceControlBarStateMachine = setup({
 	types: {} as {
 		context: VoiceControlBarContext;
 		events: VoiceControlBarEvent;

@@ -3,7 +3,6 @@
 import {getProtectedSessionStorage} from '@app/features/platform/state/ProtectedWebStorage';
 import PremiumState from '@app/features/premium/state/PremiumState';
 import Users from '@app/features/user/state/Users';
-import {isRecord} from '@fluxer/record_utils/src/RecordGuards';
 
 const STORAGE_KEY = 'PremiumCheckoutReturnIntent';
 const INTENT_TTL_MS = 30 * 60 * 1000;
@@ -25,6 +24,10 @@ function getStorage(): Storage | null {
 
 function generateIntentId(): string {
 	return `premium-checkout-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function parsePremiumCheckoutReturnIntent(raw: string): PremiumCheckoutReturnIntent | null {
@@ -120,6 +123,6 @@ export function consumeCompletedPremiumCheckoutReturnIntent(): PremiumCheckoutRe
 	return intent;
 }
 
-function clearPremiumCheckoutReturnIntent(): void {
+export function clearPremiumCheckoutReturnIntent(): void {
 	getStorage()?.removeItem(STORAGE_KEY);
 }

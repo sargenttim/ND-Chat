@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {isTransientDatabaseError} from '@app/api/database/TransientDatabaseError';
-import type {LoggerInterface} from '@fluxer/logger/src/LoggerInterface';
+import type {ILogger} from '@app/api/ILogger';
 import {ms} from 'itty-time';
 
 export type WorkerProcessErrorSource = 'uncaughtException' | 'unhandledRejection';
@@ -9,7 +9,7 @@ export type WorkerProcessErrorSource = 'uncaughtException' | 'unhandledRejection
 type WorkerProcessErrorHandler = (source: WorkerProcessErrorSource, error: unknown) => Promise<void>;
 
 interface WorkerProcessErrorHandlerOptions {
-	logger: Pick<LoggerInterface, 'error' | 'warn'>;
+	logger: Pick<ILogger, 'error' | 'warn'>;
 	shutdown: () => Promise<void>;
 	exit: (code: number) => void;
 	forceExitDelayMs?: number;

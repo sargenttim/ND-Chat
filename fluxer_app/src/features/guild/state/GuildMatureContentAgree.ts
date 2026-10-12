@@ -9,18 +9,12 @@ import {
 	resolveEffectiveChannelMatureContent,
 } from '@app/features/messaging/utils/ContentWarningUtils';
 import {getEffectiveMatureContentGeoContext} from '@app/features/moderation/utils/MatureContentGeoUtils';
-import AppStorage from '@app/features/platform/state/PersistentStorage';
-import {makePersistent} from '@app/features/platform/utils/MobXPersistence';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import {makeSyncedField} from '@app/features/user/state/SyncedField';
 import Users from '@app/features/user/state/Users';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {ContentWarningLevel} from '@fluxer/constants/src/GuildConstants';
 import {GuildNsfwAgreementsSchema as GuildMatureContentAgreementsSchema} from '@fluxer/schema/src/gen/fluxer/user/preferences/v1/preferences_pb';
 import {makeAutoObservable} from 'mobx';
-
-const LOCAL_STORAGE_KEY = 'GuildMatureContentAgreeLocal';
-let localPersisted = false;
 
 export enum MatureContentGateReason {
 	NONE = 0,
@@ -31,7 +25,7 @@ export enum MatureContentGateReason {
 
 export type AgreementScope = 'channel' | 'category' | 'guild';
 
-interface MatureContentGateContext {
+export interface MatureContentGateContext {
 	channelId?: string | null;
 	guildId?: string | null;
 }
@@ -66,15 +60,13 @@ class GuildMatureContentAgree {
 	agreedChannelIds: Array<string> = [];
 	agreedCategoryIds: Array<string> = [];
 	agreedGuildIds: Array<string> = [];
-	localAgreedChannelIds: Array<string> = [];
 
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
-		initializeStore(this, () => this.initPersistence());
+		void this.initPersistence();
 	}
 
 	private async initPersistence(): Promise<void> {
-		if (AppStorage.getItem(LOCAL_STORAGE_KEY) != null) this.persistLocal();
 		await makeSyncedField(this, {
 			field: 'guildNsfwAgreements',
 			schema: GuildMatureContentAgreementsSchema,
@@ -93,27 +85,9 @@ class GuildMatureContentAgree {
 	}
 
 	agreeToChannel(channelId: string): void {
-		const channel = Channels.getChannel(channelId);
-		if (channel?.isThread() && channel.parentId) {
-			this.agreeToChannel(channel.parentId);
-			return;
-		}
-		if (channel?.isThreadOnly()) {
-			this.persistLocal();
-			if (!this.localAgreedChannelIds.includes(channelId)) {
-				this.localAgreedChannelIds.push(channelId);
-			}
-			return;
-		}
 		if (!this.agreedChannelIds.includes(channelId)) {
 			this.agreedChannelIds.push(channelId);
 		}
-	}
-
-	private persistLocal(): void {
-		if (localPersisted) return;
-		localPersisted = true;
-		void makePersistent(this, LOCAL_STORAGE_KEY, ['localAgreedChannelIds']);
 	}
 
 	agreeToCategory(categoryId: string): void {
@@ -128,8 +102,13 @@ class GuildMatureContentAgree {
 		}
 	}
 
+	reset(): void {
+		this.agreedChannelIds = [];
+		this.agreedCategoryIds = [];
+		this.agreedGuildIds = [];
+	}
+
 	revokeChannel(channelId: string): void {
-		this.localAgreedChannelIds = this.localAgreedChannelIds.filter((id) => id !== channelId);
 		this.agreedChannelIds = this.agreedChannelIds.filter((id) => id !== channelId);
 	}
 
@@ -142,7 +121,7 @@ class GuildMatureContentAgree {
 	}
 
 	hasAgreedToChannel(channelId: string): boolean {
-		return this.agreedChannelIds.includes(channelId) || this.localAgreedChannelIds.includes(channelId);
+		return this.agreedChannelIds.includes(channelId);
 	}
 
 	hasAgreedToCategory(categoryId: string): boolean {
@@ -154,11 +133,9 @@ class GuildMatureContentAgree {
 	}
 
 	private resolveContext(context: MatureContentGateContext): ResolvedGateContext {
-		const requestedChannel = context.channelId ? Channels.getChannel(context.channelId) : null;
-		const threadParentId = requestedChannel?.isThread() ? requestedChannel.parentId : null;
-		const channelId = threadParentId ?? context.channelId ?? null;
+		const channelId = context.channelId ?? null;
 		const guildIdFromArg = context.guildId ?? null;
-		const channel = threadParentId ? Channels.getChannel(threadParentId) : requestedChannel;
+		const channel = channelId ? Channels.getChannel(channelId) : null;
 		const guildId = guildIdFromArg ?? channel?.guildId ?? null;
 		const guild = guildId ? Guilds.getGuild(guildId) : null;
 		let categoryId: string | null = null;

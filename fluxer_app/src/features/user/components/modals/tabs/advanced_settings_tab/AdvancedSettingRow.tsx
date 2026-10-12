@@ -9,10 +9,7 @@ import {
 	FULL_WIDTH_CONTROL_ITEM_IDS,
 } from '@app/features/user/components/modals/tabs/AdvancedSettingDirectControls';
 import styles from '@app/features/user/components/modals/tabs/AdvancedSettingsTab.module.css';
-import {
-	getAdvancedSettingRowElementId,
-	getAdvancedSettingSourceTab,
-} from '@app/features/user/components/modals/tabs/advanced_settings_tab/AdvancedSettingsItemUtils';
+import {getAdvancedSettingSourceTab} from '@app/features/user/components/modals/tabs/advanced_settings_tab/AdvancedSettingsItemUtils';
 import type {SearchableSettingItem} from '@app/features/user/components/settings_utils/SettingsSectionRegistry';
 import {SettingsItemStatusBadges} from '@app/features/user/components/settings_utils/SettingsStatusBadge';
 import {msg} from '@lingui/core/macro';
@@ -53,7 +50,6 @@ export const AdvancedSettingRow = observer(
 		return (
 			<div
 				ref={rowRef}
-				id={getAdvancedSettingRowElementId(item.id)}
 				className={clsx(styles.settingRow, hasFullWidthControl && styles.settingRowFullWidth)}
 				data-flx="user.advanced-settings-tab.setting-row"
 			>

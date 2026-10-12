@@ -2,20 +2,22 @@
 
 import type {GuildID, UserID} from '@app/api/BrandedTypes';
 
+type Nullish<T> = T | null;
+
 export interface GuildDiscoveryRow {
 	guild_id: GuildID;
 	status: string;
 	category_type: number;
 	description: string;
-	primary_language: string | null;
-	custom_tags: Array<string> | null;
+	primary_language: Nullish<string>;
+	custom_tags: Nullish<Array<string>>;
 	applied_at: Date;
-	reviewed_at: Date | null;
-	reviewed_by: UserID | null;
-	review_reason: string | null;
-	removed_at: Date | null;
-	removed_by: UserID | null;
-	removal_reason: string | null;
+	reviewed_at: Nullish<Date>;
+	reviewed_by: Nullish<UserID>;
+	review_reason: Nullish<string>;
+	removed_at: Nullish<Date>;
+	removed_by: Nullish<UserID>;
+	removal_reason: Nullish<string>;
 }
 
 export const GUILD_DISCOVERY_COLUMNS = [

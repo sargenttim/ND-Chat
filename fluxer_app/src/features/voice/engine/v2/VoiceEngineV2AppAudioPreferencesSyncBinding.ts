@@ -1,36 +1,30 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import assert from 'node:assert/strict';
-import Keybind from '@app/features/input/state/InputKeybind';
 import VoiceDevicePermissionState from '@app/features/voice/engine/VoiceDevicePermissionState';
 import {
 	createVoiceEngineV2AppAudioSettingsSnapshot,
 	hasVoiceEngineV2InputProcessorSettingsChanged,
 	hasVoiceEngineV2MicrophoneCaptureSettingsChanged,
-	hasVoiceEngineV2MicrophonePublishSettingsChanged,
 	type VoiceEngineV2AppAudioSettingsSnapshot,
 } from '@app/features/voice/engine/v2/VoiceEngineV2AppAudioSettingsSync';
 import ParticipantVolume from '@app/features/voice/state/ParticipantVolume';
 import StreamAudioPrefs from '@app/features/voice/state/StreamAudioPrefs';
 import VoiceSettings from '@app/features/voice/state/VoiceSettings';
-import NoiseSuppressionAvailability from '@app/features/voice/utils/noise_suppression/NoiseSuppressionAvailability';
 import type {Room} from 'livekit-client';
-import {reaction} from 'mobx';
 
-interface VoiceEngineV2AppAudioPreferencesSnapshot {
+export interface VoiceEngineV2AppAudioPreferencesSnapshot {
 	readonly audioSettings: VoiceEngineV2AppAudioSettingsSnapshot;
 	readonly participantVolumes: Readonly<Record<string, number>>;
 	readonly participantMutes: Readonly<Record<string, boolean>>;
 	readonly connectionVolumes: Readonly<Record<string, Readonly<Record<string, number>>>>;
 	readonly streamAudioRevision: number;
-	readonly transmitMode: typeof Keybind.transmitMode;
-	readonly pushToMuteActive: boolean;
 }
 
 export interface VoiceEngineV2AppAudioPreferencesMediaAdapter {
-	requestMicrophoneRefresh(room: Room, request: {republish: boolean}): Promise<void>;
-	configureVoiceInput(room: Room): void;
-	handleInputKeybindChange(room: Room, options: {preserveSelfMute: boolean}): void;
+	refreshMicrophone(room: Room): Promise<void>;
+	refreshLocalVoiceInputProcessor(room: Room): Promise<void>;
+	applyLocalInputVolume(room: Room): void;
 	applyAllLocalAudioPreferences(room: Room): void;
 }
 
@@ -43,46 +37,44 @@ export interface VoiceEngineV2AppAudioPreferencesSyncSources {
 	getSnapshot(): VoiceEngineV2AppAudioPreferencesSnapshot;
 }
 
-function createVoiceEngineV2AppAudioPreferencesSnapshot(): VoiceEngineV2AppAudioPreferencesSnapshot {
+export function createVoiceEngineV2AppAudioPreferencesSnapshot(): VoiceEngineV2AppAudioPreferencesSnapshot {
 	return {
 		audioSettings: createVoiceEngineV2AppAudioSettingsSnapshot(),
 		participantVolumes: ParticipantVolume.volumes,
 		participantMutes: ParticipantVolume.localMutes,
 		connectionVolumes: ParticipantVolume.connectionVolumesByLocalConnectionId,
 		streamAudioRevision: StreamAudioPrefs.audioPrefsRevision,
-		transmitMode: Keybind.transmitMode,
-		pushToMuteActive: Keybind.isPushToMuteEffective(),
 	};
 }
 
-function createVoiceEngineV2AppAudioPreferencesSyncSources(): VoiceEngineV2AppAudioPreferencesSyncSources {
+export function createVoiceEngineV2AppAudioPreferencesSyncSources(): VoiceEngineV2AppAudioPreferencesSyncSources {
 	return {
-		stores: [
-			VoiceSettings,
-			VoiceDevicePermissionState,
-			ParticipantVolume,
-			StreamAudioPrefs,
-			NoiseSuppressionAvailability,
-			{
-				subscribe: (listener) => reaction(() => [Keybind.transmitMode, Keybind.isPushToMuteEffective()], listener),
-			},
-		],
+		stores: [VoiceSettings, VoiceDevicePermissionState, ParticipantVolume, StreamAudioPrefs],
 		getSnapshot: createVoiceEngineV2AppAudioPreferencesSnapshot,
 	};
 }
 
-function refreshMicrophone(
+function refreshMicrophoneCapture(
 	room: Room,
 	adapter: VoiceEngineV2AppAudioPreferencesMediaAdapter,
 	logger: VoiceEngineV2AppAudioPreferencesLogger,
-	republish: boolean,
 ): void {
-	void adapter.requestMicrophoneRefresh(room, {republish}).catch((error) => {
+	void adapter.refreshMicrophone(room).catch((error) => {
 		logger.warn('Failed to refresh microphone after audio settings change', {error});
 	});
 }
 
-function syncVoiceEngineV2AppAudioPreferences(
+function refreshVoiceInputProcessor(
+	room: Room,
+	adapter: VoiceEngineV2AppAudioPreferencesMediaAdapter,
+	logger: VoiceEngineV2AppAudioPreferencesLogger,
+): void {
+	void adapter.refreshLocalVoiceInputProcessor(room).catch((error) => {
+		logger.warn('Failed to refresh voice input processor after audio settings change', {error});
+	});
+}
+
+export function syncVoiceEngineV2AppAudioPreferences(
 	room: Room,
 	adapter: VoiceEngineV2AppAudioPreferencesMediaAdapter,
 	logger: VoiceEngineV2AppAudioPreferencesLogger,
@@ -91,19 +83,17 @@ function syncVoiceEngineV2AppAudioPreferences(
 ): void {
 	assert.ok(room !== null && typeof room === 'object', 'audio preferences sync room must be an object');
 	assert.equal(
-		typeof adapter.requestMicrophoneRefresh,
+		typeof adapter.refreshMicrophone,
 		'function',
-		'audio preferences sync adapter missing requestMicrophoneRefresh',
+		'audio preferences sync adapter missing refreshMicrophone',
 	);
 	assert.equal(typeof logger.warn, 'function', 'audio preferences sync logger missing warn');
-	if (previous.pushToMuteActive !== current.pushToMuteActive) {
-		adapter.handleInputKeybindChange(room, {preserveSelfMute: previous.transmitMode === current.transmitMode});
-	}
-	const republish = hasVoiceEngineV2MicrophonePublishSettingsChanged(previous.audioSettings, current.audioSettings);
-	if (republish || hasVoiceEngineV2MicrophoneCaptureSettingsChanged(previous.audioSettings, current.audioSettings)) {
-		refreshMicrophone(room, adapter, logger, republish);
+	if (hasVoiceEngineV2MicrophoneCaptureSettingsChanged(previous.audioSettings, current.audioSettings)) {
+		refreshMicrophoneCapture(room, adapter, logger);
 	} else if (hasVoiceEngineV2InputProcessorSettingsChanged(previous.audioSettings, current.audioSettings)) {
-		adapter.configureVoiceInput(room);
+		refreshVoiceInputProcessor(room, adapter, logger);
+	} else if (current.audioSettings.inputVolume !== previous.audioSettings.inputVolume) {
+		adapter.applyLocalInputVolume(room);
 	}
 	if (
 		current.audioSettings.outputVolume !== previous.audioSettings.outputVolume ||

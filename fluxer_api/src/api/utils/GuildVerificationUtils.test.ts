@@ -6,7 +6,7 @@ import {checkGuildVerificationWithResponse} from '@app/api/utils/GuildVerificati
 import {GuildFeatures, GuildVerificationLevel} from '@fluxer/constants/src/GuildConstants';
 import {ProfileFieldPrivacyFlags} from '@fluxer/constants/src/UserConstants';
 import {GuildEmailVerificationRequiredError} from '@fluxer/errors/src/domains/auth/EmailVerificationRequiredError';
-import {GuildVerificationRequiredError} from '@fluxer/errors/src/domains/guild/GuildVerificationRequiredError';
+import {GuildPhoneVerificationRequiredError} from '@fluxer/errors/src/domains/auth/GuildPhoneVerificationRequiredError';
 import type {GuildMemberResponse} from '@fluxer/schema/src/domains/guild/GuildMemberSchemas';
 import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
 import {describe, expect, it} from 'vitest';
@@ -15,7 +15,7 @@ const TEST_USER_ID = createUserID(175928847299117063n);
 const TEST_OWNER_ID = createUserID(275928847299117063n);
 const TEST_JOINED_AT = new Date('2025-01-01T00:00:00.000Z').toISOString();
 
-function createUser(params?: {emailVerified?: boolean}): User {
+function createUser(params?: {emailVerified?: boolean; hasVerifiedPhone?: boolean}): User {
 	return new User({
 		user_id: TEST_USER_ID,
 		username: 'member',
@@ -25,6 +25,7 @@ function createUser(params?: {emailVerified?: boolean}): User {
 		system: false,
 		email: 'member@example.com',
 		email_verified: params?.emailVerified ?? false,
+		has_verified_phone: params?.hasVerifiedPhone ?? false,
 		email_bounced: false,
 		password_hash: 'hashed',
 		password_last_changed_at: null,
@@ -53,6 +54,7 @@ function createUser(params?: {emailVerified?: boolean}): User {
 		stripe_subscription_id: null,
 		stripe_customer_id: null,
 		has_ever_purchased: false,
+		suspicious_activity_flags: 0,
 		terms_agreed_at: null,
 		privacy_agreed_at: null,
 		last_active_at: null,
@@ -67,6 +69,7 @@ function createUser(params?: {emailVerified?: boolean}): User {
 		deletion_audit_log_reason: null,
 		acls: null,
 		traits: null,
+		badge_ids: null,
 		first_refund_at: null,
 		gift_inventory_server_seq: null,
 		gift_inventory_client_seq: null,
@@ -154,22 +157,26 @@ describe('GuildVerificationUtils', () => {
 			}),
 		).not.toThrow();
 	});
-	it('treats a stored level above high as high', () => {
+	it('allows very high verification with only a verified phone', () => {
 		const guild = createGuildResponse([]);
-		Object.assign(guild, {verification_level: 4});
+		guild.verification_level = GuildVerificationLevel.VERY_HIGH;
 		expect(() =>
 			checkGuildVerificationWithResponse({
-				user: createUser({emailVerified: true}),
-				guild,
-				member,
-			}),
-		).not.toThrow();
-		expect(() =>
-			checkGuildVerificationWithResponse({
-				user: createUser({emailVerified: true}),
+				user: createUser({emailVerified: false, hasVerifiedPhone: true}),
 				guild,
 				member: createMemberResponse(new Date().toISOString()),
 			}),
-		).toThrow(GuildVerificationRequiredError);
+		).not.toThrow();
+	});
+	it('rejects very high verification without a verified phone', () => {
+		const guild = createGuildResponse([]);
+		guild.verification_level = GuildVerificationLevel.VERY_HIGH;
+		expect(() =>
+			checkGuildVerificationWithResponse({
+				user: createUser({emailVerified: true, hasVerifiedPhone: false}),
+				guild,
+				member,
+			}),
+		).toThrow(GuildPhoneVerificationRequiredError);
 	});
 });

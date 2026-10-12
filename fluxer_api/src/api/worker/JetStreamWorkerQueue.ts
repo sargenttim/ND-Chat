@@ -414,8 +414,7 @@ export class JetStreamWorkerQueue {
 		this.requireConsumerConfiguration(existing, lane.consumerName);
 		const updated = await jsm.consumers.update(STREAM_NAME, lane.consumerName, config);
 		this.requireConsumerConfiguration(updated, lane.consumerName);
-		const current = await this.readConsumer(jsm, lane.consumerName);
-		if (current?.created !== existing.created) {
+		if (updated.created !== existing.created) {
 			throw new Error(`Worker consumer ${lane.consumerName} was replaced during startup`);
 		}
 		Logger.info({lane: lane.name, consumer: lane.consumerName}, 'Consumer updated without resetting delivery state');
@@ -465,6 +464,8 @@ export class JetStreamWorkerQueue {
 		payload: WorkerJobPayload,
 		options?: {
 			runAt?: Date;
+			maxAttempts?: number;
+			priority?: number;
 			jobKey?: string;
 		},
 	): Promise<{seq: string; duplicate: boolean}> {
@@ -473,6 +474,8 @@ export class JetStreamWorkerQueue {
 		const body = JSON.stringify({
 			payload,
 			run_at: options?.runAt?.toISOString(),
+			max_attempts: options?.maxAttempts ?? 5,
+			priority: options?.priority ?? 0,
 			created_at: new Date().toISOString(),
 		});
 		const msgID = options?.jobKey ? `${taskType}:${options.jobKey}` : randomUUID();

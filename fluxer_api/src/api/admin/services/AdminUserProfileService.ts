@@ -3,21 +3,15 @@
 import type {ApiContext} from '@app/api/ApiContext';
 import {mapUserToAdminResponse} from '@app/api/admin/models/UserTypes';
 import type {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
+import type {AdminUserUpdatePropagator} from '@app/api/admin/services/AdminUserUpdatePropagator';
+import {EMAIL_CLEARABLE_SUSPICIOUS_ACTIVITY_FLAGS} from '@app/api/auth/AuthEmail';
 import {createUserID, type UserID} from '@app/api/BrandedTypes';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import {GuildMemberSearchIndexService} from '@app/api/guild/services/member/GuildMemberSearchIndexService';
-import type {DiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
+import type {IDiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
 import type {EntityAssetService, PreparedAssetUpload} from '@app/api/infrastructure/EntityAssetService';
 import {Logger} from '@app/api/Logger';
-import {getInstanceConfigRepository} from '@app/api/middleware/ServiceSingletons';
 import type {User} from '@app/api/models/User';
-import {enqueueStripeCustomerEmailSync} from '@app/api/stripe/StripeCustomer';
-import {
-	type PartialUserChangePropagationDeps,
-	propagateUserUpdate,
-} from '@app/api/user/services/PartialUserChangePropagation';
-import {assertNoDiscriminatorChange, reserveUsername, type UsernameReservation} from '@app/api/user/UniqueUsernames';
-import {USERNAME_MODE_DISCRIMINATOR} from '@app/api/user/UserTag';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
 import {AccessDeniedError} from '@fluxer/errors/src/domains/core/AccessDeniedError';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
@@ -36,11 +30,11 @@ import {types} from 'cassandra-driver';
 
 interface AdminUserProfileServiceDeps {
 	apiContext: ApiContext;
-	discriminatorService: DiscriminatorService;
+	discriminatorService: IDiscriminatorService;
 	entityAssetService: EntityAssetService;
 	auditService: AdminAuditService;
-	userUpdateDeps: PartialUserChangePropagationDeps;
-	guildRepository: GuildRepository;
+	updatePropagator: AdminUserUpdatePropagator;
+	guildRepository: IGuildRepositoryAggregate;
 }
 
 export class AdminUserProfileService {
@@ -57,7 +51,7 @@ export class AdminUserProfileService {
 		acls: ReadonlySet<string>,
 	) {
 		const {users: userRepository, cache: cacheService} = this.deps.apiContext.services;
-		const {entityAssetService, auditService, userUpdateDeps} = this.deps;
+		const {entityAssetService, auditService, updatePropagator} = this.deps;
 		const userId = createUserID(data.user_id);
 		const user = await userRepository.findUnique(userId);
 		if (!user) {
@@ -98,7 +92,7 @@ export class AdminUserProfileService {
 		}
 		const updatedUser = await userRepository.patchUpsert(userId, updates, user.toRow());
 		await entityAssetService.commitAssetChanges(preparedAssets);
-		await propagateUserUpdate(userUpdateDeps, user, updatedUser);
+		await updatePropagator.propagateUserUpdate({userId, oldUser: user, updatedUser: updatedUser});
 		await auditService.createAuditLog({
 			adminUserId,
 			targetType: 'user',
@@ -119,7 +113,7 @@ export class AdminUserProfileService {
 		acls: ReadonlySet<string>,
 	) {
 		const {users: userRepository, cache: cacheService} = this.deps.apiContext.services;
-		const {auditService, userUpdateDeps} = this.deps;
+		const {auditService, updatePropagator} = this.deps;
 		const userId = createUserID(data.user_id);
 		const user = await userRepository.findUnique(userId);
 		if (!user) {
@@ -133,7 +127,7 @@ export class AdminUserProfileService {
 			updates['system'] = false;
 		}
 		const updatedUser = await userRepository.patchUpsert(userId, updates, user.toRow());
-		await propagateUserUpdate(userUpdateDeps, user, updatedUser);
+		await updatePropagator.propagateUserUpdate({userId, oldUser: user, updatedUser: updatedUser});
 		await auditService.createAuditLog({
 			adminUserId,
 			targetType: 'user',
@@ -154,7 +148,7 @@ export class AdminUserProfileService {
 		acls: ReadonlySet<string>,
 	) {
 		const {users: userRepository, cache: cacheService} = this.deps.apiContext.services;
-		const {auditService, userUpdateDeps} = this.deps;
+		const {auditService, updatePropagator} = this.deps;
 		const userId = createUserID(data.user_id);
 		const user = await userRepository.findUnique(userId);
 		if (!user) {
@@ -167,7 +161,7 @@ export class AdminUserProfileService {
 			);
 		}
 		const updatedUser = await userRepository.patchUpsert(userId, {system: data.system}, user.toRow());
-		await propagateUserUpdate(userUpdateDeps, user, updatedUser);
+		await updatePropagator.propagateUserUpdate({userId, oldUser: user, updatedUser: updatedUser});
 		await auditService.createAuditLog({
 			adminUserId,
 			targetType: 'user',
@@ -188,18 +182,28 @@ export class AdminUserProfileService {
 		acls: ReadonlySet<string>,
 	) {
 		const {users: userRepository, cache: cacheService} = this.deps.apiContext.services;
-		const {auditService, userUpdateDeps} = this.deps;
+		const {auditService, updatePropagator} = this.deps;
 		const userId = createUserID(data.user_id);
 		const user = await userRepository.findUnique(userId);
 		if (!user) {
 			throw new UnknownUserError();
 		}
-		const updatedUser = await userRepository.patchUpsert(
-			userId,
-			{email_verified: true, email_bounced: false},
-			user.toRow(),
-		);
-		await propagateUserUpdate(userUpdateDeps, user, updatedUser);
+		const updates: {
+			email_verified: boolean;
+			email_bounced: boolean;
+			suspicious_activity_flags?: number;
+		} = {
+			email_verified: true,
+			email_bounced: false,
+		};
+		if (user.suspiciousActivityFlags !== null && user.suspiciousActivityFlags !== 0) {
+			const newFlags = user.suspiciousActivityFlags & ~EMAIL_CLEARABLE_SUSPICIOUS_ACTIVITY_FLAGS;
+			if (newFlags !== user.suspiciousActivityFlags) {
+				updates.suspicious_activity_flags = newFlags;
+			}
+		}
+		const updatedUser = await userRepository.patchUpsert(userId, updates, user.toRow());
+		await updatePropagator.propagateUserUpdate({userId, oldUser: user, updatedUser: updatedUser});
 		await auditService.createAuditLog({
 			adminUserId,
 			targetType: 'user',
@@ -224,44 +228,29 @@ export class AdminUserProfileService {
 			cache: cacheService,
 			contactChangeLog: contactChangeLogService,
 		} = this.deps.apiContext.services;
-		const {discriminatorService, auditService, userUpdateDeps} = this.deps;
+		const {discriminatorService, auditService, updatePropagator} = this.deps;
 		const userId = createUserID(data.user_id);
 		const user = await userRepository.findUnique(userId);
 		if (!user) {
 			throw new UnknownUserError();
 		}
-		const uniqueUsernames = !user.isBot && (await getInstanceConfigRepository().usesUniqueUsernames());
-		if (uniqueUsernames) {
-			assertNoDiscriminatorChange(data.discriminator, user.discriminator);
+		const discriminatorResult = await discriminatorService.generateDiscriminator({
+			username: data.username,
+			requestedDiscriminator: data.discriminator,
+			user,
+		});
+		if (!discriminatorResult.available || discriminatorResult.discriminator === -1) {
+			throw new TagAlreadyTakenError();
 		}
-		const reservation: UsernameReservation | null = uniqueUsernames
-			? await reserveUsername({users: userRepository, cache: cacheService}, data.username, userId)
-			: null;
-		let updatedUser: User;
-		let discriminatorResult: {discriminator: number; available: boolean};
-		try {
-			discriminatorResult = uniqueUsernames
-				? {discriminator: USERNAME_MODE_DISCRIMINATOR, available: true}
-				: await discriminatorService.generateDiscriminator({
-						username: data.username,
-						requestedDiscriminator: data.discriminator,
-						user,
-					});
-			if (!discriminatorResult.available || discriminatorResult.discriminator === -1) {
-				throw new TagAlreadyTakenError();
-			}
-			updatedUser = await userRepository.patchUpsert(
-				userId,
-				{
-					username: data.username,
-					discriminator: discriminatorResult.discriminator,
-				},
-				user.toRow(),
-			);
-		} finally {
-			await reservation?.release();
-		}
-		await propagateUserUpdate(userUpdateDeps, user, updatedUser);
+		const updatedUser = await userRepository.patchUpsert(
+			userId,
+			{
+				username: data.username,
+				discriminator: discriminatorResult.discriminator,
+			},
+			user.toRow(),
+		);
+		await updatePropagator.propagateUserUpdate({userId, oldUser: user, updatedUser: updatedUser});
 		await contactChangeLogService.recordDiff({
 			oldUser: user,
 			newUser: updatedUser,
@@ -296,9 +285,8 @@ export class AdminUserProfileService {
 			users: userRepository,
 			cache: cacheService,
 			contactChangeLog: contactChangeLogService,
-			worker: workerService,
 		} = this.deps.apiContext.services;
-		const {auditService, userUpdateDeps} = this.deps;
+		const {auditService, updatePropagator} = this.deps;
 		const userId = createUserID(data.user_id);
 		const user = await userRepository.findUnique(userId);
 		if (!user) {
@@ -312,14 +300,13 @@ export class AdminUserProfileService {
 			},
 			user.toRow(),
 		);
-		await propagateUserUpdate(userUpdateDeps, user, updatedUser);
+		await updatePropagator.propagateUserUpdate({userId, oldUser: user, updatedUser: updatedUser});
 		await contactChangeLogService.recordDiff({
 			oldUser: user,
 			newUser: updatedUser,
 			reason: 'admin_action',
 			actorUserId: adminUserId,
 		});
-		await enqueueStripeCustomerEmailSync(workerService, user, updatedUser);
 		await auditService.createAuditLog({
 			adminUserId,
 			targetType: 'user',
@@ -357,7 +344,7 @@ export class AdminUserProfileService {
 		acls: ReadonlySet<string>,
 	) {
 		const {users: userRepository, cache: cacheService} = this.deps.apiContext.services;
-		const {auditService, userUpdateDeps} = this.deps;
+		const {auditService, updatePropagator} = this.deps;
 		const userId = createUserID(data.user_id);
 		const user = await userRepository.findUnique(userId);
 		if (!user) {
@@ -370,7 +357,7 @@ export class AdminUserProfileService {
 			},
 			user.toRow(),
 		);
-		await propagateUserUpdate(userUpdateDeps, user, updatedUser);
+		await updatePropagator.propagateUserUpdate({userId, oldUser: user, updatedUser: updatedUser});
 		await auditService.createAuditLog({
 			adminUserId,
 			targetType: 'user',

@@ -1,16 +1,13 @@
 %% SPDX-License-Identifier: AGPL-3.0-or-later
 
 -module(guild_voice_permission_sync).
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
--endif.
-
 -typing([eqwalizer]).
 
 -export([
     sync_user_voice_permissions/2,
     sync_all_voice_permissions_for_channels/2,
-    sync_roles_after_change/3,
+    sync_users_with_role/2,
+    maybe_sync_permissions_on_role_update/2,
     maybe_sync_permissions_on_member_update/2
 ]).
 
@@ -25,6 +22,10 @@
 -type voice_state() :: map().
 -type user_id() :: integer().
 -type channel_id() :: integer().
+
+-ifdef(TEST).
+-include_lib("eunit/include/eunit.hrl").
+-endif.
 
 -spec sync_user_voice_permissions(user_id(), guild_state()) -> ok.
 sync_user_voice_permissions(UserId, State) ->
@@ -95,6 +96,14 @@ sync_channel_voice_state_permissions(GuildId, VoiceState, State) ->
         UserId -> sync_voice_state_permissions(GuildId, UserId, VoiceState, State)
     end.
 
+-spec maybe_sync_permissions_on_role_update(map(), guild_state()) -> ok.
+maybe_sync_permissions_on_role_update(RoleUpdate, State) ->
+    RoleId = snowflake_id:parse_optional(maps:get(<<"id">>, RoleUpdate, undefined)),
+    case RoleId of
+        undefined -> ok;
+        RoleIdInt -> sync_users_with_role(RoleIdInt, State)
+    end.
+
 -spec maybe_sync_permissions_on_member_update(map(), guild_state()) -> ok.
 maybe_sync_permissions_on_member_update(MemberUpdate, State) ->
     UserId = get_member_user_id(MemberUpdate),
@@ -159,15 +168,15 @@ maybe_clear_self_stream(_ChId, _VoiceState, _VoicePermissions, _State) ->
 
 -spec user_has_base_voice_access(user_id(), channel_id(), guild_state()) -> boolean().
 user_has_base_voice_access(UserId, ChannelId, State) ->
-    case guild_virtual_channel_access:has_voice_access(UserId, ChannelId, State) of
+    case guild_virtual_channel_access:has_virtual_access(UserId, ChannelId, State) of
         true ->
             true;
         false ->
             Permissions = guild_permissions:get_member_permissions(UserId, ChannelId, State),
             ViewPerm = constants:view_channel_permission(),
             ConnectPerm = constants:connect_permission(),
-            HasView = bitset:has(Permissions, ViewPerm),
-            HasConnect = bitset:has(Permissions, ConnectPerm),
+            HasView = permission_bits:has(Permissions, ViewPerm),
+            HasConnect = permission_bits:has(Permissions, ConnectPerm),
             HasView andalso HasConnect
     end.
 
@@ -187,7 +196,7 @@ dispatch_force_disconnect(GuildId, ChannelId, UserId, ConnectionId, State) ->
 -spec spawn_force_disconnect(integer(), channel_id(), user_id(), binary()) -> pid().
 spawn_force_disconnect(GuildId, ChannelId, UserId, ConnectionId) ->
     spawn(fun() ->
-        guild_voice_disconnect_user:force_disconnect_participant(
+        guild_voice_disconnect:force_disconnect_participant(
             GuildId, ChannelId, UserId, ConnectionId
         )
     end).
@@ -232,79 +241,65 @@ enforce_voice_permissions_in_livekit(
             ok
     end.
 
--spec sync_roles_after_change([integer()], guild_state(), guild_state()) -> ok.
-sync_roles_after_change([], _OldState, _State) ->
-    ok;
-sync_roles_after_change(RoleIds, OldState, State) ->
+-spec sync_users_with_role(integer(), guild_state()) -> ok.
+sync_users_with_role(RoleId, State) ->
+    VoiceStates = guild_voice_lifecycle:authoritative_voice_states(State),
     case state_guild_id(State) of
         undefined ->
             ok;
         GuildId ->
-            Affected = affected_role_users(GuildId, RoleIds, OldState, State),
-            sync_affected_voice_states(GuildId, Affected, State)
+            do_sync_users_with_role(GuildId, RoleId, VoiceStates, State)
     end.
 
--spec sync_affected_voice_states(integer(), all | sets:set(user_id()), guild_state()) -> ok.
-sync_affected_voice_states(GuildId, Affected, State) ->
+-spec do_sync_users_with_role(integer(), integer(), map(), guild_state()) -> ok.
+do_sync_users_with_role(GuildId, RoleId, VoiceStates, State) ->
+    RoleUsers = user_ids_with_role(RoleId, State),
     maps:foreach(
         fun(_ConnId, VoiceState) ->
-            maybe_sync_affected_voice_state(GuildId, Affected, VoiceState, State)
+            maybe_sync_role_voice_state(GuildId, RoleUsers, VoiceState, State)
         end,
-        guild_voice_lifecycle:authoritative_voice_states(State)
-    ).
+        VoiceStates
+    ),
+    ok.
 
--spec affected_role_users(integer(), [integer()], guild_state(), guild_state()) ->
-    all | sets:set(user_id()).
-affected_role_users(GuildId, RoleIds, OldState, State) ->
-    case lists:member(GuildId, RoleIds) of
-        true ->
-            all;
-        false ->
-            OldIndex = guild_data_index_members:member_role_index(
-                maps:get(data, OldState, #{})
-            ),
-            NewIndex = guild_data_index_members:member_role_index(maps:get(data, State, #{})),
-            sets:from_list(
-                lists:append([
-                    maps:keys(maps:get(RoleId, OldIndex, #{})) ++
-                        maps:keys(maps:get(RoleId, NewIndex, #{}))
-                 || RoleId <- RoleIds
-                ])
+-spec maybe_sync_role_voice_state(integer(), sets:set(user_id()), voice_state(), guild_state()) ->
+    ok.
+maybe_sync_role_voice_state(GuildId, RoleUsers, VoiceState, State) ->
+    UserId = voice_state_utils:voice_state_user_id(VoiceState),
+    case UserId of
+        undefined ->
+            ok;
+        _ ->
+            sync_voice_state_permissions_if_role_matches(
+                GuildId, RoleUsers, UserId, VoiceState, State
             )
     end.
 
--spec maybe_sync_affected_voice_state(
-    integer(), all | sets:set(user_id()), voice_state(), guild_state()
+-spec sync_voice_state_permissions_if_role_matches(
+    integer(), sets:set(user_id()), user_id(), voice_state(), guild_state()
 ) -> ok.
-maybe_sync_affected_voice_state(GuildId, Affected, VoiceState, State) ->
-    case voice_state_utils:voice_state_user_id(VoiceState) of
-        undefined -> ok;
-        UserId -> sync_if_affected(GuildId, UserId, Affected, VoiceState, State)
-    end.
-
--spec sync_if_affected(
-    integer(), user_id(), all | sets:set(user_id()), voice_state(), guild_state()
-) -> ok.
-sync_if_affected(GuildId, UserId, Affected, VoiceState, State) ->
-    case is_affected(UserId, Affected) of
+sync_voice_state_permissions_if_role_matches(GuildId, RoleUsers, UserId, VoiceState, State) ->
+    case sets:is_element(UserId, RoleUsers) of
         true -> sync_voice_state_permissions(GuildId, UserId, VoiceState, State);
         false -> ok
     end.
 
--spec is_affected(user_id(), all | sets:set(user_id())) -> boolean().
-is_affected(_UserId, all) -> true;
-is_affected(UserId, Affected) -> sets:is_element(UserId, Affected).
+-spec user_ids_with_role(integer(), guild_state()) -> sets:set(user_id()).
+user_ids_with_role(RoleId, State) ->
+    Data = maps:get(data, State, #{}),
+    RoleIndex = guild_data_index:member_role_index(Data),
+    sets:from_list(maps:keys(maps:get(RoleId, RoleIndex, #{}))).
 
 -spec get_member_user_id(map()) -> user_id() | undefined.
 get_member_user_id(MemberUpdate) ->
     User = map_utils:ensure_map(maps:get(<<"user">>, MemberUpdate, #{})),
-    snowflake_id:parse_maybe(
+    guild_voice_connection_normalize:normalize_positive_snowflake(
         maps:get(<<"id">>, User, undefined)
     ).
 
 -spec state_guild_id(guild_state()) -> integer() | undefined.
 state_guild_id(State) ->
-    snowflake_id:parse_maybe(
+    guild_voice_connection_normalize:normalize_positive_snowflake(
         maps:get(id, State, undefined)
     ).
 
@@ -367,7 +362,22 @@ sync_user_voice_permissions_syncs_connected_user_test() ->
         ?assert(false)
     end.
 
-sync_roles_after_change_uses_role_index_test() ->
+sync_user_voice_permissions_no_voice_state_test() ->
+    State = #{
+        id => 42,
+        voice_states => #{}
+    },
+    ok = sync_user_voice_permissions(10, State).
+
+maybe_sync_permissions_on_member_update_no_role_change_test() ->
+    State = #{id => 42, voice_states => #{}},
+    MemberUpdate = #{
+        <<"user">> => #{<<"id">> => <<"10">>},
+        <<"roles">> => [<<"1">>]
+    },
+    ?assertEqual(ok, maybe_sync_permissions_on_member_update(MemberUpdate, State)).
+
+maybe_sync_permissions_on_role_update_uses_role_index_test() ->
     TestFun = make_sync_test_fun(),
     GuildId = 42,
     RoleId = 999,
@@ -398,7 +408,9 @@ sync_roles_after_change_uses_role_index_test() ->
             GuildId, RoleId, OtherRoleId, UserId, OtherUserId, ChannelId, Permissions
         )
     },
-    ok = sync_roles_after_change([RoleId], State, State),
+    ok = maybe_sync_permissions_on_role_update(
+        #{<<"id">> => integer_to_binary(RoleId)}, State
+    ),
     receive
         {synced, GuildId, ChannelId, UserId, <<"conn1">>, _Perms} -> ok
     after 200 ->

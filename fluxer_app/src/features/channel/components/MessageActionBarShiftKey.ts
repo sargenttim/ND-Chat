@@ -2,7 +2,7 @@
 
 import {useCallback, useSyncExternalStore} from 'react';
 
-const shiftKeyManager = (() => {
+export const shiftKeyManager = (() => {
 	let isShiftPressed = false;
 	const listeners = new Set<() => void>();
 	const notify = () => {

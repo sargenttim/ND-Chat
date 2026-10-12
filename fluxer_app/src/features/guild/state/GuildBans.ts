@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import {makeAutoObservable} from 'mobx';
 
 class GuildBans {
@@ -28,13 +27,9 @@ class GuildBans {
 		}
 	}
 
-	reset(): void {
-		this.bannedUsersByGuild.clear();
+	isKnownBanned(guildId: string, userId: string): boolean {
+		return this.bannedUsersByGuild.get(guildId)?.has(userId) ?? false;
 	}
 }
 
-const guildBans = new GuildBans();
-
-AccountScopedWork.registerCancellation(() => guildBans.reset());
-
-export default guildBans;
+export default new GuildBans();

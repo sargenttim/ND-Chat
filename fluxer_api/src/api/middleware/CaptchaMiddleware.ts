@@ -3,7 +3,6 @@
 import {createHmac} from 'node:crypto';
 import {Config} from '@app/api/Config';
 import {sharedListHas} from '@app/api/infrastructure/activity/SharedLists';
-import {usesUsernameSignIn} from '@app/api/instance/AccountIdentityModeCache';
 import {Logger} from '@app/api/Logger';
 import {getKVClient} from '@app/api/middleware/ServiceRegistry';
 import type {User} from '@app/api/models/User';
@@ -64,7 +63,6 @@ function userHasCaptchaExemptFlag(user: User | null | undefined): boolean {
 }
 
 async function requestUserHasCaptchaExemptFlag(ctx: Context<HonoEnv>): Promise<boolean> {
-	if (usesUsernameSignIn()) return false;
 	try {
 		const body = (await ctx.req.raw.clone().json()) as unknown;
 		if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
@@ -78,6 +76,6 @@ async function requestUserHasCaptchaExemptFlag(ctx: Context<HonoEnv>): Promise<b
 }
 
 export const CaptchaMiddleware = createMiddleware<HonoEnv>(async (ctx, next) => {
-	ctx.set('captchaVerified', await verifyCaptchaToken(ctx));
+	await verifyCaptchaToken(ctx);
 	await next();
 });

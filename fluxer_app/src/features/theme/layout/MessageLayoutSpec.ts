@@ -4,7 +4,7 @@ type Px = `${number}px`;
 type Rem = `${number}rem`;
 type CssLength = Px | Rem;
 
-interface MessageDensityLayout {
+export interface MessageDensityLayout {
 	avatarSize: Rem;
 	timestampFontSize: Rem;
 }
@@ -157,7 +157,7 @@ export const MESSAGE_LAYOUT_SPEC = {
 	},
 } as const satisfies MessageLayoutSpec;
 
-function assertMessageLayoutSpec(spec: MessageLayoutSpec): void {
+export function assertMessageLayoutSpec(spec: MessageLayoutSpec): void {
 	assertPositiveLength('cozy.avatarSize', spec.cozy.avatarSize);
 	assertPositiveLength('dense.avatarSize', spec.dense.avatarSize);
 	assertPositiveLength('gutter', spec.gutter);

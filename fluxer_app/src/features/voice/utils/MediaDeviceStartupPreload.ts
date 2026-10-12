@@ -3,7 +3,6 @@
 import MediaPermission from '@app/features/permissions/system/state/MediaPermission';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import VoiceDevicePermissionState from '@app/features/voice/engine/VoiceDevicePermissionState';
-import {scheduleDeepFilterPrefetch} from '@app/features/voice/utils/noise_suppression/DeepFilter';
 import type {VoiceMediaPermissionType} from '@app/features/voice/utils/VoiceDeviceManager';
 
 const logger = new Logger('MediaDeviceStartupPreload');
@@ -11,14 +10,10 @@ const logger = new Logger('MediaDeviceStartupPreload');
 export function startMediaDeviceStartupPreload(): () => void {
 	let stopped = false;
 	let lastPermissionStateKey: string | null = null;
-	let cancelDeepFilterPrefetch: (() => void) | null = null;
 	const preloadDevices = () => {
 		if (stopped) return;
 		const grantedPermissionTypes: Array<VoiceMediaPermissionType> = [];
-		if (MediaPermission.isMicrophoneGranted()) {
-			grantedPermissionTypes.push('audio');
-			cancelDeepFilterPrefetch ??= scheduleDeepFilterPrefetch();
-		}
+		if (MediaPermission.isMicrophoneGranted()) grantedPermissionTypes.push('audio');
 		if (MediaPermission.isCameraGranted()) grantedPermissionTypes.push('video');
 		const permissionStateKey = [
 			MediaPermission.isInitialized() ? 'initialized' : 'pending',
@@ -44,6 +39,5 @@ export function startMediaDeviceStartupPreload(): () => void {
 	return () => {
 		stopped = true;
 		disposePermissionListener();
-		cancelDeepFilterPrefetch?.();
 	};
 }

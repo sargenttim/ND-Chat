@@ -70,7 +70,7 @@ function withFreshEmbedUrls(embed: MessageEmbed): MessageEmbed {
 }
 
 export const Embed: FC<EmbedProps> = observer((props: EmbedProps) => {
-	const {message, embedIndex, contextualEmbeds, contextualContent, onDelete, isPreview} = props;
+	const {message, embedIndex, contextualEmbeds, onDelete, isPreview} = props;
 	const embed = withFreshEmbedUrls(props.embed);
 	const {i18n} = useLingui();
 	const {enabled: isMobile} = MobileLayout;
@@ -120,8 +120,7 @@ export const Embed: FC<EmbedProps> = observer((props: EmbedProps) => {
 				'data-message-copy-text': copyText,
 			} as const)
 		: {};
-	const spoilerSourceContent = contextualContent ?? message.content;
-	const spoileredUrls = useMemo(() => extractSpoileredUrls(spoilerSourceContent), [spoilerSourceContent]);
+	const spoileredUrls = useMemo(() => extractSpoileredUrls(message.content), [message.content]);
 	const {isSpoilerEmbed, matchingSpoilerUrls} = useMemo(() => {
 		const urlsToCheck = [
 			embed.url,

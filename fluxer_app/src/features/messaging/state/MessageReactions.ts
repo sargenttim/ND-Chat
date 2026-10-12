@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import Authentication from '@app/features/auth/state/Authentication';
 import {
 	emptyMap,
@@ -58,12 +57,14 @@ function isMissingReactionStateNoop(event: ReactionMachineEvent): boolean {
 		case 'reaction.remove':
 		case 'reaction.removeAll':
 		case 'reaction.removeEmoji':
+		case 'reaction.trackReactor':
 		case 'reaction.trackReactors':
+		case 'reaction.untrackReactor':
 			return true;
 	}
 }
 
-class MessageReactionsManager {
+export class MessageReactionsManager {
 	private messageStates: Map<string, MessageReactionState> = new Map();
 	private reactors: Map<string, ReactorEntry> = new Map();
 	private _keysByMessage: Map<string, Set<string>> = new Map();
@@ -458,6 +459,4 @@ class MessageReactionsManager {
 	}
 }
 
-const messageReactions = new MessageReactionsManager();
-ResettableStates.register(messageReactions, () => messageReactions.handleGatewayReady());
-export default messageReactions;
+export default new MessageReactionsManager();

@@ -3,7 +3,6 @@
 import type {Channel} from '@app/features/channel/models/Channel';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import Messages from '@app/features/messaging/state/MessagingMessages';
-import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
 import {deferUntilModulesLoaded} from '@app/features/platform/utils/DeferUntilModulesLoaded';
 import KeyboardMode from '@app/features/ui/state/KeyboardMode';
 import {autorun, makeAutoObservable} from 'mobx';
@@ -107,8 +106,4 @@ class MessageFocus {
 	}
 }
 
-const messageFocus = new MessageFocus();
-
-AccountScopedWork.registerCancellation(() => messageFocus.clearFocus());
-
-export default messageFocus;
+export default new MessageFocus();

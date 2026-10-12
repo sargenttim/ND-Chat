@@ -31,11 +31,13 @@
 	inset-block-end: 0;
 	inset-inline: 0 1rem;
 	z-index: 1;
+	height: 1rem;
+	background: linear-gradient(to bottom, transparent, var(--messages-bottom-fade-fill));
 	pointer-events: none;
 }
 
 .bottomFadeStatusAtBottom {
-	height: 1rem;
+	height: var(--composer-status-safe-area);
 	background: linear-gradient(
 		to bottom,
 		transparent,
@@ -45,7 +47,7 @@
 }
 
 .bottomFadeStatusScrolled {
-	height: 5rem;
+	height: calc(var(--composer-status-safe-area) + 4rem);
 	background: linear-gradient(
 		to bottom,
 		transparent,
@@ -232,6 +234,29 @@
 		max-width: min(45vw, 14rem);
 		font-size: 0.8125rem;
 	}
+}
+
+.loadMoreContainer {
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	padding: 0.75rem 0;
+}
+
+.loadMoreTopPadding {
+	padding-top: 1.25rem;
+}
+
+.loadMoreBottomPadding {
+	padding-bottom: 1.25rem;
+}
+
+.unreadOverlay {
+	position: absolute;
+	left: 0;
+	right: 0;
+	z-index: 1;
+	pointer-events: none;
 }
 
 .unreadSlot {

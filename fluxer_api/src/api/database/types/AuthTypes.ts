@@ -9,15 +9,17 @@ import type {
 	UserID,
 } from '@app/api/BrandedTypes';
 
+type Nullish<T> = T | null;
+
 export interface AuthSessionRow {
 	user_id: UserID;
 	session_id_hash: Buffer;
 	created_at: Date;
 	approx_last_used_at: Date;
 	client_ip: string;
-	client_user_agent: string | null;
-	client_os: string | null;
-	client_country: string | null;
+	client_user_agent: Nullish<string>;
+	client_os: Nullish<string>;
+	client_country: Nullish<string>;
 	version: number;
 }
 
@@ -27,9 +29,9 @@ export interface AuthSessionTombstoneRow {
 	created_at: Date;
 	approx_last_used_at: Date;
 	client_ip: string;
-	client_user_agent: string | null;
-	client_os: string | null;
-	client_country: string | null;
+	client_user_agent: Nullish<string>;
+	client_os: Nullish<string>;
+	client_country: Nullish<string>;
 	deleted_at: Date;
 	version: number;
 }
@@ -38,12 +40,6 @@ export interface MfaBackupCodeRow {
 	user_id: UserID;
 	code: MfaBackupCode;
 	consumed: boolean;
-}
-
-export interface UserRecoveryKitRow {
-	user_id: UserID;
-	secret_hash: string;
-	created_at: Date;
 }
 
 export interface EmailVerificationTokenRow {
@@ -55,7 +51,7 @@ export interface EmailVerificationTokenRow {
 export interface PasswordResetTokenRow {
 	token_: PasswordResetToken;
 	user_id: UserID;
-	email: string | null;
+	email: string;
 }
 
 export interface EmailRevertTokenRow {
@@ -92,29 +88,29 @@ export interface WebAuthnCredentialRow {
 	credential_id: string;
 	public_key: Buffer;
 	counter: bigint;
-	transports: Set<string> | null;
+	transports: Nullish<Set<string>>;
 	name: string;
 	created_at: Date;
-	last_used_at: Date | null;
+	last_used_at: Nullish<Date>;
 	version: number;
-	rp_id: string | null;
-	superseded_by: string | null;
+	rp_id: Nullish<string>;
+	superseded_by: Nullish<string>;
 }
 
 export interface EmailChangeTicketRow {
 	ticket: string;
 	user_id: UserID;
 	require_original: boolean;
-	original_email: string | null;
+	original_email: Nullish<string>;
 	original_verified: boolean;
-	original_proof: string | null;
-	original_code: string | null;
-	original_code_sent_at: Date | null;
-	original_code_expires_at: Date | null;
-	new_email: string | null;
-	new_code: string | null;
-	new_code_sent_at: Date | null;
-	new_code_expires_at: Date | null;
+	original_proof: Nullish<string>;
+	original_code: Nullish<string>;
+	original_code_sent_at: Nullish<Date>;
+	original_code_expires_at: Nullish<Date>;
+	new_email: Nullish<string>;
+	new_code: Nullish<string>;
+	new_code_sent_at: Nullish<Date>;
+	new_code_expires_at: Nullish<Date>;
 	status: string;
 	created_at: Date;
 	updated_at: Date;
@@ -153,9 +149,6 @@ export const AUTH_SESSION_TOMBSTONE_COLUMNS = [
 ] as const satisfies ReadonlyArray<keyof AuthSessionTombstoneRow>;
 export const MFA_BACKUP_CODE_COLUMNS = ['user_id', 'code', 'consumed'] as const satisfies ReadonlyArray<
 	keyof MfaBackupCodeRow
->;
-export const USER_RECOVERY_KIT_COLUMNS = ['user_id', 'secret_hash', 'created_at'] as const satisfies ReadonlyArray<
-	keyof UserRecoveryKitRow
 >;
 export const EMAIL_VERIFICATION_TOKEN_COLUMNS = ['token_', 'user_id', 'email'] as const satisfies ReadonlyArray<
 	keyof EmailVerificationTokenRow
@@ -196,11 +189,11 @@ export const WEBAUTHN_CREDENTIAL_COLUMNS = [
 export interface PasswordChangeTicketRow {
 	ticket: string;
 	user_id: UserID;
-	code: string | null;
-	code_sent_at: Date | null;
-	code_expires_at: Date | null;
+	code: Nullish<string>;
+	code_sent_at: Nullish<Date>;
+	code_expires_at: Nullish<Date>;
 	verified: boolean;
-	verification_proof: string | null;
+	verification_proof: Nullish<string>;
 	status: string;
 	created_at: Date;
 	updated_at: Date;

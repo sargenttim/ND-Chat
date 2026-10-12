@@ -9,8 +9,9 @@ import {
 	MobileSettingsDangerItem,
 } from '@app/features/app/components/dialogs/shared/MobileSettingsComponents';
 import {SettingsCurrentTabProvider} from '@app/features/app/components/dialogs/shared/SettingsCurrentTabContext';
-import {SETTINGS_FADE_VARIANTS} from '@app/features/app/components/dialogs/shared/SettingsTransitions';
 import {LongPressable} from '@app/features/app/components/LongPressable';
+import {hasWhatsNewEntries} from '@app/features/app/components/whats_new/WhatsNewEntries';
+import {openWhatsNewModal} from '@app/features/app/components/whats_new/WhatsNewModal';
 import {usePressable} from '@app/features/app/hooks/usePressable';
 import {SETTINGS_DESCRIPTOR, SIGN_OUT_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import {isKeyboardActivationKey} from '@app/features/input/utils/KeyboardUtils';
@@ -20,7 +21,6 @@ import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import * as TextCopyCommands from '@app/features/ui/commands/TextCopyCommands';
 import {MentionBadgeAnimated} from '@app/features/ui/components/MentionBadge';
-import {NotificationDot} from '@app/features/ui/components/NotificationDot';
 import {Scroller, type ScrollerHandle} from '@app/features/ui/components/Scroller';
 import {Spinner} from '@app/features/ui/components/Spinner';
 import {StatusAwareAvatar} from '@app/features/ui/components/StatusAwareAvatar';
@@ -31,7 +31,6 @@ import type {SettingsTab} from '@app/features/user/components/settings_utils/Set
 import {
 	getCategoryLabel,
 	getUserSettingsTabLabel,
-	PRIVACY_REVIEW_NEEDED_DESCRIPTOR,
 } from '@app/features/user/components/settings_utils/SettingsConstants';
 import {isSettingsItemNew} from '@app/features/user/components/settings_utils/SettingsMetadata';
 import {
@@ -45,11 +44,10 @@ import {buildUserSettingsDeepLink} from '@app/features/user/components/settings_
 import type {MobileNavigationState} from '@app/features/user/hooks/useMobileNavigation';
 import {useSettingsContentKey} from '@app/features/user/hooks/useSettingsContentKey';
 import {useUnsavedChangesFlash} from '@app/features/user/hooks/useUnsavedChangesFlash';
-import UserSettings from '@app/features/user/state/UserSettings';
 import Users from '@app/features/user/state/Users';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
-import {ArrowClockwiseIcon, ArrowLeftIcon, type IconWeight, SignOutIcon} from '@phosphor-icons/react';
+import {ArrowClockwiseIcon, ArrowLeftIcon, type IconWeight, MegaphoneIcon, SignOutIcon} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
 import {AnimatePresence, motion} from 'framer-motion';
 import {observer} from 'mobx-react-lite';
@@ -57,6 +55,10 @@ import React, {type UIEvent, useCallback, useEffect, useMemo, useRef, useState} 
 
 const UPDATE_SERVICE_WORKER_DESCRIPTOR = msg({
 	message: 'Update service worker',
+	comment: 'Short label in the settings dialog mobile settings view.',
+});
+const WHAT_S_NEW_DESCRIPTOR = msg({
+	message: "What's new",
 	comment: 'Short label in the settings dialog mobile settings view.',
 });
 const DEBUG_DESCRIPTOR = msg({
@@ -135,10 +137,9 @@ interface PressableSettingsItemProps {
 	tab: SettingsTab;
 	onSelect: () => void;
 	badge?: React.ReactNode;
-	attention?: string;
 }
 
-const PressableSettingsItem: React.FC<PressableSettingsItemProps> = observer(({tab, onSelect, badge, attention}) => {
+const PressableSettingsItem: React.FC<PressableSettingsItemProps> = observer(({tab, onSelect, badge}) => {
 	const {isPressed, pressableProps} = usePressable();
 	const {handleLongPressCopy, consumeSuppressedClick} = useSettingsPageDeepLinkLongPress(tab.type);
 	const handleClick = useCallback(
@@ -186,9 +187,6 @@ const PressableSettingsItem: React.FC<PressableSettingsItemProps> = observer(({t
 					{badge}
 				</div>
 			</div>
-			{attention && (
-				<NotificationDot label={attention} data-flx="app.mobile-settings-view.pressable-settings-item.attention-dot" />
-			)}
 			<ArrowLeftIcon
 				className={styles.settingsItemArrow}
 				data-flx="app.mobile-settings-view.pressable-settings-item.settings-item-arrow"
@@ -363,7 +361,7 @@ const MobileSettingsList = observer(
 	}) => {
 		const {i18n} = useLingui();
 		const currentUser = Users.currentUser;
-		const privacySetupPending = UserSettings.isPrivacySetupPending();
+		const shouldShowWhatsNew = hasWhatsNewEntries();
 		const advancedSettingsHasNew = useMemo(
 			() =>
 				getAdvancedSettingItems().some((item) => isSettingsItemNew(item, Date.now(), currentUser?.createdAt ?? null)),
@@ -434,11 +432,6 @@ const MobileSettingsList = observer(
 											tab={tab}
 											onSelect={() => onTabSelect(tab.type, tab.label)}
 											badge={badge}
-											attention={
-												tab.type === 'privacy_safety' && privacySetupPending
-													? i18n._(PRIVACY_REVIEW_NEEDED_DESCRIPTOR)
-													: undefined
-											}
 											data-flx="app.mobile-settings-view.mobile-settings-list.pressable-settings-item.tab-select"
 										/>
 										{(!isLastTab || isLastCategory) && (
@@ -451,12 +444,29 @@ const MobileSettingsList = observer(
 								);
 							})}
 							{categoryIndex === lastCategoryIndex && (
-								<MobileSettingsDangerItem
-									icon={SignOutIcon}
-									label={i18n._(SIGN_OUT_DESCRIPTOR)}
-									onClick={handleLogout}
-									data-flx="app.mobile-settings-view.mobile-settings-list.mobile-settings-danger-item.logout"
-								/>
+								<>
+									{shouldShowWhatsNew && (
+										<>
+											<MobileSettingsActionItem
+												icon={MegaphoneIcon}
+												iconWeight="fill"
+												label={i18n._(WHAT_S_NEW_DESCRIPTOR)}
+												onClick={openWhatsNewModal}
+												data-flx="app.mobile-settings-view.mobile-settings-list.mobile-settings-action-item.open-whats-new-modal"
+											/>
+											<div
+												className={styles.divider}
+												data-flx="app.mobile-settings-view.mobile-settings-list.divider--2"
+											/>
+										</>
+									)}
+									<MobileSettingsDangerItem
+										icon={SignOutIcon}
+										label={i18n._(SIGN_OUT_DESCRIPTOR)}
+										onClick={handleLogout}
+										data-flx="app.mobile-settings-view.mobile-settings-list.mobile-settings-danger-item.logout"
+									/>
+								</>
 							)}
 						</div>
 					</div>
@@ -488,6 +498,17 @@ const MobileSettingsList = observer(
 		);
 	},
 );
+const contentFadeVariants = {
+	enter: {opacity: 0},
+	center: {opacity: 1},
+	exit: {opacity: 0},
+};
+const headerFadeVariants = {
+	enter: {opacity: 0},
+	center: {opacity: 1},
+	exit: {opacity: 0},
+};
+
 interface MobileContentWithScrollSpyProps {
 	scrollKey: string;
 	settingsTabType?: UserSettingsTabType;
@@ -639,7 +660,7 @@ export const MobileSettingsView: React.FC<MobileSettingsViewProps> = observer(
 						{showMobileList && (
 							<motion.div
 								key="mobile-list-header"
-								variants={SETTINGS_FADE_VARIANTS}
+								variants={headerFadeVariants}
 								initial="center"
 								animate="center"
 								exit="exit"
@@ -657,7 +678,7 @@ export const MobileSettingsView: React.FC<MobileSettingsViewProps> = observer(
 						{showMobileContent && currentTab && (
 							<motion.div
 								key={`mobile-content-header-${mobileNav.currentView?.tab}`}
-								variants={SETTINGS_FADE_VARIANTS}
+								variants={headerFadeVariants}
 								initial="enter"
 								animate="center"
 								exit="exit"
@@ -688,7 +709,7 @@ export const MobileSettingsView: React.FC<MobileSettingsViewProps> = observer(
 							<motion.div
 								key="mobile-list-content"
 								custom={mobileNav.direction}
-								variants={SETTINGS_FADE_VARIANTS}
+								variants={contentFadeVariants}
 								initial="center"
 								animate="center"
 								exit="exit"
@@ -709,7 +730,7 @@ export const MobileSettingsView: React.FC<MobileSettingsViewProps> = observer(
 							<motion.div
 								key={`mobile-content-${mobileNav.currentView?.tab}`}
 								custom={mobileNav.direction}
-								variants={SETTINGS_FADE_VARIANTS}
+								variants={contentFadeVariants}
 								initial="enter"
 								animate="center"
 								exit="exit"

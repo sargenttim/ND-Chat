@@ -1,4 +1,3 @@
-import {stripVersion as stripVersionPrefix} from './DocsSource.ts';
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {spawnSync} from 'node:child_process';
@@ -39,7 +38,7 @@ const MAIN_SPEC_EXEMPT = new Map<string, {file: string; anchor: string; reason: 
 		{
 			file: 'fluxer_api/src/api/openapi/OpenAPIController.ts',
 			anchor: "app.get('/openapi.json'",
-			reason: 'the handler serves the spec file itself and has no OpenAPI({...}) block',
+			reason: 'the handler serves the spec file itself and carries no OpenAPI({...}) block',
 		},
 	],
 	[
@@ -124,6 +123,14 @@ const OUT_OF_BAND_CREDENTIAL = new Map<string, OutOfBandRoute>([
 		},
 	],
 	[
+		'POST /webhooks/twilio/sms',
+		{
+			reason:
+				'a provider callback that is forwarded untouched to the internal event bus and answers 500 while that bus is unavailable',
+			documentedIn: null,
+		},
+	],
+	[
 		'POST /webhooks/livekit',
 		{
 			reason: 'a LiveKit-signed callback whose shipped target is the internal address http://api:8080/webhooks/livekit',
@@ -166,12 +173,9 @@ const OUT_OF_BAND_CREDENTIAL = new Map<string, OutOfBandRoute>([
 
 const HEALTH_AND_METRICS_PATHS = new Set(['/_health', '/_health/ready', '/_health/drain', '/_healthz', '/_metrics']);
 
-const LEGACY_REPORT_ROUTES = new Set(['POST /reports/message', 'POST /reports/user', 'POST /reports/guild']);
-
 interface ExemptionRule {
 	readonly name: string;
 	readonly justification: string;
-	readonly mayCoverNothing?: boolean;
 
 	readonly anchors: ReadonlyArray<{readonly file: string; readonly anchor: string}>;
 	readonly covers: (shape: string, routePath: string) => boolean;
@@ -220,15 +224,8 @@ const EXEMPTION_RULES: ReadonlyArray<ExemptionRule> = [
 		name: 'out-of-band credential',
 		justification:
 			'no ordinary client holds the credential. Each entry states its guard, and five are covered in prose',
-		anchors: [{file: 'fluxer_api/src/api/app/ControllerRegistry.ts', anchor: 'InternalRpcController(routes);'}],
+		anchors: [{file: 'fluxer_api/src/api/app/ControllerRegistry.ts', anchor: 'installSmsWebhookForwarder(routes'}],
 		covers: (shape) => OUT_OF_BAND_CREDENTIAL.has(shape),
-	},
-	{
-		name: 'legacy report routes',
-		justification:
-			'still served for clients released before report flows, which new callers must use instead. The generator drops them at OpenAPIGeneratorCatalog excluded.paths',
-		anchors: [{file: 'packages/openapi/src/generator/OpenAPIGeneratorCatalog.ts', anchor: "'/reports/message'"}],
-		covers: (shape) => LEGACY_REPORT_ROUTES.has(shape),
 	},
 ];
 
@@ -278,6 +275,16 @@ interface SpecOperation {
 interface EffectiveSpecSecurity {
 	readonly schemes: ReadonlySet<string>;
 	readonly allowsAnonymous: boolean;
+}
+
+function stripVersionPrefix(routePath: string): string {
+	if (routePath === '/v1') {
+		return '/';
+	}
+	if (routePath.startsWith('/v1/')) {
+		return routePath.slice(3);
+	}
+	return routePath;
 }
 
 function indexDocumentedRoutes(routes: ReadonlyArray<DocsRouteHeader>): Map<string, DocsRouteHeader> {
@@ -541,9 +548,9 @@ console.log('main API and admin API (from route registration)');
 		.filter(([shape]) => !registered.has(shape))
 		.map(([shape, route]) => `${shape}  (${route.file}) is documented but fluxer_api registers no such route`)
 		.sort();
-	const deadRules = EXEMPTION_RULES.filter(
-		(rule) => rule.mayCoverNothing !== true && (ruleCounts.get(rule.name) ?? 0) === 0,
-	).map((rule) => `the "${rule.name}" rule covers no registered route, so it is either stale or too narrow to matter`);
+	const deadRules = EXEMPTION_RULES.filter((rule) => (ruleCounts.get(rule.name) ?? 0) === 0).map(
+		(rule) => `the "${rule.name}" rule covers no registered route, so it is either stale or too narrow to matter`,
+	);
 	const staleEntries = [
 		...[...DELIBERATELY_UNDOCUMENTED.keys()].map((shape) => [shape, 'DELIBERATELY_UNDOCUMENTED'] as const),
 		...[...OUT_OF_BAND_CREDENTIAL.keys()].map((shape) => [shape, 'OUT_OF_BAND_CREDENTIAL'] as const),
@@ -672,10 +679,7 @@ console.log('gateway dispatch events');
 	await collect(gatewayDirectory);
 	const erlang = erlangSources.join('\n');
 
-	const eventsPage = [
-		await readFile(path.join(DOCS_ROOT, 'gateway/events.md'), 'utf8'),
-		await readFile(path.join(DOCS_ROOT, 'gateway/threads.md'), 'utf8'),
-	].join('\n');
+	const eventsPage = await readFile(path.join(DOCS_ROOT, 'gateway/events.md'), 'utf8');
 	const documentedEvents = new Set<string>();
 	for (const entry of eventsPage.matchAll(/^###\s+(?:<span[^>]*><\/span>)?([A-Z][A-Z0-9_]{3,})\s*$/gmu)) {
 		documentedEvents.add(entry[1]);
@@ -694,7 +698,7 @@ console.log('gateway dispatch events');
 	const fabricated = [...documentedEvents].filter((event) => !isReal(event)).sort();
 	const undocumented = [...apiEvents].filter((event) => !documentedEvents.has(event)).sort();
 	console.log(`  events in the GatewayDispatchEvent union: ${apiEvents.size.toString()}`);
-	console.log(`  events documented in gateway/events.md and gateway/threads.md: ${documentedEvents.size.toString()}`);
+	console.log(`  events documented in gateway/events.md: ${documentedEvents.size.toString()}`);
 	console.log('  a documented event counts as real if it is in the union, or appears in fluxer_gateway');
 	console.log('  as an uppercase binary or a lowercase atom');
 	failures += section('documented but not emitted by any service', fabricated);
@@ -899,112 +903,15 @@ console.log('registry codes with a producer');
 	failures += section('registry codes with no producer', withoutProducer);
 }
 
-console.log('admin audit actions');
-{
-	const registrySource = await readFile(path.join(REPO_ROOT, 'fluxer_api/src/api/admin/AdminAuditActions.ts'), 'utf8');
-	const registryBlock = registrySource.match(/export const AdminAuditReadActions = \{([\s\S]*?)\} as const;/u);
-	const readActions = new Set([...(registryBlock?.[1] ?? '').matchAll(/:\s*'([^']+)'/gu)].map((match) => match[1]));
-
-	const recorded = new Map<string, string>();
-	const scanAuditSources = async (directory: string, everyFile: boolean): Promise<void> => {
-		for (const entry of await readdir(directory, {withFileTypes: true})) {
-			if (entry.name === 'node_modules' || entry.name === 'tests') continue;
-			const resolved = path.join(directory, entry.name);
-			if (entry.isDirectory()) {
-				await scanAuditSources(resolved, everyFile);
-				continue;
-			}
-			if (!entry.name.endsWith('.ts') || entry.name.endsWith('.test.ts')) continue;
-			const source = await readFile(resolved, 'utf8');
-			if (!everyFile && !source.includes('createAuditLog(')) continue;
-			for (const assignment of source.matchAll(/\baction\s*[:=]\s*([^,;\n]*(?:\n\s*[?:][^,;\n]*)*)/gu)) {
-				const expression = assignment[1];
-				const value = expression.includes('?') ? expression.slice(expression.indexOf('?') + 1) : expression;
-				for (const literal of value.matchAll(/'([^']+)'/gu)) {
-					if (!recorded.has(literal[1])) recorded.set(literal[1], path.relative(REPO_ROOT, resolved));
-				}
-			}
-		}
-	};
-	await scanAuditSources(path.join(REPO_ROOT, 'fluxer_api/src/api/admin'), true);
-	await scanAuditSources(path.join(REPO_ROOT, 'fluxer_api/src/api/worker/tasks'), true);
-	await scanAuditSources(path.join(REPO_ROOT, 'fluxer_api/src'), false);
-	for (const action of readActions) {
-		if (!recorded.has(action)) recorded.set(action, 'fluxer_api/src/api/admin/AdminAuditActions.ts');
-	}
-
-	const indexPage = await readFile(path.join(DOCS_ROOT, 'admin-api/index.mdx'), 'utf8');
-	const actionTable = (heading: string): Set<string> => {
-		const start = indexPage.indexOf(`\n${heading}\n`);
-		if (start === -1) return new Set();
-		const rest = indexPage.slice(start + heading.length + 2);
-		const end = rest.search(/\n#{1,4} /u);
-		const values = new Set<string>();
-		for (const line of (end === -1 ? rest : rest.slice(0, end)).split('\n')) {
-			const cell = line
-				.match(/^\|\s*([^|]+?)\s*\|/u)?.[1]
-				?.replace(/<sup>.*?<\/sup>/gu, '')
-				.trim();
-			if (cell == null || cell === 'Value' || /^-+$/u.test(cell)) continue;
-			values.add(cell);
-		}
-		return values;
-	};
-	const documentedRead = actionTable('#### Read actions');
-	const documentedWrite = actionTable('#### Write actions');
-	console.log(
-		`  actions recorded by fluxer_api: ${recorded.size.toString()}, of which read: ${readActions.size.toString()}`,
-	);
-	console.log(
-		`  actions documented in admin-api/index.mdx: read ${documentedRead.size.toString()}, write ${documentedWrite.size.toString()}`,
-	);
-	const emptyParses = [
-		...(readActions.size === 0 ? ['the read action registry in AdminAuditActions.ts parsed empty'] : []),
-		...(recorded.size <= readActions.size ? ['no write action was found in fluxer_api source'] : []),
-		...(documentedRead.size === 0 ? ['the Read actions table parsed empty'] : []),
-		...(documentedWrite.size === 0 ? ['the Write actions table parsed empty'] : []),
-	];
-	failures += section('audit action parses that came back empty (update this script)', emptyParses);
-	failures += section(
-		'recorded but undocumented',
-		[...recorded]
-			.filter(([action]) => !documentedRead.has(action) && !documentedWrite.has(action))
-			.map(([action, file]) => `${action}  (${file})`)
-			.sort(),
-	);
-	failures += section(
-		'documented but never recorded',
-		[...documentedRead, ...documentedWrite].filter((action) => !recorded.has(action)).sort(),
-	);
-	failures += section(
-		'documented under the wrong access',
-		[
-			...[...documentedRead].filter((action) => !readActions.has(action)).map((action) => `${action}: listed as read`),
-			...[...documentedWrite].filter((action) => readActions.has(action)).map((action) => `${action}: listed as write`),
-		].sort(),
-	);
-}
-
 console.log('permission bits');
 {
 	const constants = await readFile(path.join(REPO_ROOT, 'packages/constants/src/ChannelConstants.ts'), 'utf8');
 	const block = constants.match(/export const Permissions = \{([\s\S]*?)\} as const;/u);
 	const livePermissions = new Map<string, number>();
-	const threadConstants = await readFile(
-		path.join(REPO_ROOT, 'packages/constants/src/ThreadPermissionUtils.ts'),
-		'utf8',
-	);
-	const threadBlock = threadConstants.match(/export const ThreadPermissionFlags = \{([\s\S]*?)\} as const;/u);
-	for (const source of [block, threadBlock]) {
-		if (source == null) {
-			continue;
-		}
-		for (const entry of source[1].matchAll(/([A-Z][A-Z0-9_]*):\s*1n\s*<<\s*(\d+)n/gu)) {
+	if (block != null) {
+		for (const entry of block[1].matchAll(/([A-Z][A-Z0-9_]*):\s*1n\s*<<\s*(\d+)n/gu)) {
 			livePermissions.set(entry[1], Number.parseInt(entry[2], 10));
 		}
-	}
-	if (threadBlock == null) {
-		failures += section('ThreadPermissionFlags block not found in ThreadPermissionUtils.ts', ['parser drift']);
 	}
 	const page = (await readFile(path.join(DOCS_ROOT, 'http-api/permissions.mdx'), 'utf8'))
 		.replace(/&lt;/gu, '<')
@@ -1139,11 +1046,11 @@ console.log('media proxy image constants');
 	const ladderBlock = constants.match(/pub const IMAGE_SIZES: &\[u32\] = &\[([\s\S]*?)\];/u);
 	const ladder = ladderBlock == null ? [] : [...ladderBlock[1].matchAll(/\d+/gu)].map((m) => Number.parseInt(m[0], 10));
 	const defaultSize = constants.match(/pub const DEFAULT_IMAGE_SIZE: u32 = (\d+);/u);
-	const dimsBlock = constants.match(/pub fn dims_for\(kind: AssetKind\) -> Dims \{([\s\S]*?)\n\}/u);
+	const dimsBlock = constants.match(/pub fn dims_for\(kind: AssetKind\) -> Option<Dims> \{([\s\S]*?)\n\}/u);
 	const dims: Array<[string, number, number]> = [];
 	if (dimsBlock != null) {
 		for (const entry of dimsBlock[1].matchAll(
-			/((?:AssetKind::\w+\s*\|?\s*)+)=> Dims \{\s*min:\s*(\d+),\s*max:\s*(\d+),?\s*\}/gu,
+			/((?:AssetKind::\w+\s*\|?\s*)+)=> Some\(Dims \{\s*min:\s*(\d+),\s*max:\s*(\d+),?\s*\}\)/gu,
 		)) {
 			dims.push([entry[1].trim(), Number.parseInt(entry[2], 10), Number.parseInt(entry[3], 10)]);
 		}
@@ -1164,10 +1071,6 @@ console.log('media proxy image constants');
 		if (listed.join(',') !== ladder.join(',')) {
 			problems.push(`size ladder differs. documented [${listed.join(', ')}] vs IMAGE_SIZES [${ladder.join(', ')}]`);
 		}
-	}
-
-	if (dims.length === 0) {
-		problems.push('no asset class clamps parsed from dims_for in fluxer_media_proxy/src/constants.rs');
 	}
 
 	if (defaultSize != null && !ladderPage.includes(`resolves to ${defaultSize[1]} before clamping`)) {
@@ -1259,7 +1162,7 @@ console.log('self-hosting guide against deploy/self-hosting');
 		for (const row of shellRows(fn, 'KEYS', label)) {
 			const parsed = row.match(/^([A-Z][A-Z0-9_]*) ([a-z0-9_]+)(?: .*)?$/u);
 			if (parsed == null) {
-				problems.push(`${label} has the row \`${row}\`, which is not "NAME kind"`);
+				problems.push(`${label} carries the row \`${row}\`, which is not "NAME kind"`);
 				continue;
 			}
 			keys.set(parsed[1], parsed[2]);
@@ -1272,7 +1175,7 @@ console.log('self-hosting guide against deploy/self-hosting');
 		for (const row of powershellRows(variable, label)) {
 			const parsed = row.match(/^\s*@\{Name = '([A-Z][A-Z0-9_]*)'; Kind = '([a-z0-9_]+)'/u);
 			if (parsed == null) {
-				problems.push(`${label} has the row \`${row.trim()}\`, which is not an @{Name; Kind} entry`);
+				problems.push(`${label} carries the row \`${row.trim()}\`, which is not an @{Name; Kind} entry`);
 				continue;
 			}
 			keys.set(parsed[1], parsed[2]);
@@ -1396,7 +1299,7 @@ console.log('self-hosting guide against deploy/self-hosting');
 	for (const row of powershellRows('FluxerStackFiles', 'the install.ps1 download list')) {
 		const parsed = row.match(/^\s*'([^']+)'\s*$/u);
 		if (parsed == null) {
-			problems.push(`the install.ps1 download list has \`${row.trim()}\`, which is not a quoted file name`);
+			problems.push(`the install.ps1 download list carries \`${row.trim()}\`, which is not a quoted file name`);
 			continue;
 		}
 		powershellStackFiles.push(parsed[1]);
@@ -1419,7 +1322,7 @@ console.log('self-hosting guide against deploy/self-hosting');
 	for (const row of powershellRows('FluxerComposeNames', 'the install.ps1 compose name list')) {
 		const parsed = row.match(/^\s*'([^']+)'\s*$/u);
 		if (parsed == null) {
-			problems.push(`the install.ps1 compose name list has \`${row.trim()}\`, which is not a quoted file name`);
+			problems.push(`the install.ps1 compose name list carries \`${row.trim()}\`, which is not a quoted file name`);
 			continue;
 		}
 		powershellComposeNames.push(parsed[1]);
@@ -1496,7 +1399,7 @@ console.log('self-hosting guide against deploy/self-hosting');
 	for (const [where, text] of digestBearing) {
 		if (/\b[0-9a-f]{64}\b/u.test(text)) {
 			problems.push(
-				`${where} contains a literal 64-character hex digest, which goes stale the next time a script changes`,
+				`${where} carries a literal 64-character hex digest, which goes stale the next time a script changes`,
 			);
 		}
 	}
@@ -1626,7 +1529,7 @@ console.log('self-hosting guide against deploy/self-hosting');
 		}
 	}
 
-	const ENV_VALUE_FLOOR = 16;
+	const ENV_VALUE_FLOOR = 17;
 	const ENV_VALUE_UNSET = 'unset';
 	let inEnvValueTable = false;
 	let envEntry: string | null = null;
@@ -1863,7 +1766,6 @@ console.log('error registry');
 			`errors.md documents ${documentedRegistryCodes.toString()} of the ${registryCodes.size.toString()} registry codes, floor is every one of them`,
 		);
 	}
-
 	console.log(`  registry codes: ${registryCodes.size.toString()}, documented: ${documentedRegistryCodes.toString()}`);
 	failures += section('error registry disagreements', problems);
 }
@@ -2071,8 +1973,8 @@ console.log('bot capability flag (from the middleware chain)');
 		if (documented == null) {
 			continue;
 		}
-		const anyLogin = route.hasLoginRequired;
-		const sourceAcceptsBot = (anyLogin || route.hasBotOnly) && !route.hasDefaultUserOnly;
+		const anyLogin = route.hasLoginRequired || route.hasLoginRequiredAllowSuspicious;
+		const sourceAcceptsBot = anyLogin && !route.hasDefaultUserOnly;
 		const exemption = BOT_EXEMPT.get(key);
 		if (exemption != null) {
 			if (documented.bot !== exemption.docs) {
@@ -2131,7 +2033,7 @@ console.log('unauthenticated capability flag (from the middleware chain)');
 		if (documented == null) {
 			continue;
 		}
-		const anyLogin = route.hasLoginRequired;
+		const anyLogin = route.hasLoginRequired || route.hasLoginRequiredAllowSuspicious;
 		const sourceIsOpen = !anyLogin && !route.middlewares.some((name) => /OAuth2Scope/u.test(name));
 		const exemption = UNAUTHENTICATED_EXEMPT.get(key);
 		if (exemption != null) {
@@ -2187,12 +2089,11 @@ console.log('spec security field against the middleware chain');
 		}
 		const declaredSchemes = declaredSecurity.schemes;
 		compared += 1;
-		const anyLogin = route.hasLoginRequired;
-		const acceptsBot = (anyLogin || route.hasBotOnly) && !route.hasDefaultUserOnly;
+		const anyLogin = route.hasLoginRequired || route.hasLoginRequiredAllowSuspicious;
+		const acceptsBot = anyLogin && !route.hasDefaultUserOnly;
 		const requiresAuthentication =
 			anyLogin ||
 			route.hasDefaultUserOnly ||
-			route.hasBotOnly ||
 			route.oauth2BearerTokenRequired ||
 			route.middlewares.includes('requireOAuth2Scope');
 		if (requiresAuthentication && declaredSecurity.allowsAnonymous) {
@@ -2211,15 +2112,7 @@ console.log('spec security field against the middleware chain');
 		if (!declaredSchemes.has('botToken') && acceptsBot && declaredSchemes.size > 0) {
 			specBugs.push(`${key} omits botToken, but the middleware chain admits a bot token`);
 		}
-		if (route.hasBotOnly && [...declaredSchemes].some((scheme) => scheme !== 'botToken')) {
-			specBugs.push(`${key} declares [${[...declaredSchemes].join(', ')}], but BotOnly admits only a bot token`);
-		}
-		if (
-			declaredSchemes.size > 0 &&
-			!anyLogin &&
-			!route.hasBotOnly &&
-			!route.middlewares.some((name) => /Admin|OAuth2Scope/iu.test(name))
-		) {
+		if (declaredSchemes.size > 0 && !anyLogin && !route.middlewares.some((name) => /Admin|OAuth2Scope/iu.test(name))) {
 			specBugs.push(`${key} declares [${[...declaredSchemes].join(', ')}], but the chain has no login policy`);
 		}
 	}
@@ -2239,10 +2132,7 @@ const adminTargetOnly = [...documentedAdmin.entries()]
 	.map(([, route]) => `${route.method} ${route.path}  (${route.file})`)
 	.sort();
 const adminLiveOnly = admin
-	.filter((operation) => {
-		const shape = routeShape(operation.method, operation.path);
-		return !documentedAdmin.has(shape);
-	})
+	.filter((operation) => !documentedAdmin.has(routeShape(operation.method, operation.path)))
 	.map((operation) => `${operation.method} ${operation.path}`)
 	.sort();
 console.log(`  live admin operations: ${admin.length.toString()}`);
@@ -2316,7 +2206,6 @@ async function verifyInstallerExecution(installerRoot: string): Promise<Array<st
 				env: {
 					...process.env,
 					PATH: `${stubBin}${path.delimiter}${process.env.PATH ?? ''}`,
-					FLUXER_INSTALLER_REFRESHED: '1',
 					...(cwd == null ? {} : {PWD: cwd}),
 				},
 			});
@@ -2375,14 +2264,6 @@ async function verifyInstallerExecution(installerRoot: string): Promise<Array<st
 			if (resolved != null && resolved !== expected) {
 				problems.push(`install.sh ${label} plans ref ${resolved}, and the image tag it pairs with wants ${expected}`);
 			}
-		}
-
-		const withoutEmail = INSTALL_ARGS.filter(
-			(arg, index) => arg !== '--email' && INSTALL_ARGS[index - 1] !== '--email',
-		);
-		const withoutEmailPlan = planned('without --email', withoutEmail);
-		if (withoutEmailPlan != null && !/^ {2}email\s+admin@x\.example, derived by compose$/mu.test(withoutEmailPlan)) {
-			problems.push('install.sh without --email does not plan the admin@FLUXER_DOMAIN contact that compose derives');
 		}
 
 		const composeYmlInstance = path.join(sandbox, 'compose-yml-instance');

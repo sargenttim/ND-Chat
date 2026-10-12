@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {MAX_GROUP_DM_OTHER_RECIPIENTS, MAX_GUILDS_PREMIUM} from '@fluxer/constants/src/LimitConstants';
+import {AVATAR_MAX_SIZE, MAX_GROUP_DM_OTHER_RECIPIENTS, MAX_GUILDS_PREMIUM} from '@fluxer/constants/src/LimitConstants';
 import {StatusTypes} from '@fluxer/constants/src/StatusConstants';
 import {
 	DEFAULT_GUILD_FOLDER_ICON,
@@ -23,7 +23,7 @@ import {
 	SYNCED_PREFERENCES_MAX_ENCODED_LENGTH,
 } from '@fluxer/schema/src/domains/user/SyncedPreferencesCodec';
 import {isValidSingleUnicodeEmoji} from '@fluxer/schema/src/primitives/EmojiValidators';
-import {createBase64ImageType} from '@fluxer/schema/src/primitives/FileValidators';
+import {base64LengthForBytes, createBase64StringType} from '@fluxer/schema/src/primitives/FileValidators';
 import {LocaleSchema} from '@fluxer/schema/src/primitives/LocaleSchema';
 import {createQueryIntegerType, DateTimeType, QueryBooleanType} from '@fluxer/schema/src/primitives/QueryValidators';
 import {
@@ -31,7 +31,6 @@ import {
 	createBitflagInt32Type,
 	createNamedStringLiteralUnion,
 	createStringType,
-	Int32Type,
 	SnowflakeStringType,
 	SnowflakeType,
 	withFieldDescription,
@@ -67,8 +66,12 @@ export const UserUpdateRequest = z
 		email: EmailType.describe('The email address for the account'),
 		new_password: PasswordType.describe('The new password to set'),
 		password: PasswordType.describe('The current password for verification'),
-		avatar: createBase64ImageType().nullish().describe('Base64-encoded avatar image'),
-		banner: createBase64ImageType().nullish().describe('Base64-encoded profile banner image'),
+		avatar: createBase64StringType(1, base64LengthForBytes(AVATAR_MAX_SIZE))
+			.nullish()
+			.describe('Base64-encoded avatar image'),
+		banner: createBase64StringType(1, base64LengthForBytes(AVATAR_MAX_SIZE))
+			.nullish()
+			.describe('Base64-encoded profile banner image'),
 		bio: createStringType(1, 320).nullish().describe('User biography text (max 320 characters)'),
 		pronouns: createStringType(1, 40).nullish().describe('User pronouns (max 40 characters)'),
 		accent_color: ColorType.nullish().describe('Profile accent color as integer'),
@@ -177,14 +180,6 @@ export const PasswordChangeCompleteRequest = PasswordChangeTicketRequest.extend(
 });
 
 export type PasswordChangeCompleteRequest = z.infer<typeof PasswordChangeCompleteRequest>;
-
-export const UserPasswordUpdateRequest = z
-	.object({
-		new_password: PasswordType.describe('The new password to set'),
-	})
-	.extend(SudoVerificationSchema.shape);
-
-export type UserPasswordUpdateRequest = z.infer<typeof UserPasswordUpdateRequest>;
 
 export const FriendRequestByTagRequest = z.object({
 	username: UsernameType.describe('Username of the user to send friend request'),
@@ -390,14 +385,6 @@ export const UserSettingsUpdateRequest = z
 		default_share_voice_activity: z
 			.boolean()
 			.describe('Default share_voice_activity applied to new friend relationships'),
-		privacy_setup_version: z
-			.number()
-			.int()
-			.min(1)
-			.max(1000)
-			.describe(
-				'Version of the privacy setup the user just reviewed. The server also records privacy_setup_completed_at as the current time.',
-			),
 		synced_preferences: z
 			.string()
 			.max(SYNCED_PREFERENCES_MAX_ENCODED_LENGTH)
@@ -419,16 +406,6 @@ const MuteConfigSchema = z
 		selected_time_window: z.number().int().describe('Selected mute duration'),
 	})
 	.nullish();
-export const ThreadMemberSettingsRequest = z.object({
-	flags: Int32Type.optional().describe(
-		'Thread member notification flags (ALL_MESSAGES 1<<1, ONLY_MENTIONS 1<<2, NO_MESSAGES 1<<3)',
-	),
-	muted: z.boolean().optional().describe('Whether the thread is muted'),
-	mute_config: MuteConfigSchema.describe('Thread mute configuration'),
-});
-
-export type ThreadMemberSettingsRequest = z.infer<typeof ThreadMemberSettingsRequest>;
-
 const ChannelOverrideSchema = z.object({
 	collapsed: z.boolean().describe('Channel category collapsed'),
 	message_notifications: withFieldDescription(UserNotificationSettingsSchema, 'Channel notification level'),
@@ -437,9 +414,6 @@ const ChannelOverrideSchema = z.object({
 	unread_badges: withFieldDescription(UserNotificationSettingsSchema, 'Unread badges level override for this channel')
 		.nullish()
 		.describe('Unread badges level override for this channel (null = inherit)'),
-	flags: Int32Type.optional().describe(
-		'Channel override flags (NEW_FORUM_THREADS_OFF 1<<13, NEW_FORUM_THREADS_ON 1<<14)',
-	),
 });
 export const UserGuildSettingsUpdateRequest = z
 	.object({

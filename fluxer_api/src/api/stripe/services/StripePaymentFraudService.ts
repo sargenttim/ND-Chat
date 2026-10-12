@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
-import {revokeAllAuthSessions} from '@app/api/auth/AuthSessionRevocation';
+import type {ISessionTerminator} from '@app/api/auth/ISessionTerminator';
 import type {UserID} from '@app/api/BrandedTypes';
 import {SYSTEM_USER_ID} from '@app/api/constants/Core';
-import type {DonationRepository} from '@app/api/donation/DonationRepository';
+import type {IDonationRepository} from '@app/api/donation/IDonationRepository';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import type {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAccountDeletionQueueService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
@@ -12,11 +12,10 @@ import {Logger} from '@app/api/Logger';
 import {getBillingRepository} from '@app/api/middleware/ServiceRegistry';
 import type {User} from '@app/api/models/User';
 import type {OAuth2TokenRepository} from '@app/api/oauth/repositories/OAuth2TokenRepository';
-import {mirrorBestEffort} from '@app/api/stripe/StripeMirror';
-import {extractId, isMissingOrCancelledSubscriptionError} from '@app/api/stripe/StripeUtils';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import {extractId} from '@app/api/stripe/StripeUtils';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {reschedulePendingDeletion} from '@app/api/user/services/PendingDeletionCoordinator';
-import {dispatchUserUpdate} from '@app/api/user/UserMappers';
+import {mapUserToPrivateResponse} from '@app/api/user/UserMappers';
 import {DeletionReasons} from '@fluxer/constants/src/Core';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
 import {StripeError} from '@fluxer/errors/src/domains/payment/StripeError';
@@ -30,11 +29,12 @@ type RadarValueListItemType = RadarValueListCreateParams['item_type'];
 
 interface StripePaymentFraudServiceDeps {
 	stripe: Stripe | null;
-	userRepository: UserRepository;
+	userRepository: IUserRepository;
 	userCacheService: UserCacheService;
+	sessionTerminator: ISessionTerminator;
 	emailService: IEmailService;
 	gatewayService: IGatewayService;
-	donationRepository: DonationRepository;
+	donationRepository: IDonationRepository;
 	cacheService: ICacheService;
 	auditService: AdminAuditService;
 	kvDeletionQueue: KVAccountDeletionQueueService;
@@ -211,13 +211,14 @@ export class StripePaymentFraudService {
 					currentPendingDeletionAt: currentUser.pendingDeletionAt,
 					nextPendingDeletionAt: pendingDeletionAt,
 					deletionReasonCode: DeletionReasons.BILLING_DISPUTE_OR_ABUSE,
+					userRepository: this.deps.userRepository,
 					deletionQueue: this.deps.kvDeletionQueue,
 				});
-				await revokeAllAuthSessions({users: this.deps.userRepository, gateway: this.deps.gatewayService}, userId);
+				await this.deps.sessionTerminator.terminateAllUserSessions(userId);
 				await this.deps.oauth2Tokens.deleteAllAccessTokensForUser(userId);
 				await this.deps.oauth2Tokens.deleteAllRefreshTokensForUser(userId);
 				await this.deps.userCacheService.setUserPartialResponseFromUser(updatedUser);
-				await dispatchUserUpdate(this.deps.gatewayService, updatedUser);
+				await this.dispatchUser(updatedUser);
 				const metadata = new Map<string, string>([
 					['days', '60'],
 					['source', source],
@@ -365,14 +366,16 @@ export class StripePaymentFraudService {
 					},
 					{idempotencyKey: `payment-fraud-refund:${charge.id}`},
 				);
-				await mirrorBestEffort(
-					() =>
-						getBillingRepository().refunds.upsertFromStripe(refund, {
-							customerId: extractId(charge.customer) ?? undefined,
-						}),
-					{refundId: refund.id},
-					'Mirror upsert failed after Stripe write; reconciler will heal',
-				);
+				try {
+					await getBillingRepository().refunds.upsertFromStripe(refund, {
+						customerId: extractId(charge.customer) ?? undefined,
+					});
+				} catch (mirrorErr) {
+					Logger.error(
+						{mirrorErr, refundId: refund.id},
+						'Mirror upsert failed after Stripe write; reconciler will heal',
+					);
+				}
 				Logger.info({chargeId: charge.id, warningId}, 'Created fraudulent refund for Stripe early fraud warning');
 			} catch (error: unknown) {
 				const refreshedCharge = await this.retrieveCharge(charge.id);
@@ -397,11 +400,14 @@ export class StripePaymentFraudService {
 						user_report: 'fraudulent',
 					},
 				});
-				await mirrorBestEffort(
-					() => getBillingRepository().charges.upsertFromStripe(updatedCharge),
-					{chargeId: updatedCharge.id},
-					'Mirror upsert failed after Stripe write; reconciler will heal',
-				);
+				try {
+					await getBillingRepository().charges.upsertFromStripe(updatedCharge);
+				} catch (mirrorErr) {
+					Logger.error(
+						{mirrorErr, chargeId: updatedCharge.id},
+						'Mirror upsert failed after Stripe write; reconciler will heal',
+					);
+				}
 				Logger.info({chargeId}, 'Reported Stripe charge as fraudulent');
 			} catch (error: unknown) {
 				Logger.warn({chargeId, error}, 'Failed to mark Stripe charge as fraudulent; continuing');
@@ -549,7 +555,7 @@ export class StripePaymentFraudService {
 				{idempotencyKey: `payment-fraud-cancel:${user.stripeSubscriptionId}`},
 			);
 		} catch (error: unknown) {
-			if (!isMissingOrCancelledSubscriptionError(error)) {
+			if (!this.isMissingOrCancelledSubscriptionError(error)) {
 				Logger.error(
 					{error, subscriptionId: user.stripeSubscriptionId, userId: user.id},
 					'Failed to cancel Stripe subscription during payment fraud enforcement',
@@ -570,8 +576,22 @@ export class StripePaymentFraudService {
 			},
 			user.toRow(),
 		);
-		await dispatchUserUpdate(this.deps.gatewayService, updatedUser);
+		await this.dispatchUser(updatedUser);
 		return updatedUser;
+	}
+
+	private isMissingOrCancelledSubscriptionError(error: unknown): boolean {
+		if (!(error instanceof Error)) {
+			return false;
+		}
+		const normalisedMessage = error.message.toLowerCase();
+		return (
+			normalisedMessage.includes('no such subscription') ||
+			normalisedMessage.includes('cannot cancel a canceled subscription') ||
+			normalisedMessage.includes('cannot cancel a cancelled subscription') ||
+			normalisedMessage.includes('subscription is canceled') ||
+			normalisedMessage.includes('subscription is cancelled')
+		);
 	}
 
 	private getAuditReason({
@@ -605,6 +625,14 @@ export class StripePaymentFraudService {
 			throw new StripeError('Stripe client not available for payment fraud handling');
 		}
 		return this.deps.stripe;
+	}
+
+	private async dispatchUser(user: User): Promise<void> {
+		await this.deps.gatewayService.dispatchPresence({
+			userId: user.id,
+			event: 'USER_UPDATE',
+			data: mapUserToPrivateResponse(user),
+		});
 	}
 
 	private async runOnce(

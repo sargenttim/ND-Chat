@@ -21,8 +21,6 @@
 
 -define(MAX_PARTNERS, 1000).
 -define(PRUNE_SLACK, 64).
--define(VIEW_MEMO_KEY, dm_partner_view_memo).
--define(VIEW_MEMO_LIMIT, 4096).
 
 -spec handle_cast(term(), guild_state()) -> {noreply, guild_state()}.
 handle_cast({update_dm_partners, SessionId, PartnerIds}, State) when
@@ -59,8 +57,8 @@ visibility_inputs(State) ->
     Guild = map_utils:ensure_map(maps:get(<<"guild">>, Data, #{})),
     {
         maps:get(<<"owner_id">>, Guild, undefined),
-        role_inputs(guild_data_index_roles:role_index(Data)),
-        channel_inputs(guild_data_index_channels:channel_index(Data)),
+        role_inputs(guild_data_index:role_index(Data)),
+        channel_inputs(guild_data_index:channel_index(Data)),
         maps:get(virtual_channel_access, State, #{})
     }.
 
@@ -86,21 +84,21 @@ channel_inputs(Channels) ->
 -spec update(session_id(), [term()], guild_state()) -> guild_state().
 update(SessionId, PartnerIds, State) ->
     Registrations = registrations(State),
-    {Next, State1} =
+    Next =
         case session_owner(SessionId, State) of
             {ok, UserId, Pid} ->
                 update_owned(SessionId, UserId, Pid, PartnerIds, Registrations, State);
             error ->
-                {maps:remove(SessionId, Registrations), State}
+                maps:remove(SessionId, Registrations)
         end,
-    State1#{dm_partners => maybe_prune(Next, State1)}.
+    State#{dm_partners => maybe_prune(Next, State)}.
 
 -spec update_owned(session_id(), user_id(), pid(), [term()], registrations(), guild_state()) ->
-    {registrations(), guild_state()}.
+    registrations().
 update_owned(SessionId, UserId, Pid, PartnerIds, Registrations, State) ->
     case presence_targets:dm_partner_presence_enabled(UserId) of
         false ->
-            {maps:remove(SessionId, Registrations), State};
+            maps:remove(SessionId, Registrations);
         true ->
             Entry = #{
                 user_id => UserId,
@@ -110,16 +108,14 @@ update_owned(SessionId, UserId, Pid, PartnerIds, Registrations, State) ->
                     maps:get(SessionId, Registrations, undefined), Pid
                 )
             },
-            {Evaluated, State1} = evaluate(#{SessionId => Entry}, State),
-            {put_all(Evaluated, Registrations), State1}
+            put_all(evaluate(#{SessionId => Entry}, State), Registrations)
     end.
 
 -spec reevaluate(scope(), registrations(), guild_state()) -> guild_state().
 reevaluate(none, _Registrations, State) ->
     State;
 reevaluate(all, Registrations, State) ->
-    {Evaluated, State1} = evaluate(live_registrations(Registrations, State), State),
-    State1#{dm_partners => Evaluated};
+    State#{dm_partners => evaluate(live_registrations(Registrations, State), State)};
 reevaluate({user, UserId}, Registrations, State) ->
     Affected = maps:fold(
         fun(SessionId, Entry, Acc) ->
@@ -139,8 +135,7 @@ reevaluate({user, UserId}, Registrations, State) ->
             Kept = maps:without(
                 maps:keys(maps:without(maps:keys(Live), Affected)), Registrations
             ),
-            {Evaluated, State1} = evaluate(Live, State),
-            State1#{dm_partners => maybe_prune(put_all(Evaluated, Kept), State1)}
+            State#{dm_partners => maybe_prune(put_all(evaluate(Live, State), Kept), State)}
     end.
 
 -spec put_all(registrations(), registrations()) -> registrations().
@@ -161,43 +156,22 @@ maybe_prune(Registrations, State) ->
             Registrations
     end.
 
--spec evaluate(registrations(), guild_state()) -> {registrations(), guild_state()}.
-evaluate(Entries, State) when map_size(Entries) =:= 0 ->
-    {Entries, State};
+-spec evaluate(registrations(), guild_state()) -> registrations().
+evaluate(Entries, _State) when map_size(Entries) =:= 0 ->
+    Entries;
 evaluate(Entries, State) ->
     Requests = [
         {SessionId, UserId, maps:keys(Partners)}
      || {SessionId, #{user_id := UserId, partners := Partners}} <- maps:to_list(Entries)
     ],
-    {Memo0, Inputs} = view_memo(State),
-    {Results, Memo} = guild_subscription_mutual_channels:filter_session_member_ids(
-        Requests, Memo0, State
-    ),
+    Results = guild_subscription_mutual_channels:filter_session_member_ids(Requests, State),
     GuildId = maps:get(id, State),
-    Evaluated = maps:map(
+    maps:map(
         fun(SessionId, Entry) ->
             apply_result(GuildId, maps:get(SessionId, Results, []), Entry)
         end,
         Entries
-    ),
-    {Evaluated, store_view_memo(Inputs, Memo, State)}.
-
--spec view_memo(guild_state()) ->
-    {guild_subscription_mutual_channels:view_memo(), term()}.
-view_memo(State) ->
-    Inputs = visibility_inputs(State),
-    case maps:get(?VIEW_MEMO_KEY, State, undefined) of
-        #{inputs := Inputs, memo := Memo} when is_map(Memo) -> {Memo, Inputs};
-        _ -> {#{}, Inputs}
-    end.
-
--spec store_view_memo(term(), guild_subscription_mutual_channels:view_memo(), guild_state()) ->
-    guild_state().
-store_view_memo(Inputs, Memo, State) ->
-    case map_size(maps:get(views, Memo, #{})) > ?VIEW_MEMO_LIMIT of
-        true -> maps:remove(?VIEW_MEMO_KEY, State);
-        false -> State#{?VIEW_MEMO_KEY => #{inputs => Inputs, memo => Memo}}
-    end.
+    ).
 
 -spec apply_result(integer(), [user_id()], registration()) -> registration().
 apply_result(GuildId, EligibleIds, #{pid := Pid, eligible := Previous} = Entry) ->

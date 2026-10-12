@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import GatewayConnection from '@app/features/gateway/transport/GatewayConnection';
 import MemberSidebar from '@app/features/member/state/MemberSidebar';
 import {
 	areNormalizedMemberListRangesEqual,
@@ -151,11 +151,7 @@ export function useMemberListSubscription({
 		}
 
 		function gatewayAvailable(): boolean {
-			return (
-				GatewaySessions.foregroundConnection.isReady &&
-				GatewaySessions.foregroundConnection.isConnected &&
-				GatewaySessions.foregroundConnection.sessionId != null
-			);
+			return GatewayConnection.isReady && GatewayConnection.isConnected && GatewayConnection.sessionId != null;
 		}
 
 		function ownsSubscription(): boolean {
@@ -308,7 +304,7 @@ export function useMemberListSubscription({
 			() => scheduleReconciliation(),
 		);
 		const disposeGatewayAvailabilityReaction = reaction(
-			() => GatewaySessions.foregroundConnection.isReady && GatewaySessions.foregroundConnection.isConnected,
+			() => GatewayConnection.isReady && GatewayConnection.isConnected,
 			(isAvailable) => {
 				if (!isAvailable) {
 					clearRetryTimer();

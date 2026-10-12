@@ -44,4 +44,8 @@ export const AdminRateLimitConfigs = {
 		bucket: 'admin:jobs:view',
 		config: {limit: 600, windowMs: ms('1 minute')},
 	} as RouteRateLimitConfig,
+	ADMIN_GENERAL: {
+		bucket: 'admin:general',
+		config: {limit: 200, windowMs: ms('1 minute')},
+	} as RouteRateLimitConfig,
 } as const;

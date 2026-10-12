@@ -7,6 +7,18 @@
 	min-width: 0;
 }
 
+.inline {
+	gap: 0.5rem;
+	padding: 0.375rem 0.5rem;
+	border-radius: 0.375rem;
+	background-color: var(--background-secondary);
+	border: 0.0625rem solid var(--background-modifier-accent);
+	box-sizing: border-box;
+	width: fit-content;
+	max-width: 100%;
+	align-self: flex-start;
+}
+
 .textContainer {
 	display: flex;
 	flex-direction: column;
@@ -29,12 +41,25 @@
 	margin-right: -0.25rem;
 }
 
+.inline .channelIcon {
+	width: 0.875rem;
+	height: 0.875rem;
+}
+
 .nameButton {
 	background: none;
 	border: none;
 	padding: 0;
 	margin: 0;
 	text-align: left;
+	cursor: pointer;
+	min-width: 0;
+}
+
+.nameLink {
+	display: inline-flex;
+	align-items: center;
+	text-decoration: none;
 	cursor: pointer;
 	min-width: 0;
 }
@@ -48,7 +73,13 @@
 	color: var(--text-primary);
 }
 
-.nameButton:hover .nameText {
+.inline .nameText {
+	font-size: 0.85rem;
+	font-weight: 600;
+}
+
+.nameButton:hover .nameText,
+.nameLink:hover .nameText {
 	text-decoration: underline;
 }
 
@@ -58,6 +89,11 @@
 	white-space: nowrap;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+
+.inline .subtext {
+	font-size: 0.7rem;
+	line-height: 0.95rem;
 }
 
 .subtextMuted {

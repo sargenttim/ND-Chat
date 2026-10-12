@@ -198,6 +198,28 @@ describe('instance config billing on a self-hosted instance', () => {
 		}
 	});
 
+	it('clears the premium name and info URL when both are sent as null', async () => {
+		const admin = await createAdmin(context.harness);
+		await patchConfig(context.harness, admin, {
+			app_public: {branding: {premium_product_name: 'Gold', premium_info_url: 'https://example.com/gold'}},
+		}).execute();
+		const reset = await patchConfig(context.harness, admin, {
+			app_public: {branding: {premium_product_name: null, premium_info_url: null}},
+		}).execute();
+		expect(reset.app_public.branding).toMatchObject({premium_product_name: 'Premium', premium_info_url: null});
+		await patchConfig(context.harness, admin, {
+			app_public: {branding: {premium_product_name: 'Gold', premium_info_url: 'https://example.com/gold'}},
+		}).execute();
+		const resetWithBilling = await patchConfig(context.harness, admin, {
+			app_public: {branding: {premium_product_name: null, premium_info_url: null}},
+			billing: {enabled: false},
+		}).execute();
+		expect(resetWithBilling.app_public.branding).toMatchObject({
+			premium_product_name: 'Premium',
+			premium_info_url: null,
+		});
+	});
+
 	it('applies billing sections that only hold nulls', async () => {
 		const admin = await createAdmin(context.harness);
 		await patchConfig(context.harness, admin, {billing: OPERATOR_BILLING, policy: {premium_mode: 'mirror'}}).execute();
@@ -333,16 +355,11 @@ describe('instance config billing on a hosted instance', () => {
 		expect(getStoredBillingConfig()?.prices ?? null).toBeNull();
 	});
 
-	it('rejects a theme colour that is not hex', async () => {
+	it('still accepts other branding fields', async () => {
 		const admin = await createAdmin(context.harness);
-		for (const theme_color of ['rgb(123, 44, 228)', 'rebeccapurple', '#12345']) {
-			await patchConfig(context.harness, admin, {app_public: {branding: {theme_color}}})
-				.expect(HTTP_STATUS.BAD_REQUEST, APIErrorCodes.INVALID_FORM_BODY)
-				.execute();
-		}
-		const cleared = await patchConfig(context.harness, admin, {
-			app_public: {branding: {theme_color: null}},
+		const updated = await patchConfig(context.harness, admin, {
+			app_public: {branding: {theme_color: '#123456'}},
 		}).execute();
-		expect(cleared.app_public.branding.theme_color).toBeNull();
+		expect(updated.app_public.branding.theme_color).toBe('#123456');
 	});
 });

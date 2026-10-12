@@ -8,7 +8,7 @@
 -export([new_state/0]).
 
 -ifdef(TEST).
--export([parse_forwarded_for/1]).
+-export([parse_forwarded_for/1, parse_version/1]).
 -endif.
 
 -type state() :: #{
@@ -26,7 +26,7 @@
     request_workers := map(),
     voice_queue_timer := reference() | undefined,
     pending_identify := {map(), pid()} | undefined,
-    pending_identify_retry_timer := {reference(), reference()} | undefined,
+    pending_identify_retry_timer := {reference(), reference()} | reference() | undefined,
     connection_acquired => boolean()
 }.
 
@@ -107,6 +107,8 @@ websocket_handle(_, State) ->
 -spec websocket_info(term(), state()) -> ws_result().
 websocket_info({heartbeat_check, Token}, State) when is_reference(Token) ->
     gateway_handler_heartbeat:handle_heartbeat_check(Token, State);
+websocket_info({heartbeat_check}, State) ->
+    gateway_handler_heartbeat:handle_legacy_heartbeat_check(State);
 websocket_info({dispatch, Event, Data, Seq}, State) when
     is_integer(Seq), is_atom(Event), is_map(Data);
     is_integer(Seq), is_binary(Event), is_map(Data);
@@ -123,12 +125,12 @@ websocket_info({dispatch, Event, {pre_encoded, Bin} = Data, Seq}, State) when
     is_integer(Seq), is_binary(Event), is_binary(Bin)
 ->
     gateway_handler_dispatch:handle_dispatch(Event, Data, Seq, State);
-websocket_info({gateway_error, ErrorAtom}, State) when is_atom(ErrorAtom) ->
-    gateway_handler_dispatch:handle_gateway_error(ErrorAtom, State);
 websocket_info(rollout_config_changed, State) ->
     gateway_handler_identify:handle_rollout_config_changed(State);
 websocket_info({retry_pending_identify, Token}, State) when is_reference(Token) ->
     gateway_handler_identify:handle_pending_identify_retry(Token, State);
+websocket_info(retry_pending_identify, State) ->
+    gateway_handler_identify:handle_pending_identify_retry(State);
 websocket_info(session_reconnect, State) ->
     gateway_handler_dispatch:handle_session_reconnect(State);
 websocket_info({'DOWN', _, process, Pid, _}, #{session_pid := Pid} = State) ->
@@ -139,8 +141,6 @@ websocket_info({'DOWN', Ref, process, Pid, Reason}, State) when
     gateway_handler_dispatch:handle_request_worker_down(Ref, Pid, Reason, State);
 websocket_info({gateway_request_worker_timeout, Ref, Type}, State) when is_reference(Ref) ->
     gateway_handler_dispatch:handle_request_worker_timeout(Ref, Type, State);
-websocket_info(forum_unreads_unknown_opcode, State) ->
-    gateway_handler_encode:close_with_reason(unknown_opcode, <<"Unknown opcode">>, State);
 websocket_info({process_voice_queue}, State) ->
     QueueState = State#{voice_queue_timer => undefined},
     NewState = gateway_handler_voice:process_queued_voice_updates(QueueState),
@@ -261,15 +261,11 @@ handle_incoming_data(Data, #{encoding := Encoding, compress_ctx := CompressCtx0}
     ws_result().
 handle_decompressed_incoming_data(Data, Encoding, CompressCtx, State) ->
     MaxPayloadSize = constants:max_payload_size(),
-    case gateway_compress:decompress(Data, CompressCtx, MaxPayloadSize) of
+    case gateway_compress:decompress(Data, CompressCtx) of
         {ok, Decompressed, NewCompressCtx} when byte_size(Decompressed) =< MaxPayloadSize ->
             Decoded = gateway_codec:decode(Decompressed, Encoding),
             handle_decode(Decoded, State#{compress_ctx => NewCompressCtx});
         {ok, _Decompressed, _NewCompressCtx} ->
-            gateway_handler_encode:close_with_reason(
-                decode_error, <<"Payload too large">>, State
-            );
-        {error, decompression_too_large} ->
             gateway_handler_encode:close_with_reason(
                 decode_error, <<"Payload too large">>, State
             );

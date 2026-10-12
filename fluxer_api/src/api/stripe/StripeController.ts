@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {Config} from '@app/api/Config';
 import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
-import {HostedOnlyRoute, routeAvailableWhen} from '@app/api/middleware/BillingRouteAvailability';
 import {CaptchaMiddleware} from '@app/api/middleware/CaptchaMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
 import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
@@ -13,7 +13,7 @@ import {
 	isStripeServiceable,
 } from '@app/api/stripe/BillingConfigCache';
 import {mapGiftCodeToMetadataResponse, mapGiftCodeToResponse} from '@app/api/stripe/StripeModel';
-import type {HonoApp} from '@app/api/types/HonoEnv';
+import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
 import {lookupGeoip} from '@app/api/utils/IpUtils';
 import {Validator} from '@app/api/Validator';
 import {AppNotFoundHandler} from '@fluxer/errors/src/domains/core/ErrorHandlers';
@@ -29,6 +29,8 @@ import {
 import {
 	ChangeSubscriptionRequest,
 	CurrentSubscriptionPriceResponse,
+	LocalizedCardPreapprovalContinueRequest,
+	LocalizedCardPreapprovalContinueResponse,
 	PriceIdsQueryRequest,
 	PriceIdsResponse,
 	SelfServeRefundEligibilityResponse,
@@ -37,10 +39,20 @@ import {
 	UrlResponse,
 	WebhookReceivedResponse,
 } from '@fluxer/schema/src/domains/premium/PremiumSchemas';
+import {createMiddleware} from 'hono/factory';
 
 async function getPurchaseGeoipCountryCode(request: Request): Promise<string | null> {
 	const geoip = await lookupGeoip(request);
 	return geoip.countryCode ?? null;
+}
+
+function routeAvailableWhen(isAvailable: () => boolean) {
+	return createMiddleware<HonoEnv>(async (ctx, next) => {
+		if (Config.instance.selfHosted && !isAvailable()) {
+			return AppNotFoundHandler(ctx);
+		}
+		return next();
+	});
 }
 
 function isStripeWebhookAvailable(): boolean {
@@ -48,6 +60,7 @@ function isStripeWebhookAvailable(): boolean {
 	return billing.webhookSecret !== null && isStripeServiceable(billing);
 }
 
+const HostedOnlyRoute = routeAvailableWhen(() => false);
 const GiftRouteAvailable = routeAvailableWhen(isPremiumTieringActive);
 const BillingRouteAvailable = routeAvailableWhen(() => isBillingActive());
 const StripeServicingRouteAvailable = routeAvailableWhen(() => isStripeServiceable());
@@ -128,6 +141,60 @@ export function StripeController(app: HonoApp) {
 		},
 	);
 	app.post(
+		'/stripe/checkout/subscription/preapproval',
+		BillingRouteAvailable,
+		RateLimitMiddleware(RateLimitConfigs.STRIPE_CHECKOUT_SUBSCRIPTION_PREAPPROVAL),
+		LoginRequired,
+		DefaultUserOnly,
+		OpenAPI({
+			operationId: 'create_localized_card_preapproval_session',
+			summary: 'Create localized card preapproval session',
+			description:
+				'Initiates a Stripe Checkout setup-mode session to preapprove a local card before continuing to paid localized checkout.',
+			responseSchema: UrlResponse,
+			statusCode: 200,
+			security: ['bearerToken', 'sessionToken'],
+			tags: 'Billing',
+		}),
+		Validator('json', CreateCheckoutSessionRequest),
+		async (ctx) => {
+			const {price_id, country_code, client_geoip_country_code, eu_withdrawal_waiver_accepted, is_business} =
+				ctx.req.valid('json');
+			const userId = ctx.get('user').id;
+			const checkoutUrl = await ctx.get('stripeService').createLocalizedCardPreapprovalSession({
+				userId,
+				priceId: price_id,
+				countryCode: country_code,
+				clientGeoipCountryCode: client_geoip_country_code,
+				purchaseGeoipCountryCode: await getPurchaseGeoipCountryCode(ctx.req.raw),
+				euWithdrawalWaiverAccepted: eu_withdrawal_waiver_accepted,
+				isBusiness: is_business,
+			});
+			return ctx.json({url: checkoutUrl});
+		},
+	);
+	app.post(
+		'/stripe/checkout/subscription/preapproval/continue',
+		BillingRouteAvailable,
+		RateLimitMiddleware(RateLimitConfigs.STRIPE_CHECKOUT_SUBSCRIPTION_PREAPPROVAL_CONTINUE),
+		OpenAPI({
+			operationId: 'continue_localized_card_preapproval_session',
+			summary: 'Continue localized card preapproval session',
+			description:
+				'Checks the status of a localized card preapproval flow and returns the paid Stripe Checkout URL when it is ready.',
+			responseSchema: LocalizedCardPreapprovalContinueResponse,
+			statusCode: 200,
+			security: [],
+			tags: 'Billing',
+		}),
+		Validator('json', LocalizedCardPreapprovalContinueRequest),
+		async (ctx) => {
+			const {token} = ctx.req.valid('json');
+			const result = await ctx.get('stripeService').continueLocalizedCardPreapproval(token);
+			return ctx.json(result);
+		},
+	);
+	app.post(
 		'/stripe/checkout/gift',
 		BillingRouteAvailable,
 		RateLimitMiddleware(RateLimitConfigs.STRIPE_CHECKOUT_GIFT),
@@ -176,7 +243,7 @@ export function StripeController(app: HonoApp) {
 		Validator('param', GiftCodeParam),
 		async (ctx) => {
 			const {code} = ctx.req.valid('param');
-			const giftCode = await ctx.get('stripeService').gifts.getGiftCode(code);
+			const giftCode = await ctx.get('stripeService').getGiftCode(code);
 			const response = await mapGiftCodeToResponse({
 				giftCode,
 				userCacheService: ctx.get('userCacheService'),
@@ -206,7 +273,7 @@ export function StripeController(app: HonoApp) {
 		async (ctx) => {
 			const {code} = ctx.req.valid('param');
 			const userId = ctx.get('user').id;
-			await ctx.get('stripeService').gifts.redeemGiftCode(userId, code);
+			await ctx.get('stripeService').redeemGiftCode(userId, code);
 			return ctx.body(null, 204);
 		},
 	);
@@ -227,7 +294,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			const gifts = await ctx.get('stripeService').gifts.getUserGifts(userId);
+			const gifts = await ctx.get('stripeService').getUserGifts(userId);
 			const responses = await Promise.all(
 				gifts.map((gift) =>
 					mapGiftCodeToMetadataResponse({
@@ -257,7 +324,7 @@ export function StripeController(app: HonoApp) {
 		async (ctx) => {
 			const {country_code} = ctx.req.valid('query');
 			const geoipCountryCode = await getPurchaseGeoipCountryCode(ctx.req.raw);
-			const priceIds = await ctx.get('stripeService').checkout.getPriceIds(geoipCountryCode ?? country_code);
+			const priceIds = await ctx.get('stripeService').getPriceIds(geoipCountryCode ?? country_code);
 			return ctx.json(priceIds);
 		},
 	);
@@ -279,7 +346,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			const price = await ctx.get('stripeService').subscriptions.getCurrentSubscriptionPrice(userId);
+			const price = await ctx.get('stripeService').getCurrentSubscriptionPrice(userId);
 			return ctx.json(price);
 		},
 	);
@@ -301,7 +368,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			const url = await ctx.get('stripeService').checkout.createCustomerPortalSession(userId);
+			const url = await ctx.get('stripeService').createCustomerPortalSession(userId);
 			return ctx.json({url});
 		},
 	);
@@ -323,7 +390,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			await ctx.get('stripeService').premium.endGracePeriod(userId);
+			await ctx.get('stripeService').endPremiumGracePeriod(userId);
 			return ctx.json({success: true as const});
 		},
 	);
@@ -371,7 +438,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			const eligibility = await ctx.get('stripeService').refunds.getEligibility(userId);
+			const eligibility = await ctx.get('stripeService').getSelfServeRefundEligibility(userId);
 			return ctx.json(eligibility);
 		},
 	);
@@ -393,7 +460,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			const result = await ctx.get('stripeService').refunds.refundLatestPurchase(userId);
+			const result = await ctx.get('stripeService').refundLatestPurchase(userId);
 			return ctx.json(result);
 		},
 	);
@@ -414,7 +481,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			await ctx.get('stripeService').subscriptions.cancelSubscriptionAtPeriodEnd(userId);
+			await ctx.get('stripeService').cancelSubscriptionAtPeriodEnd(userId);
 			return ctx.body(null, 204);
 		},
 	);
@@ -435,7 +502,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			await ctx.get('stripeService').subscriptions.reactivateSubscription(userId);
+			await ctx.get('stripeService').reactivateSubscription(userId);
 			return ctx.body(null, 204);
 		},
 	);
@@ -459,7 +526,7 @@ export function StripeController(app: HonoApp) {
 		async (ctx) => {
 			const userId = ctx.get('user').id;
 			const {billing_cycle, effective_at} = ctx.req.valid('json');
-			await ctx.get('stripeService').subscriptions.changeBillingCycle(userId, billing_cycle, effective_at);
+			await ctx.get('stripeService').changeSubscriptionBillingCycle(userId, billing_cycle, effective_at);
 			return ctx.body(null, 204);
 		},
 	);
@@ -481,7 +548,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			const result = await ctx.get('stripeService').subscriptions.switchToCurrentListPrice(userId);
+			const result = await ctx.get('stripeService').switchSubscriptionToCurrentListPrice(userId);
 			return ctx.json(result);
 		},
 	);
@@ -503,7 +570,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			await ctx.get('stripeService').subscriptions.cancelPendingSubscriptionChange(userId);
+			await ctx.get('stripeService').cancelPendingSubscriptionChange(userId);
 			return ctx.body(null, 204);
 		},
 	);
@@ -524,7 +591,7 @@ export function StripeController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const userId = ctx.get('user').id;
-			await ctx.get('stripeService').premium.rejoinVisionariesGuild(userId);
+			await ctx.get('stripeService').rejoinVisionariesGuild(userId);
 			return ctx.body(null, 204);
 		},
 	);

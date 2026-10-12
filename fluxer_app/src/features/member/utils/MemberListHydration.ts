@@ -8,6 +8,7 @@ import {
 	type MemberListGroupSnapshot,
 } from '@app/features/member/utils/MemberListLayout';
 import {
+	areNormalizedMemberListRangesCovered,
 	type MemberListRange,
 	type MemberListRanges,
 	type NormalizedMemberListRanges,
@@ -112,4 +113,19 @@ export function getHydratedMemberListRangesFromNormalized(
 		appendHydratedMemberListRange({target: hydratedRanges, input, layouts, totalRows, range});
 	}
 	return normalizeMemberListRanges(hydratedRanges);
+}
+
+export function getHydratedMemberListRanges(
+	input: MemberListHydrationInput,
+	ranges: MemberListRanges,
+): NormalizedMemberListRanges {
+	return getHydratedMemberListRangesFromNormalized(input, normalizeMemberListRanges(ranges));
+}
+
+export function isMemberListRangeHydrated(input: MemberListHydrationInput, ranges: MemberListRanges): boolean {
+	const normalizedRanges = normalizeMemberListRanges(ranges);
+	return areNormalizedMemberListRangesCovered(
+		normalizedRanges,
+		getHydratedMemberListRangesFromNormalized(input, normalizedRanges),
+	);
 }

@@ -26,6 +26,7 @@ import type {MfaBackupCode} from '@app/api/models/MfaBackupCode';
 import type {PasswordResetToken} from '@app/api/models/PasswordResetToken';
 import type {Payment} from '@app/api/models/Payment';
 import type {PushSubscription} from '@app/api/models/PushSubscription';
+import type {ReadState} from '@app/api/models/ReadState';
 import type {RecentMention} from '@app/api/models/RecentMention';
 import type {Relationship} from '@app/api/models/Relationship';
 import type {SavedMessage} from '@app/api/models/SavedMessage';
@@ -35,76 +36,55 @@ import type {UserNote} from '@app/api/models/UserNote';
 import type {UserSettings} from '@app/api/models/UserSettings';
 import type {VisionarySlot} from '@app/api/models/VisionarySlot';
 import type {WebAuthnCredential} from '@app/api/models/WebAuthnCredential';
-import {UserEmailOwnershipRepository} from '@app/api/user/repositories/account/crud/UserEmailOwnershipRepository';
-import {
-	UserAccountRepository,
-	type UserDeletionScheduleUpdate,
-} from '@app/api/user/repositories/account/UserAccountRepository';
-
-import {UserGuildRepository} from '@app/api/user/repositories/account/UserGuildRepository';
-import {UserLookupRepository} from '@app/api/user/repositories/account/UserLookupRepository';
-import {AuthSessionRepository} from '@app/api/user/repositories/auth/AuthSessionRepository';
-import {IpAuthorizationRepository} from '@app/api/user/repositories/auth/IpAuthorizationRepository';
-import {MfaBackupCodeRepository} from '@app/api/user/repositories/auth/MfaBackupCodeRepository';
-import {TokenRepository} from '@app/api/user/repositories/auth/TokenRepository';
-import {WebAuthnRepository} from '@app/api/user/repositories/auth/WebAuthnRepository';
-import {GiftCodeRepository} from '@app/api/user/repositories/GiftCodeRepository';
-import {PaymentRepository} from '@app/api/user/repositories/PaymentRepository';
-import {PushSubscriptionRepository} from '@app/api/user/repositories/PushSubscriptionRepository';
-import {RecentMentionRepository} from '@app/api/user/repositories/RecentMentionRepository';
-import {SavedMessageRepository} from '@app/api/user/repositories/SavedMessageRepository';
-import {
-	type HistoricalDmChannelSummary,
-	type ListHistoricalDmChannelOptions,
-	type PrivateChannelSummary,
-	UserChannelRepository,
-} from '@app/api/user/repositories/UserChannelRepository';
+import {ReadStateRepository} from '@app/api/read_state/ReadStateRepository';
+import type {UserDeletionScheduleUpdate} from '@app/api/user/repositories/IUserAccountRepository';
+import type {
+	HistoricalDmChannelSummary,
+	ListHistoricalDmChannelOptions,
+	PrivateChannelSummary,
+} from '@app/api/user/repositories/IUserChannelRepository';
+import type {IUserRepositoryAggregate} from '@app/api/user/repositories/IUserRepositoryAggregate';
+import {UserAccountRepository} from '@app/api/user/repositories/UserAccountRepository';
+import {UserAuthRepository} from '@app/api/user/repositories/UserAuthRepository';
+import {UserChannelRepository} from '@app/api/user/repositories/UserChannelRepository';
+import {UserContentRepository} from '@app/api/user/repositories/UserContentRepository';
 import {UserRelationshipRepository} from '@app/api/user/repositories/UserRelationshipRepository';
 import {UserSettingsRepository} from '@app/api/user/repositories/UserSettingsRepository';
-import {VisionarySlotRepository} from '@app/api/user/repositories/VisionarySlotRepository';
 import type {IKVProvider} from '@pkgs/kv_client/src/IKVProvider';
 
-export class UserRepository {
+export class UserRepository implements IUserRepositoryAggregate {
 	private accountRepo: UserAccountRepository;
-	private lookupRepo: UserLookupRepository;
-
-	private guildRepo = new UserGuildRepository();
-	private tokenRepo = new TokenRepository();
-	private settingsRepo = new UserSettingsRepository();
-	private authSessionRepository = new AuthSessionRepository();
-	private mfaBackupCodeRepository = new MfaBackupCodeRepository();
-	private ipAuthorizationRepository: IpAuthorizationRepository;
-	private webAuthnRepository = new WebAuthnRepository();
-	private relationshipRepo = new UserRelationshipRepository();
-	private channelRepo = new UserChannelRepository();
-	private giftCodeRepository = new GiftCodeRepository();
-	private paymentRepository = new PaymentRepository();
-	private pushSubscriptionRepository = new PushSubscriptionRepository();
-	private recentMentionRepository = new RecentMentionRepository();
-	private savedMessageRepository = new SavedMessageRepository();
-	private visionarySlotRepository = new VisionarySlotRepository();
+	private settingsRepo: UserSettingsRepository;
+	private authRepo: UserAuthRepository;
+	private relationshipRepo: UserRelationshipRepository;
+	private channelRepo: UserChannelRepository;
+	private contentRepo: UserContentRepository;
+	private readStateRepo: ReadStateRepository;
 
 	constructor(kv: IKVProvider = getKVClient()) {
 		this.accountRepo = new UserAccountRepository(kv);
-		const findUnique = this.accountRepo.findUnique.bind(this.accountRepo);
-		this.lookupRepo = new UserLookupRepository(findUnique, new UserEmailOwnershipRepository(findUnique, kv));
-		this.ipAuthorizationRepository = new IpAuthorizationRepository(this.accountRepo);
+		this.settingsRepo = new UserSettingsRepository();
+		this.authRepo = new UserAuthRepository(this.accountRepo);
+		this.relationshipRepo = new UserRelationshipRepository();
+		this.channelRepo = new UserChannelRepository();
+		this.contentRepo = new UserContentRepository();
+		this.readStateRepo = new ReadStateRepository();
 	}
 
 	async create(data: UserRow): Promise<User> {
 		return this.accountRepo.create(data);
 	}
 
+	async upsert(data: UserRow, oldData?: UserRow | null): Promise<User> {
+		return this.accountRepo.upsert(data, oldData);
+	}
+
 	async patchUpsert(userId: UserID, patchData: Partial<UserRow>, oldData?: UserRow | null): Promise<User> {
 		return this.accountRepo.patchUpsert(userId, patchData, oldData);
 	}
 
-	async compareAndSetFlags(user: User, flags: bigint): Promise<User | null> {
-		return this.accountRepo.compareAndSetFlags(user, flags);
-	}
-
-	async updateFlags(userId: UserID, mutate: (flags: bigint) => bigint): Promise<User | null> {
-		return this.accountRepo.updateFlags(userId, mutate);
+	async compareAndSetSuspiciousFlags(user: User, suspiciousFlags: number): Promise<User | null> {
+		return this.accountRepo.compareAndSetSuspiciousFlags(user, suspiciousFlags);
 	}
 
 	async updateDeletionSchedule(user: User, patch: UserDeletionScheduleUpdate): Promise<User> {
@@ -132,27 +112,23 @@ export class UserRepository {
 	}
 
 	async findByUsernameDiscriminator(username: string, discriminator: number): Promise<User | null> {
-		return this.lookupRepo.findByUsernameDiscriminator(username, discriminator);
+		return this.accountRepo.findByUsernameDiscriminator(username, discriminator);
 	}
 
 	async findDiscriminatorsByUsername(username: string): Promise<Set<number>> {
-		return this.lookupRepo.findDiscriminatorsByUsername(username);
-	}
-
-	async findUsersByUsername(username: string): Promise<Array<User>> {
-		return this.lookupRepo.findUsersByUsername(username);
+		return this.accountRepo.findDiscriminatorsByUsername(username);
 	}
 
 	async findByEmail(email: string): Promise<User | null> {
-		return this.lookupRepo.findByEmail(email);
+		return this.accountRepo.findByEmail(email);
 	}
 
 	async findByStripeSubscriptionId(stripeSubscriptionId: string): Promise<User | null> {
-		return this.lookupRepo.findByStripeSubscriptionId(stripeSubscriptionId);
+		return this.accountRepo.findByStripeSubscriptionId(stripeSubscriptionId);
 	}
 
 	async findByStripeCustomerId(stripeCustomerId: string): Promise<User | null> {
-		return this.lookupRepo.findByStripeCustomerId(stripeCustomerId);
+		return this.accountRepo.findByStripeCustomerId(stripeCustomerId);
 	}
 
 	async listUserIdsByLastActiveIp(
@@ -163,11 +139,15 @@ export class UserRepository {
 		userIds: Array<UserID>;
 		total: number;
 	}> {
-		return this.lookupRepo.listUserIdsByLastActiveIp(lastActiveIp, limit, offset);
+		return this.accountRepo.listUserIdsByLastActiveIp(lastActiveIp, limit, offset);
 	}
 
 	async listUsers(userIds: Array<UserID>): Promise<Array<User>> {
 		return this.accountRepo.listUsers(userIds);
+	}
+
+	async listAllUsersPaginated(limit: number, lastUserId?: UserID): Promise<Array<User>> {
+		return this.accountRepo.listAllUsersPaginated(limit, lastUserId);
 	}
 
 	async scanAllUsersPage(
@@ -181,15 +161,43 @@ export class UserRepository {
 	}
 
 	async getUserGuildIds(userId: UserID): Promise<Array<GuildID>> {
-		return this.guildRepo.getUserGuildIds(userId);
+		return this.accountRepo.getUserGuildIds(userId);
 	}
 
 	async getActivityTracking(userId: UserID): Promise<{
 		last_active_at: Date | null;
 		last_active_ip: string | null;
 	}> {
-		const result = await this.accountRepo.getActivityTracking(userId);
-		return result ?? {last_active_at: null, last_active_ip: null};
+		return this.accountRepo.getActivityTracking(userId);
+	}
+
+	async addPendingDeletion(userId: UserID, pendingDeletionAt: Date, deletionReasonCode: number): Promise<void> {
+		return this.accountRepo.addPendingDeletion(userId, pendingDeletionAt, deletionReasonCode);
+	}
+
+	async removePendingDeletion(userId: UserID, pendingDeletionAt: Date): Promise<void> {
+		return this.accountRepo.removePendingDeletion(userId, pendingDeletionAt);
+	}
+
+	async findUsersPendingDeletion(now: Date): Promise<Array<User>> {
+		return this.accountRepo.findUsersPendingDeletion(now);
+	}
+
+	async findUsersPendingDeletionByDate(deletionDate: string): Promise<
+		Array<{
+			user_id: bigint;
+			deletion_reason_code: number;
+		}>
+	> {
+		return this.accountRepo.findUsersPendingDeletionByDate(deletionDate);
+	}
+
+	async isUserPendingDeletion(userId: UserID, deletionDate: string): Promise<boolean> {
+		return this.accountRepo.isUserPendingDeletion(userId, deletionDate);
+	}
+
+	async scheduleDeletion(userId: UserID, pendingDeletionAt: Date, deletionReasonCode: number): Promise<void> {
+		return this.accountRepo.scheduleDeletion(userId, pendingDeletionAt, deletionReasonCode);
 	}
 
 	async deleteUserSecondaryIndices(userId: UserID): Promise<void> {
@@ -197,7 +205,11 @@ export class UserRepository {
 	}
 
 	async removeFromAllGuilds(userId: UserID): Promise<void> {
-		return this.guildRepo.removeFromAllGuilds(userId);
+		return this.accountRepo.removeFromAllGuilds(userId);
+	}
+
+	async updateLastActiveAt(params: {userId: UserID; lastActiveAt: Date; lastActiveIp?: string}): Promise<void> {
+		return this.accountRepo.updateLastActiveAt(params);
 	}
 
 	async updateSubscriptionStatus(
@@ -205,7 +217,6 @@ export class UserRepository {
 		updates: {
 			premiumWillCancel: boolean;
 			computedPremiumUntil: Date | null;
-			periodStart: Date | null;
 		},
 	): Promise<{
 		finalVersion: number | null;
@@ -246,102 +257,110 @@ export class UserRepository {
 	}
 
 	async listAuthSessions(userId: UserID): Promise<Array<AuthSession>> {
-		return this.authSessionRepository.listAuthSessions(userId);
+		return this.authRepo.listAuthSessions(userId);
 	}
 
 	async listAuthSessionTombstones(userId: UserID): Promise<Array<AuthSessionTombstone>> {
-		return this.authSessionRepository.listAuthSessionTombstones(userId);
+		return this.authRepo.listAuthSessionTombstones(userId);
 	}
 
 	async getAuthSessionByToken(sessionIdHash: Buffer): Promise<AuthSession | null> {
-		return this.authSessionRepository.getAuthSessionByToken(sessionIdHash);
+		return this.authRepo.getAuthSessionByToken(sessionIdHash);
 	}
 
 	async createAuthSession(sessionData: AuthSessionRow): Promise<AuthSession> {
-		return this.authSessionRepository.createAuthSession(sessionData);
+		return this.authRepo.createAuthSession(sessionData);
+	}
+
+	async updateAuthSessionLastUsed(sessionIdHash: Buffer): Promise<void> {
+		return this.authRepo.updateAuthSessionLastUsed(sessionIdHash);
 	}
 
 	async deleteAuthSessions(userId: UserID, sessionIdHashes: Array<Buffer>): Promise<void> {
-		return this.authSessionRepository.deleteAuthSessions(userId, sessionIdHashes);
+		return this.authRepo.deleteAuthSessions(userId, sessionIdHashes);
 	}
 
 	async deleteAllAuthSessions(userId: UserID): Promise<void> {
-		return this.authSessionRepository.deleteAllAuthSessions(userId);
+		return this.authRepo.deleteAllAuthSessions(userId);
 	}
 
 	async listMfaBackupCodes(userId: UserID): Promise<Array<MfaBackupCode>> {
-		return this.mfaBackupCodeRepository.listMfaBackupCodes(userId);
+		return this.authRepo.listMfaBackupCodes(userId);
 	}
 
 	async createMfaBackupCodes(userId: UserID, codes: Array<string>): Promise<Array<MfaBackupCode>> {
-		return this.mfaBackupCodeRepository.createMfaBackupCodes(userId, codes);
+		return this.authRepo.createMfaBackupCodes(userId, codes);
 	}
 
 	async clearMfaBackupCodes(userId: UserID): Promise<void> {
-		return this.mfaBackupCodeRepository.clearMfaBackupCodes(userId);
+		return this.authRepo.clearMfaBackupCodes(userId);
 	}
 
 	async consumeMfaBackupCode(userId: UserID, code: string): Promise<void> {
-		return this.mfaBackupCodeRepository.consumeMfaBackupCode(userId, code);
+		return this.authRepo.consumeMfaBackupCode(userId, code);
 	}
 
 	async deleteAllMfaBackupCodes(userId: UserID): Promise<void> {
-		return this.mfaBackupCodeRepository.deleteAllMfaBackupCodes(userId);
+		return this.authRepo.deleteAllMfaBackupCodes(userId);
 	}
 
 	async getEmailVerificationToken(token: string): Promise<EmailVerificationToken | null> {
-		return this.tokenRepo.getEmailVerificationToken(token);
+		return this.authRepo.getEmailVerificationToken(token);
 	}
 
 	async createEmailVerificationToken(tokenData: EmailVerificationTokenRow): Promise<EmailVerificationToken> {
-		return this.tokenRepo.createEmailVerificationToken(tokenData);
+		return this.authRepo.createEmailVerificationToken(tokenData);
 	}
 
 	async deleteEmailVerificationToken(token: string): Promise<void> {
-		return this.tokenRepo.deleteEmailVerificationToken(token);
+		return this.authRepo.deleteEmailVerificationToken(token);
 	}
 
 	async getPasswordResetToken(token: string): Promise<PasswordResetToken | null> {
-		return this.tokenRepo.getPasswordResetToken(token);
+		return this.authRepo.getPasswordResetToken(token);
 	}
 
 	async createPasswordResetToken(tokenData: PasswordResetTokenRow): Promise<PasswordResetToken> {
-		return this.tokenRepo.createPasswordResetToken(tokenData);
+		return this.authRepo.createPasswordResetToken(tokenData);
+	}
+
+	async deletePasswordResetToken(token: string): Promise<void> {
+		return this.authRepo.deletePasswordResetToken(token);
 	}
 
 	async deleteAllPasswordResetTokens(userId: UserID): Promise<void> {
-		return this.tokenRepo.deleteAllPasswordResetTokens(userId);
+		return this.authRepo.deleteAllPasswordResetTokens(userId);
 	}
 
 	async getEmailRevertToken(token: string): Promise<EmailRevertToken | null> {
-		return this.tokenRepo.getEmailRevertToken(token);
+		return this.authRepo.getEmailRevertToken(token);
 	}
 
 	async createEmailRevertToken(tokenData: EmailRevertTokenRow): Promise<EmailRevertToken> {
-		return this.tokenRepo.createEmailRevertToken(tokenData);
+		return this.authRepo.createEmailRevertToken(tokenData);
 	}
 
 	async deleteEmailRevertToken(token: string): Promise<void> {
-		return this.tokenRepo.deleteEmailRevertToken(token);
+		return this.authRepo.deleteEmailRevertToken(token);
 	}
 
 	async checkIpAuthorized(userId: UserID, ip: string): Promise<boolean> {
-		return this.ipAuthorizationRepository.checkIpAuthorized(userId, ip);
+		return this.authRepo.checkIpAuthorized(userId, ip);
 	}
 
 	async createAuthorizedIp(userId: UserID, ip: string): Promise<void> {
-		return this.ipAuthorizationRepository.createAuthorizedIp(userId, ip);
+		return this.authRepo.createAuthorizedIp(userId, ip);
 	}
 
 	async createIpAuthorizationToken(userId: UserID, token: string, email: string): Promise<void> {
-		return this.ipAuthorizationRepository.createIpAuthorizationToken(userId, token, email);
+		return this.authRepo.createIpAuthorizationToken(userId, token, email);
 	}
 
 	async authorizeIpByToken(token: string): Promise<{
 		userId: UserID;
 		email: string;
 	} | null> {
-		return this.ipAuthorizationRepository.authorizeIpByToken(token);
+		return this.authRepo.authorizeIpByToken(token);
 	}
 
 	async getAuthorizedIps(userId: UserID): Promise<
@@ -349,19 +368,19 @@ export class UserRepository {
 			ip: string;
 		}>
 	> {
-		return this.ipAuthorizationRepository.getAuthorizedIps(userId);
+		return this.authRepo.getAuthorizedIps(userId);
 	}
 
 	async deleteAllAuthorizedIps(userId: UserID): Promise<void> {
-		return this.ipAuthorizationRepository.deleteAllAuthorizedIps(userId);
+		return this.authRepo.deleteAllAuthorizedIps(userId);
 	}
 
 	async listWebAuthnCredentials(userId: UserID): Promise<Array<WebAuthnCredential>> {
-		return this.webAuthnRepository.listWebAuthnCredentials(userId);
+		return this.authRepo.listWebAuthnCredentials(userId);
 	}
 
 	async getWebAuthnCredential(userId: UserID, credentialId: string): Promise<WebAuthnCredential | null> {
-		return this.webAuthnRepository.getWebAuthnCredential(userId, credentialId);
+		return this.authRepo.getWebAuthnCredential(userId, credentialId);
 	}
 
 	async createWebAuthnCredential(
@@ -373,43 +392,35 @@ export class UserRepository {
 		name: string,
 		rpId: string | null,
 	): Promise<void> {
-		return this.webAuthnRepository.createWebAuthnCredential(
-			userId,
-			credentialId,
-			publicKey,
-			counter,
-			transports,
-			name,
-			rpId,
-		);
+		return this.authRepo.createWebAuthnCredential(userId, credentialId, publicKey, counter, transports, name, rpId);
 	}
 
 	async updateWebAuthnCredentialCounter(userId: UserID, credentialId: string, counter: bigint): Promise<void> {
-		return this.webAuthnRepository.updateWebAuthnCredentialCounter(userId, credentialId, counter);
+		return this.authRepo.updateWebAuthnCredentialCounter(userId, credentialId, counter);
 	}
 
 	async updateWebAuthnCredentialLastUsed(userId: UserID, credentialId: string): Promise<void> {
-		return this.webAuthnRepository.updateWebAuthnCredentialLastUsed(userId, credentialId);
+		return this.authRepo.updateWebAuthnCredentialLastUsed(userId, credentialId);
 	}
 
 	async updateWebAuthnCredentialName(userId: UserID, credentialId: string, name: string): Promise<void> {
-		return this.webAuthnRepository.updateWebAuthnCredentialName(userId, credentialId, name);
+		return this.authRepo.updateWebAuthnCredentialName(userId, credentialId, name);
 	}
 
 	async setWebAuthnCredentialSupersededBy(userId: UserID, credentialId: string, supersededBy: string): Promise<void> {
-		return this.webAuthnRepository.setWebAuthnCredentialSupersededBy(userId, credentialId, supersededBy);
+		return this.authRepo.setWebAuthnCredentialSupersededBy(userId, credentialId, supersededBy);
 	}
 
 	async deleteWebAuthnCredential(userId: UserID, credentialId: string): Promise<void> {
-		return this.webAuthnRepository.deleteWebAuthnCredential(userId, credentialId);
+		return this.authRepo.deleteWebAuthnCredential(userId, credentialId);
 	}
 
 	async getUserIdByCredentialId(credentialId: string): Promise<UserID | null> {
-		return this.webAuthnRepository.getUserIdByCredentialId(credentialId);
+		return this.authRepo.getUserIdByCredentialId(credentialId);
 	}
 
 	async deleteAllWebAuthnCredentials(userId: UserID): Promise<void> {
-		return this.webAuthnRepository.deleteAllWebAuthnCredentials(userId);
+		return this.authRepo.deleteAllWebAuthnCredentials(userId);
 	}
 
 	async listRelationships(sourceUserId: UserID): Promise<Array<Relationship>> {
@@ -483,6 +494,10 @@ export class UserRepository {
 		return this.channelRepo.listHistoricalDmChannelsPaginated(userId, options);
 	}
 
+	async recordHistoricalDmChannel(userId: UserID, channelId: ChannelID, isGroupDm: boolean): Promise<void> {
+		return this.channelRepo.recordHistoricalDmChannel(userId, channelId, isGroupDm);
+	}
+
 	async listPrivateChannelSummaries(userId: UserID): Promise<Array<PrivateChannelSummary>> {
 		return this.channelRepo.listPrivateChannelSummaries(userId);
 	}
@@ -548,8 +563,12 @@ export class UserRepository {
 		return this.channelRepo.deleteAllReadStates(userId);
 	}
 
+	async getReadStates(userId: UserID): Promise<Array<ReadState>> {
+		return this.readStateRepo.listReadStates(userId);
+	}
+
 	async getRecentMention(userId: UserID, messageId: MessageID): Promise<RecentMention | null> {
-		return this.recentMentionRepository.getRecentMention(userId, messageId);
+		return this.contentRepo.getRecentMention(userId, messageId);
 	}
 
 	async listRecentMentions(
@@ -560,110 +579,111 @@ export class UserRepository {
 		limit: number,
 		before?: MessageID,
 	): Promise<Array<RecentMention>> {
-		return this.recentMentionRepository.listRecentMentions(
-			userId,
-			includeEveryone,
-			includeRole,
-			includeGuilds,
-			limit,
-			before,
-		);
+		return this.contentRepo.listRecentMentions(userId, includeEveryone, includeRole, includeGuilds, limit, before);
+	}
+
+	async createRecentMention(mention: RecentMentionRow): Promise<RecentMention> {
+		return this.contentRepo.createRecentMention(mention);
 	}
 
 	async createRecentMentions(mentions: Array<RecentMentionRow>): Promise<void> {
-		return this.recentMentionRepository.createRecentMentions(mentions);
+		return this.contentRepo.createRecentMentions(mentions);
 	}
 
 	async deleteRecentMention(mention: RecentMention): Promise<void> {
-		return this.recentMentionRepository.deleteRecentMention(mention);
+		return this.contentRepo.deleteRecentMention(mention);
 	}
 
 	async deleteRecentMentions(mentions: Array<RecentMention>): Promise<void> {
-		return this.recentMentionRepository.deleteRecentMentions(mentions);
+		return this.contentRepo.deleteRecentMentions(mentions);
 	}
 
 	async deleteAllRecentMentions(userId: UserID): Promise<void> {
-		return this.recentMentionRepository.deleteAllRecentMentions(userId);
+		return this.contentRepo.deleteAllRecentMentions(userId);
 	}
 
 	async listSavedMessages(userId: UserID, limit?: number, before?: MessageID): Promise<Array<SavedMessage>> {
-		return this.savedMessageRepository.listSavedMessages(userId, limit, before);
+		return this.contentRepo.listSavedMessages(userId, limit, before);
 	}
 
 	async countSavedMessages(userId: UserID): Promise<number> {
-		return this.savedMessageRepository.countSavedMessages(userId);
+		return this.contentRepo.countSavedMessages(userId);
 	}
 
 	async createSavedMessage(userId: UserID, channelId: ChannelID, messageId: MessageID): Promise<SavedMessage> {
-		return this.savedMessageRepository.createSavedMessage(userId, channelId, messageId);
+		return this.contentRepo.createSavedMessage(userId, channelId, messageId);
 	}
 
 	async deleteSavedMessage(userId: UserID, messageId: MessageID): Promise<void> {
-		return this.savedMessageRepository.deleteSavedMessage(userId, messageId);
+		return this.contentRepo.deleteSavedMessage(userId, messageId);
 	}
 
 	async deleteAllSavedMessages(userId: UserID): Promise<void> {
-		return this.savedMessageRepository.deleteAllSavedMessages(userId);
+		return this.contentRepo.deleteAllSavedMessages(userId);
 	}
 
 	async createGiftCode(data: GiftCodeRow): Promise<void> {
-		return this.giftCodeRepository.createGiftCode(data);
+		return this.contentRepo.createGiftCode(data);
 	}
 
 	async findGiftCode(code: string): Promise<GiftCode | null> {
-		return this.giftCodeRepository.findGiftCode(code);
+		return this.contentRepo.findGiftCode(code);
 	}
 
 	async findGiftCodeByPaymentIntent(paymentIntentId: string): Promise<GiftCode | null> {
-		return this.giftCodeRepository.findGiftCodeByPaymentIntent(paymentIntentId);
+		return this.contentRepo.findGiftCodeByPaymentIntent(paymentIntentId);
 	}
 
 	async findGiftCodesByCreator(userId: UserID): Promise<Array<GiftCode>> {
-		return this.giftCodeRepository.findGiftCodesByCreator(userId);
+		return this.contentRepo.findGiftCodesByCreator(userId);
 	}
 
 	async findGiftCodesByRedeemer(userId: UserID): Promise<Array<GiftCode>> {
-		return this.giftCodeRepository.findGiftCodesByRedeemer(userId);
+		return this.contentRepo.findGiftCodesByRedeemer(userId);
 	}
 
 	async redeemGiftCode(code: string, userId: UserID): Promise<void> {
-		return this.giftCodeRepository.redeemGiftCode(code, userId);
+		return this.contentRepo.redeemGiftCode(code, userId);
 	}
 
 	async unredeemGiftCode(code: string, userId: UserID): Promise<void> {
-		return this.giftCodeRepository.unredeemGiftCode(code, userId);
+		return this.contentRepo.unredeemGiftCode(code, userId);
 	}
 
 	async revokeGiftCode(code: string): Promise<void> {
-		return this.giftCodeRepository.revokeGiftCode(code);
+		return this.contentRepo.revokeGiftCode(code);
 	}
 
 	async unrevokeGiftCode(code: string): Promise<void> {
-		return this.giftCodeRepository.unrevokeGiftCode(code);
+		return this.contentRepo.unrevokeGiftCode(code);
 	}
 
 	async markGiftPremiumReversed(gift: GiftCode, seconds: number): Promise<boolean> {
-		return this.giftCodeRepository.markGiftPremiumReversed(gift, seconds);
+		return this.contentRepo.markGiftPremiumReversed(gift, seconds);
 	}
 
 	async clearGiftPremiumReversed(code: string, seconds: number): Promise<boolean> {
-		return this.giftCodeRepository.clearGiftPremiumReversed(code, seconds);
+		return this.contentRepo.clearGiftPremiumReversed(code, seconds);
+	}
+
+	async updateGiftCode(code: string, data: Partial<GiftCodeRow>): Promise<void> {
+		return this.contentRepo.updateGiftCode(code, data);
 	}
 
 	async linkGiftCodeToCheckoutSession(code: string, checkoutSessionId: string): Promise<void> {
-		return this.giftCodeRepository.linkGiftCodeToCheckoutSession(code, checkoutSessionId);
+		return this.contentRepo.linkGiftCodeToCheckoutSession(code, checkoutSessionId);
 	}
 
 	async listPushSubscriptions(userId: UserID): Promise<Array<PushSubscription>> {
-		return this.pushSubscriptionRepository.listPushSubscriptions(userId);
+		return this.contentRepo.listPushSubscriptions(userId);
 	}
 
 	async createPushSubscription(data: PushSubscriptionRow): Promise<PushSubscription> {
-		return this.pushSubscriptionRepository.createPushSubscription(data);
+		return this.contentRepo.createPushSubscription(data);
 	}
 
 	async deletePushSubscription(userId: UserID, subscriptionId: string): Promise<void> {
-		return this.pushSubscriptionRepository.deletePushSubscription(userId, subscriptionId);
+		return this.contentRepo.deletePushSubscription(userId, subscriptionId);
 	}
 
 	async deletePushSubscriptionsForAuthSessions(
@@ -671,15 +691,15 @@ export class UserRepository {
 		authSessionIdHashes: Array<string>,
 		options: {deleteUnboundSubscriptions: boolean},
 	): Promise<void> {
-		return this.pushSubscriptionRepository.deletePushSubscriptionsForAuthSessions(userId, authSessionIdHashes, options);
+		return this.contentRepo.deletePushSubscriptionsForAuthSessions(userId, authSessionIdHashes, options);
 	}
 
 	async getBulkPushSubscriptions(userIds: Array<UserID>): Promise<Map<UserID, Array<PushSubscription>>> {
-		return this.pushSubscriptionRepository.getBulkPushSubscriptions(userIds);
+		return this.contentRepo.getBulkPushSubscriptions(userIds);
 	}
 
 	async deleteAllPushSubscriptions(userId: UserID): Promise<void> {
-		return this.pushSubscriptionRepository.deleteAllPushSubscriptions(userId);
+		return this.contentRepo.deleteAllPushSubscriptions(userId);
 	}
 
 	async createPayment(data: {
@@ -697,7 +717,7 @@ export class UserRepository {
 		eu_withdrawal_waiver_accepted_at?: Date | null;
 		eu_withdrawal_waiver_text_version?: string | null;
 	}): Promise<void> {
-		return this.paymentRepository.createPayment(data);
+		return this.contentRepo.createPayment(data);
 	}
 
 	async updatePayment(
@@ -705,38 +725,38 @@ export class UserRepository {
 			checkout_session_id: string;
 		},
 	): Promise<void> {
-		return this.paymentRepository.updatePayment(data);
+		return this.contentRepo.updatePayment(data);
 	}
 
 	async getPaymentByCheckoutSession(checkoutSessionId: string): Promise<Payment | null> {
-		return this.paymentRepository.getPaymentByCheckoutSession(checkoutSessionId);
-	}
-
-	async findPaymentsByUserId(userId: UserID): Promise<Array<Payment>> {
-		return this.paymentRepository.findPaymentsByUserId(userId);
+		return this.contentRepo.getPaymentByCheckoutSession(checkoutSessionId);
 	}
 
 	async getPaymentByPaymentIntent(paymentIntentId: string): Promise<Payment | null> {
-		return this.paymentRepository.getPaymentByPaymentIntent(paymentIntentId);
+		return this.contentRepo.getPaymentByPaymentIntent(paymentIntentId);
 	}
 
 	async getSubscriptionInfo(subscriptionId: string): Promise<PaymentBySubscriptionRow | null> {
-		return this.paymentRepository.getSubscriptionInfo(subscriptionId);
+		return this.contentRepo.getSubscriptionInfo(subscriptionId);
 	}
 
 	async listVisionarySlots(): Promise<Array<VisionarySlot>> {
-		return this.visionarySlotRepository.listVisionarySlots();
+		return this.contentRepo.listVisionarySlots();
 	}
 
 	async expandVisionarySlots(byCount: number): Promise<void> {
-		return this.visionarySlotRepository.expandVisionarySlots(byCount);
+		return this.contentRepo.expandVisionarySlots(byCount);
+	}
+
+	async shrinkVisionarySlots(toCount: number): Promise<void> {
+		return this.contentRepo.shrinkVisionarySlots(toCount);
 	}
 
 	async reserveVisionarySlot(slotIndex: number, userId: UserID): Promise<void> {
-		return this.visionarySlotRepository.reserveVisionarySlot(slotIndex, userId);
+		return this.contentRepo.reserveVisionarySlot(slotIndex, userId);
 	}
 
 	async unreserveVisionarySlot(slotIndex: number, userId: UserID): Promise<void> {
-		return this.visionarySlotRepository.unreserveVisionarySlot(slotIndex, userId);
+		return this.contentRepo.unreserveVisionarySlot(slotIndex, userId);
 	}
 }

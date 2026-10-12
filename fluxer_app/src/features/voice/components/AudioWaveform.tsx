@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {clamp} from '@app/features/ui/components/slider/SliderMath';
-
 import styles from '@app/features/voice/components/AudioWaveform.module.css';
 import {resolveDevicePixelRatio} from '@app/features/voice/DevicePixelRatio';
 import {msg} from '@lingui/core/macro';
@@ -74,6 +72,10 @@ interface DragState {
 	originX: number;
 	originStart: number;
 	originEnd: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+	return value < min ? min : value > max ? max : value;
 }
 
 function computePeakNormalizer(peaks: AudioWaveformPeaks): number {

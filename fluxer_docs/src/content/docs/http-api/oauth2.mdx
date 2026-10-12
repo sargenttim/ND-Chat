@@ -22,7 +22,7 @@ An authorisation code expires 10 minutes after it is issued, an access token aft
 
 ## Route authentication
 
-Every route on this page that authenticates a user is user-only unless the operation says otherwise. Fluxer rejects a bot token and an OAuth2 bearer with 403 `ACCESS_DENIED`. The token, introspection, and revocation routes authenticate the client application instead, so their [rate limit](/topics/rate-limits/) is keyed by client IP address.
+Every route on this page that authenticates a user is user-only unless the operation says otherwise. Fluxer rejects a bot token and an OAuth2 bearer with 403 `ACCESS_DENIED`, and accepts an account with an outstanding required action. The token, introspection, and revocation routes authenticate the client application instead, so their [rate limit](/topics/rate-limits/) is keyed by client IP address.
 
 ## OAuth2 string normalisation
 
@@ -380,12 +380,6 @@ Installing a bot into a guild requires [MANAGE_GUILD or ADMINISTRATOR](/http-api
 
 A guild installation emits [Guild Create](/gateway/events/#guild-create), [Guild Member Add](/gateway/events/#guild-member-add), and, unless the guild suppresses join notifications, [Message Create](/gateway/events/#message-create). When a non-zero permission mask is requested it also emits [Guild Role Create](/gateway/events/#guild-role-create) and [Guild Member Update](/gateway/events/#guild-member-update). A group direct message installation emits [Channel Create](/gateway/events/#channel-create) to the bot, [Channel Recipient Add](/gateway/events/#channel-recipient-add) to the existing recipients, and [Message Create](/gateway/events/#message-create).
 
-### Request headers
-
-| Field | Type | Description |
-| --- | --- | --- |
-| X-Fluxer-Features? | string | A comma-separated [feature declaration](/http-api/permissions/#feature-gated-permission-bits) |
-
 ### JSON body
 
 | Field | Type | Description |
@@ -409,8 +403,6 @@ A guild installation emits [Guild Create](/gateway/events/#guild-create), [Guild
 
 <sup>4</sup> The fields are mutually exclusive
 
-Fluxer clears the four thread permission bits from `permissions` unless the request declares the [`channel_threads` client capability](/http-api/threads/#client-capability). [Feature-gated permission bits](/http-api/permissions/#feature-gated-permission-bits) lists them.
-
 ### Response
 
 | Status | Body | Condition |
@@ -431,7 +423,7 @@ Fluxer clears the four thread permission bits from `permissions` unless the requ
 
 Consent issues one authorisation code bound to the application, user, resolved redirect URI, granted scopes, and PKCE challenge, and returns the callback URL that has it.
 
-With the `bot` scope and a guild target, consent adds the bot to the guild with the bot-invite join source and the caller recorded as inviter. Consent bypasses both the bot account's own guild count limit and the guild ban list. The guild member limit still applies. When a non-zero permission mask is requested, consent also creates one role with exactly the filtered permission mask, names the role after the application, and assigns it to the bot. The installation either succeeds with exactly that mask or fails with a missing-permissions error. The filter includes the thread bit rule above.
+With the `bot` scope and a guild target, consent adds the bot to the guild with the bot-invite join source and the caller recorded as inviter. Consent bypasses both the bot account's own guild count limit and the guild ban list. The guild member limit still applies. When a non-zero permission mask is requested, consent also creates one role with exactly the filtered permission mask, names the role after the application, and assigns it to the bot. The installation either succeeds with exactly that mask or fails with a missing-permissions error.
 
 That role is created at position 1 with no colour and is neither hoisted nor mentionable. It consumes a guild role slot and is not removed when the bot leaves. The installation records bot add, role create, and member role update [audit log](/http-api/guild-audit-logs/) entries.
 
@@ -655,7 +647,7 @@ No Gateway Dispatch is emitted, so a client holding a revoked token learns of th
 
 ### Rate limit
 
-120 requests per minute for each client IP address, on the `oauth:revoke` bucket.
+120 requests per minute for each client IP address, on the `oauth:introspect` bucket.
 
 ## Get current OAuth2 authorisation
 

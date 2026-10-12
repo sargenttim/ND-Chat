@@ -15,7 +15,7 @@ import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 
 const logger = new Logger('Slider');
 
-interface SliderTooltipPosition {
+export interface SliderTooltipPosition {
 	x: number;
 	y: number;
 	arrowX: number;

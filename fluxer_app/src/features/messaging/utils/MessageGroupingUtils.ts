@@ -29,12 +29,13 @@ export interface ChannelStreamItem {
 	flashKey?: number;
 	jumpTarget?: boolean;
 	hasUnread?: boolean;
+	hasJumpTarget?: boolean;
 	unreadId?: string;
 	contentKey?: string;
 	showUnreadDividerBefore?: boolean;
 }
 
-const MESSAGE_GROUP_TIMEOUT = 7 * 60 * 1000;
+export const MESSAGE_GROUP_TIMEOUT = 7 * 60 * 1000;
 
 export function isNewMessageGroup(
 	_channel: Channel | undefined,
@@ -45,9 +46,6 @@ export function isNewMessageGroup(
 		return true;
 	}
 	if (currentMessage.type === MessageTypes.REPLY) {
-		return true;
-	}
-	if (currentMessage.isCrosspostCopy) {
 		return true;
 	}
 	const currentIsDisplaySystem =
@@ -100,7 +98,7 @@ export function getCollapsedGroupType(
 	message: Message,
 	treatSpam: boolean,
 ): ChannelStreamType | null {
-	if (message.blocked && message.isUserMessage()) {
+	if (message.blocked) {
 		return ChannelStreamType.MESSAGE_GROUP_BLOCKED;
 	}
 	if (
@@ -254,6 +252,9 @@ export function createChannelStream(props: {
 				collapsedGroupItem.hasUnread = true;
 			}
 			collapsedContentItems.push(messageItem);
+			if (messageItem.jumpTarget) {
+				collapsedGroupItem.hasJumpTarget = true;
+			}
 		} else {
 			stream.push(messageItem);
 		}

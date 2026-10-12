@@ -3,12 +3,7 @@
 import type {UserID} from '@app/api/BrandedTypes';
 import type {StorePurchaseRow} from '@app/api/database/types/StoreBillingTypes';
 import {Logger} from '@app/api/Logger';
-import {
-	createGiftCodeRow,
-	type GiftCode,
-	generateUniqueGiftCode,
-	mapGiftDurationMonthsToFields,
-} from '@app/api/models/GiftCode';
+import {type GiftCode, mapGiftDurationMonthsToFields} from '@app/api/models/GiftCode';
 import type {GooglePlaySettlement} from '@app/api/store_billing/GooglePlaySettlement';
 import {STORE_PRODUCT_SLOTS} from '@app/api/store_billing/StoreBillingConfig';
 import {selectActiveStoreSubscription} from '@app/api/store_billing/StoreBillingMappers';
@@ -16,14 +11,15 @@ import type {StoreBillingRepository} from '@app/api/store_billing/StoreBillingRe
 import {redactStoreKey, type StoreSlot, UNSUPPORTED_QUANTITY_REASON} from '@app/api/store_billing/StoreBillingTypes';
 import type {StoreEntitlementWriter} from '@app/api/store_billing/StoreEntitlementWriter';
 import type {StripeGiftReversalHandler} from '@app/api/stripe/services/StripeGiftReversalHandler';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
+import * as RandomUtils from '@app/api/utils/RandomUtils';
 
 const PURCHASE_WRITE_ATTEMPTS = 4;
 const GIFT_REFUND_REVERSAL_REASON = 'store_refund';
 
 interface StoreGiftFulfilmentDeps {
 	repository: StoreBillingRepository;
-	userRepository: UserRepository;
+	userRepository: IUserRepository;
 	giftReversalHandler: StripeGiftReversalHandler;
 	googlePlaySettlement: GooglePlaySettlement;
 	entitlementWriter: StoreEntitlementWriter;
@@ -47,7 +43,7 @@ export class StoreGiftFulfilment {
 		}
 		let current = row;
 		if (!current.gift_code) {
-			const candidate = await generateUniqueGiftCode((code) => this.deps.userRepository.findGiftCode(code));
+			const candidate = await this.generateUniqueGiftCode();
 			await this.deps.repository.setGiftCode(current.store_key, candidate);
 			const reloaded = await this.deps.repository.findPurchase(current.store_key);
 			if (!reloaded?.gift_code) {
@@ -87,15 +83,20 @@ export class StoreGiftFulfilment {
 
 	private async createStoreGiftCode(code: string, purchaserId: UserID, slot: StoreSlot): Promise<void> {
 		const duration = mapGiftDurationMonthsToFields(STORE_PRODUCT_SLOTS[slot].durationMonths);
-		await this.deps.userRepository.createGiftCode(
-			createGiftCodeRow({
-				code: code,
-				durationType: duration.durationType,
-				durationQuantity: duration.durationQuantity,
-				createdAt: new Date(),
-				createdByUserId: purchaserId,
-			}),
-		);
+		await this.deps.userRepository.createGiftCode({
+			code,
+			duration_months: null,
+			duration_type: duration.durationType,
+			duration_quantity: duration.durationQuantity,
+			created_at: new Date(),
+			created_by_user_id: purchaserId,
+			redeemed_at: null,
+			redeemed_by_user_id: null,
+			stripe_payment_intent_id: null,
+			visionary_sequence_number: null,
+			checkout_session_id: null,
+			version: 1,
+		});
 		const purchaser = await this.deps.userRepository.findUnique(purchaserId);
 		if (!purchaser) {
 			return;
@@ -148,5 +149,14 @@ export class StoreGiftFulfilment {
 			{storeKey: redactStoreKey(row.store_key), redeemerId: redeemerId?.toString() ?? null},
 			'Reinstated a gift code after a store refund was reversed',
 		);
+	}
+
+	private async generateUniqueGiftCode(): Promise<string> {
+		for (;;) {
+			const code = RandomUtils.randomString(32);
+			if (!(await this.deps.userRepository.findGiftCode(code))) {
+				return code;
+			}
+		}
 	}
 }

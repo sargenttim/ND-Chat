@@ -198,13 +198,14 @@ pub fn get_csrf_token(request: &Request) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AdminConfig, ProxyConfig};
+    use crate::config::{AdminConfig, ProxyConfig, RuntimeEnv};
     use crate::state::AppState;
     use axum::{Router, middleware::from_fn_with_state, routing::get};
     use tower::ServiceExt;
 
     fn state_with_admin_endpoint(admin_endpoint: &str) -> AppState {
         AppState::new(AdminConfig {
+            env: RuntimeEnv::Production,
             host: String::new(),
             port: 3020,
             secret_key_base: "test-secret".to_owned(),
@@ -212,7 +213,6 @@ mod tests {
             api_endpoint: String::new(),
             media_endpoint: String::new(),
             static_cdn_endpoint: String::new(),
-            reports_bucket_origin: String::new(),
             admin_endpoint: admin_endpoint.to_owned(),
             web_app_endpoint: String::new(),
             oauth_client_id: String::new(),

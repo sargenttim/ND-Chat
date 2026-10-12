@@ -132,7 +132,7 @@ interface DevicePreviewStreamsController {
 	resume: () => void;
 }
 
-type DevicePreviewReleaseResult = 'released' | 'busy';
+export type DevicePreviewReleaseResult = 'released' | 'busy';
 
 type PublishDevicePreviewStreams = (streams: ReadonlyMap<string, MediaStream>) => void;
 

@@ -39,6 +39,7 @@ interface PopoutProps {
 	uniqueId?: string | number;
 	tooltip?: string | (() => React.ReactNode);
 	tooltipPosition?: TooltipPosition;
+	tooltipAlign?: 'center' | 'top' | 'bottom' | 'left' | 'right';
 	tooltipDelay?: number;
 	tooltipNudge?: number;
 	zIndexBoost?: number;
@@ -57,6 +58,7 @@ interface PopoutProps {
 	onClose?: () => void;
 	onCloseRequest?: (event?: Event) => boolean;
 	returnFocusRef?: React.RefObject<HTMLElement | null>;
+	closeOnChildrenUnmount?: boolean;
 	disableBackdrop?: boolean;
 	keepOpenOnTargetUnmount?: boolean;
 	shouldOpenOnClick?: (event: React.MouseEvent<HTMLElement>) => boolean;
@@ -307,7 +309,7 @@ export const Popout = React.forwardRef<HTMLElement, PopoutProps>((props, ref) =>
 	);
 	const toggle = useCallback(
 		(clickPos?: number) => {
-			if (PopoutState.isOpen(state.id) && !PopoutState.isClosing(state.id)) {
+			if (PopoutState.isOpen(state.id)) {
 				if (props.hoverDelay != null && openModeRef.current === 'hover') {
 					clearTimers();
 					open(clickPos, 'click');
@@ -370,7 +372,8 @@ export const Popout = React.forwardRef<HTMLElement, PopoutProps>((props, ref) =>
 		ComponentBus.subscribe(props.subscribeTo, handler);
 		return () => ComponentBus.unsubscribe(props.subscribeTo!, handler);
 	}, [props.subscribeTo, toggle]);
-	const childToRender = (props.children as React.ReactNode) || state.lastValidChildren;
+	const childToRender =
+		(props.children as React.ReactNode) || (!props.closeOnChildrenUnmount ? state.lastValidChildren : null);
 	type PopoutChildProps = React.HTMLAttributes<HTMLElement> & {ref?: React.Ref<HTMLElement>};
 	const child =
 		childToRender && React.isValidElement<PopoutChildProps>(childToRender) ? React.Children.only(childToRender) : null;
@@ -510,6 +513,7 @@ export const Popout = React.forwardRef<HTMLElement, PopoutProps>((props, ref) =>
 		<Tooltip
 			text={props.tooltip}
 			position={props.tooltipPosition}
+			align={props.tooltipAlign}
 			delay={props.tooltipDelay}
 			nudge={props.tooltipNudge}
 			data-flx="ui.popover.popout.tooltip"

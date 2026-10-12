@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {createUserID} from '@app/api/BrandedTypes';
-import {rebuildIfStale} from '@app/api/infrastructure/UserScheduledKvQueue';
 import {Logger} from '@app/api/Logger';
 import {
 	isPendingDeletionBlocked,
@@ -16,7 +15,26 @@ const userProcessPendingDeletions: WorkerTaskHandler = async (_payload, helpers)
 	const {userRepository, workerService, deletionQueueService} = getWorkerDependencies();
 	try {
 		Logger.debug('Processing pending user deletions from KV queue');
-		if (!(await rebuildIfStale(deletionQueueService, Logger, 'Deletion queue'))) return;
+		const needsRebuild = await deletionQueueService.needsRebuild();
+		if (needsRebuild) {
+			Logger.info('Deletion queue needs rebuild, acquiring lock');
+			const lockToken = await deletionQueueService.acquireRebuildLock();
+			if (!lockToken) {
+				Logger.info('Another worker is rebuilding the queue, skipping this run');
+				return;
+			}
+			try {
+				await deletionQueueService.rebuildState(lockToken);
+			} catch (error) {
+				try {
+					await deletionQueueService.releaseRebuildLock(lockToken);
+				} catch (releaseError) {
+					Logger.error({error: releaseError}, 'Failed to release deletion queue lock after rebuild failure');
+				}
+				throw error;
+			}
+			await deletionQueueService.releaseRebuildLock(lockToken);
+		}
 		const nowMs = Date.now();
 		const pendingDeletions = await deletionQueueService.getReadyDeletions(nowMs, 1000);
 		Logger.debug({count: pendingDeletions.length}, 'Found users pending deletion from KV');

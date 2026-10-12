@@ -8,13 +8,14 @@ import {
 	setCassandraQueryExecutorForTesting,
 } from '@app/api/database/CassandraQueryExecution';
 import {resetSharedListsForTests} from '@app/api/infrastructure/activity/SharedLists';
-import {SearchProvider} from '@app/api/infrastructure/SearchProvider';
+import {NullSearchProvider} from '@app/api/infrastructure/NullSearchProvider';
 import {ipBanCache} from '@app/api/middleware/IpBanMiddleware';
 import {
 	setInjectedBlueskyOAuthService,
 	setInjectedGatewayService,
 	setInjectedKVProvider,
 	setInjectedMediaService,
+	setInjectedSearchProviderService,
 	setInjectedWorkerService,
 } from '@app/api/middleware/ServiceRegistry';
 import {
@@ -22,11 +23,11 @@ import {
 	setInjectedStorageService,
 	setInjectedUnfurlerService,
 } from '@app/api/middleware/ServiceSingletons';
-import {setInjectedSearchProvider} from '@app/api/SearchFactory';
 import type {ISearchProvider} from '@app/api/search/ISearchProvider';
 import {drainSearchTasks} from '@app/api/search/SearchTaskTracker';
 import {InMemoryCassandraQueryExecutor} from '@app/api/test/InMemoryCassandraQueryExecutor';
 import {MockBlueskyOAuthService} from '@app/api/test/mocks/MockBlueskyOAuthService';
+import {MockKVProvider} from '@app/api/test/mocks/MockKVProvider';
 import {MockStorageService} from '@app/api/test/mocks/MockStorageService';
 import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import {NoopUnfurlerService} from '@app/api/test/mocks/NoopUnfurlerService';
@@ -37,12 +38,12 @@ import {InMemorySearchProvider} from '@app/api/test/search/InMemorySearchProvide
 import {TestMediaService} from '@app/api/test/TestMediaService';
 import type {HonoApp} from '@app/api/types/HonoEnv';
 import type {IKVProvider} from '@pkgs/kv_client/src/IKVProvider';
-import {MockKVProvider} from '@pkgs/kv_client/src/testing/MockKVProvider';
 
 export interface ApiTestHarness {
 	app: HonoApp;
 	kvProvider: IKVProvider;
 	storageService: MockStorageService;
+	mockBlueskyOAuthService: MockBlueskyOAuthService;
 	reset: () => Promise<void>;
 	resetData: () => Promise<void>;
 	shutdown: () => Promise<void>;
@@ -56,7 +57,6 @@ export interface ApiTestHarness {
 
 interface CreateApiTestHarnessOptions {
 	search?: 'disabled' | 'enabled';
-	registerRoutes?: (routes: HonoApp) => void;
 }
 
 export async function createApiTestHarness(options: CreateApiTestHarnessOptions = {}): Promise<ApiTestHarness> {
@@ -77,12 +77,13 @@ export async function createApiTestHarness(options: CreateApiTestHarnessOptions 
 		searchProvider = new InMemorySearchProvider();
 		await searchProvider.initialize();
 	} else {
-		searchProvider = new SearchProvider(null);
+		searchProvider = new NullSearchProvider();
 		await searchProvider.initialize();
 	}
-	setInjectedSearchProvider(searchProvider);
+	setInjectedSearchProviderService(searchProvider);
 	setInjectedUnfurlerService(new NoopUnfurlerService());
-	setInjectedBlueskyOAuthService(new MockBlueskyOAuthService());
+	const mockBlueskyOAuthService = new MockBlueskyOAuthService();
+	setInjectedBlueskyOAuthService(mockBlueskyOAuthService);
 	await resetServiceStateForTesting();
 	const {
 		app,
@@ -91,7 +92,6 @@ export async function createApiTestHarness(options: CreateApiTestHarnessOptions 
 	} = await createAPIApp({
 		config: Config,
 		logger: harnessLogger,
-		registerRoutes: options.registerRoutes,
 	});
 	try {
 		await initializeApp();
@@ -104,6 +104,7 @@ export async function createApiTestHarness(options: CreateApiTestHarnessOptions 
 		resetCassandraQueryExecutorForTesting();
 		getInstanceConfigRepository().clearCacheForTesting();
 		kvProvider.reset();
+		mockBlueskyOAuthService.reset();
 		setInjectedUnfurlerService(undefined);
 		resetSharedListsForTests();
 	}
@@ -136,7 +137,7 @@ export async function createApiTestHarness(options: CreateApiTestHarnessOptions 
 		const fallbackStorageService = new MockStorageService();
 		setInjectedStorageService(fallbackStorageService);
 		setInjectedMediaService(new TestMediaService(fallbackStorageService));
-		setInjectedSearchProvider(new SearchProvider(null));
+		setInjectedSearchProviderService(new NullSearchProvider());
 		setInjectedBlueskyOAuthService(new MockBlueskyOAuthService());
 		await resetServiceStateForTesting();
 		resetApiServicesForTesting();
@@ -155,9 +156,16 @@ export async function createApiTestHarness(options: CreateApiTestHarnessOptions 
 		if (!mergedHeaders.has('x-forwarded-for')) {
 			mergedHeaders.set('x-forwarded-for', '127.0.0.1');
 		}
+		const contentType = mergedHeaders.get('content-type');
 		let requestBody: string | undefined;
 		if (body !== undefined) {
-			requestBody = typeof body === 'string' ? body : JSON.stringify(body);
+			if (typeof body === 'string') {
+				requestBody = body;
+			} else if (contentType === 'application/json') {
+				requestBody = JSON.stringify(body);
+			} else {
+				requestBody = JSON.stringify(body);
+			}
 		}
 		return app.request(path, {
 			method,
@@ -169,6 +177,7 @@ export async function createApiTestHarness(options: CreateApiTestHarnessOptions 
 		app,
 		kvProvider,
 		storageService,
+		mockBlueskyOAuthService,
 		reset,
 		resetData,
 		shutdown,

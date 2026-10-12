@@ -20,6 +20,7 @@ interface UnsavedChangesBannerContentProps {
 	dataFlx: UnsavedChangesBannerDataFlx;
 	textContainerClassName?: string;
 	defaultSaveLabel?: React.ReactNode;
+	smallActions?: boolean;
 }
 
 export const UnsavedChangesBannerContent: React.FC<UnsavedChangesBannerContentProps> = ({
@@ -29,6 +30,7 @@ export const UnsavedChangesBannerContent: React.FC<UnsavedChangesBannerContentPr
 	dataFlx,
 	textContainerClassName,
 	defaultSaveLabel,
+	smallActions = false,
 }) => {
 	const text = (
 		<div className={textClassName} data-flx={dataFlx.text}>
@@ -45,11 +47,11 @@ export const UnsavedChangesBannerContent: React.FC<UnsavedChangesBannerContentPr
 				text
 			)}
 			<div className={actionsClassName} data-flx={dataFlx.actions}>
-				<Button variant="secondary" small onClick={tabData.onReset} data-flx={dataFlx.resetButton}>
+				<Button variant="secondary" small={smallActions} onClick={tabData.onReset} data-flx={dataFlx.resetButton}>
 					{tabData.resetLabel ?? <Trans>Reset</Trans>}
 				</Button>
 				<Button
-					small
+					small={smallActions}
 					onClick={tabData.onSave}
 					submitting={tabData.isSubmitting}
 					variant={tabData.saveVariant}

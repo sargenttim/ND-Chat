@@ -13,12 +13,12 @@ import {isScreenShareAudioPublicationLike, VoiceTrackSource} from '@app/features
 import type {
 	VoiceEngineV2ParticipantVolumeOptions,
 	VoiceEngineV2RemoteTrackSubscriptionOptions,
-} from '@fluxer/voice_engine_v2/src/protocol/types';
+} from '@fluxer/voice_engine_v2';
 import type {RemoteTrackPublication, Room} from 'livekit-client';
 
 const logger = new Logger('VoiceEngineV2AppSubscriptionAdapter');
 
-type VideoQualityLevel = VoiceMediaGraphVideoQuality;
+export type VideoQualityLevel = VoiceMediaGraphVideoQuality;
 
 type VoiceEngineV2AppSubscriptionSource = 'camera' | 'screen';
 
@@ -174,6 +174,10 @@ class VoiceEngineV2AppSubscriptionAdapter extends Store {
 		this.screenShareManager.setContext(participantIdentity, context);
 	}
 
+	isVideoSubscribed(participantIdentity: string): boolean {
+		return this.videoManager.isSubscribed(participantIdentity);
+	}
+
 	isScreenShareSubscribed(participantIdentity: string): boolean {
 		return this.screenShareManager.isSubscribed(participantIdentity);
 	}
@@ -188,6 +192,18 @@ class VoiceEngineV2AppSubscriptionAdapter extends Store {
 			this.videoManager.applyReconciledCommand(command);
 			this.screenShareManager.applyReconciledCommand(command);
 		}
+	}
+
+	reattachVideoAfterPublish(participantIdentity: string): void {
+		this.videoManager.reattachAfterPublish(participantIdentity);
+	}
+
+	getVideoQuality(participantIdentity: string): VideoQualityLevel | null {
+		return this.videoManager.getQuality(participantIdentity);
+	}
+
+	getScreenShareContext(participantIdentity: string): VoiceMediaGraphSubscriptionContext | null {
+		return this.screenShareManager.getContext(participantIdentity);
 	}
 }
 

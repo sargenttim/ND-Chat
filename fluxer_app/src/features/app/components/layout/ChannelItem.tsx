@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Accessibility, {ChannelTypingIndicatorMode} from '@app/features/accessibility/state/Accessibility';
-import {ChannelSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
 import styles from '@app/features/app/components/layout/ChannelItem.module.css';
 import {ChannelItemContent} from '@app/features/app/components/layout/ChannelItemContent';
 import {ChannelItemIcon} from '@app/features/app/components/layout/ChannelItemIcon';
@@ -25,16 +24,17 @@ import {VoiceChannelUserCount} from '@app/features/app/components/layout/VoiceCh
 import {useChannelHoverPreload} from '@app/features/app/hooks/useChannelHoverPreload';
 import {useContextMenuHoverState} from '@app/features/app/hooks/useContextMenuHoverState';
 import {useMergeRefs} from '@app/features/app/hooks/useMergeRefs';
+import {useTextOverflow} from '@app/features/app/hooks/useTextOverflow';
 import * as LinkChannelCommands from '@app/features/channel/commands/LinkChannelCommands';
 import {CategoryBottomSheet} from '@app/features/channel/components/bottomsheets/CategoryBottomSheet';
 import {ChannelBottomSheet} from '@app/features/channel/components/bottomsheets/ChannelBottomSheet';
 import {Typing} from '@app/features/channel/components/ChannelTyping';
 import {ChannelCreateModal} from '@app/features/channel/components/modals/ChannelCreateModal';
+import {ChannelSettingsModal} from '@app/features/channel/components/modals/ChannelSettingsModal';
 import {getTypingText, usePresentableTypingUsers} from '@app/features/channel/components/TypingUsers';
 import type {Channel} from '@app/features/channel/models/Channel';
 import Channels from '@app/features/channel/state/Channels';
 import * as ChannelUtils from '@app/features/channel/utils/ChannelUtils';
-import {hasForumUnread} from '@app/features/forum/state/ForumReadState';
 import type {Guild} from '@app/features/guild/models/Guild';
 import {
 	CREATE_CHANNEL_DESCRIPTOR,
@@ -58,7 +58,6 @@ import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import {MentionBadge} from '@app/features/ui/components/MentionBadge';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
-import {useTextOverflow} from '@app/features/ui/hooks/useTextOverflow';
 import KeyboardMode from '@app/features/ui/state/KeyboardMode';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {Tooltip} from '@app/features/ui/tooltip/Tooltip';
@@ -146,7 +145,7 @@ interface ChannelItemCoreProps {
 export const ChannelItemCore: React.FC<ChannelItemCoreProps> = observer(
 	({channel, isSelected = false, forceHover = false, typingIndicator, className}) => {
 		const channelLabelRef = useRef<HTMLSpanElement>(null);
-		const isChannelNameOverflowing = useTextOverflow(channelLabelRef, {content: channel.name});
+		const isChannelNameOverflowing = useTextOverflow(channelLabelRef);
 		return (
 			<div
 				className={clsx(
@@ -231,7 +230,7 @@ export const ChannelItem = observer(
 		const isVoiceDragActive = draggingChannel?.channelType === ChannelTypes.GUILD_VOICE;
 		const shouldDimForVoiceDrag = Boolean(isVoiceDragActive && channelIsText && channel.parentId !== null);
 		const unreadCount = ReadStates.getUnreadCount(channel.id);
-		const hasUnread = channel.isThreadOnly() ? hasForumUnread(channel) : ReadStates.hasUnread(channel.id);
+		const hasUnread = ReadStates.hasUnread(channel.id);
 		const connectedVoiceGuildId = channelIsVoice ? MediaEngine.guildId : null;
 		const connectedVoiceChannelId = channelIsVoice ? MediaEngine.channelId : null;
 		const canManageChannels = Permission.can(Permissions.MANAGE_CHANNELS, channel);
@@ -607,15 +606,12 @@ export const ChannelItem = observer(
 		const handleChannelSettingsClick = useCallback(() => {
 			armActionModalReturn();
 			ModalCommands.push(
-				modal(
-					() => (
-						<ChannelSettingsModal
-							channelId={channel.id}
-							data-flx="app.channel-item.handle-channel-settings-click.channel-settings-modal"
-						/>
-					),
-					'channel-settings',
-				),
+				modal(() => (
+					<ChannelSettingsModal
+						channelId={channel.id}
+						data-flx="app.channel-item.handle-channel-settings-click.channel-settings-modal"
+					/>
+				)),
 			);
 		}, [channel.id, armActionModalReturn]);
 		const channelSettingsLabel = channelIsCategory

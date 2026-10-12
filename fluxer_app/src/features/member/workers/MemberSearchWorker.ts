@@ -1,10 +1,24 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {
-	type MemberSearchFilters,
-	MessageTypes,
-	type TransformedMember,
-} from '@app/features/member/workers/MemberSearchProtocol';
+export enum MessageTypes {
+	INGEST_DIRECTORY = 'INGEST_DIRECTORY',
+	MATCHES_READY = 'MATCHES_READY',
+	SEARCH_BEGIN = 'SEARCH_BEGIN',
+	SEARCH_CANCEL = 'SEARCH_CANCEL',
+}
+
+interface TransformedUser {
+	id: string;
+	username: string;
+	globalName?: string | null;
+	guildNicknames?: Record<string, string | null>;
+	isBot?: boolean;
+	isFriend?: boolean;
+	guildIds?: Array<string>;
+	_delete?: boolean;
+	_removeGuild?: string;
+	[key: string]: string | boolean | null | undefined | Array<string> | Record<string, string | null>;
+}
 
 interface SearchResult {
 	id: string;
@@ -14,10 +28,15 @@ interface SearchResult {
 	isBot?: boolean;
 }
 
+interface SearchFilters {
+	friends?: boolean;
+	guild?: string;
+}
+
 interface SearchQuery {
 	query: string;
 	limit: number;
-	filters?: MemberSearchFilters;
+	filters?: SearchFilters;
 	blacklist?: Array<string>;
 	whitelist?: Array<string>;
 	boosters?: Record<string, number>;
@@ -32,7 +51,7 @@ interface WorkerMessage<T = unknown> {
 }
 
 interface UpdateUsersPayload {
-	users: Array<TransformedMember>;
+	users: Array<TransformedUser>;
 }
 
 interface SearchForm {
@@ -42,7 +61,7 @@ interface SearchForm {
 }
 
 interface IndexedUser {
-	user: TransformedMember;
+	user: TransformedUser;
 	named: Array<SearchForm>;
 	perGuild: Record<string, SearchForm> | null;
 }
@@ -74,7 +93,7 @@ function toSearchForm(value: string): SearchForm {
 	return {value, lower, stripped: stripCombiningMarks(lower)};
 }
 
-function indexUser(user: TransformedMember): IndexedUser {
+function indexUser(user: TransformedUser): IndexedUser {
 	const named: Array<SearchForm> = [];
 	if (user.username.length > 0) {
 		named.push(toSearchForm(user.username));
@@ -100,7 +119,7 @@ function indexUser(user: TransformedMember): IndexedUser {
 	return {user, named, perGuild};
 }
 
-function getSearchForms(entry: IndexedUser, filters?: MemberSearchFilters): Array<SearchForm> {
+function getSearchForms(entry: IndexedUser, filters?: SearchFilters): Array<SearchForm> {
 	const {named, perGuild} = entry;
 	if (perGuild == null) {
 		return named;
@@ -173,8 +192,8 @@ function insertSearchResult(shortlist: Array<SearchResult>, candidate: SearchRes
 
 function shouldIncludeUser(
 	userId: string,
-	user: TransformedMember,
-	filters?: MemberSearchFilters,
+	user: TransformedUser,
+	filters?: SearchFilters,
 	blacklist?: Array<string>,
 	whitelist?: Array<string>,
 ): boolean {
@@ -208,7 +227,7 @@ function postSearchResults(uuid: string, shortlist: Array<SearchResult>, generat
 	postMessage(message);
 }
 
-function getFallbackLabel(user: TransformedMember, filters?: MemberSearchFilters): string {
+function getFallbackLabel(user: TransformedUser, filters?: SearchFilters): string {
 	const guildNicknames = user.guildNicknames;
 	const guildId = filters == null ? null : filters.guild;
 	if (guildNicknames != null && guildId != null && guildId.length > 0) {
@@ -324,7 +343,7 @@ function executeSearch(uuid: string, searchQuery: SearchQuery): void {
 	postSearchResults(uuid, hits, generation);
 }
 
-function applyUserUpdates(users: Array<TransformedMember>): void {
+function applyUserUpdates(users: Array<TransformedUser>): void {
 	let shouldTriggerSearch = false;
 	const updatedGuilds = new Set<string>();
 	for (const update of users) {
@@ -338,8 +357,8 @@ function applyUserUpdates(users: Array<TransformedMember>): void {
 		if (update._removeGuild && existingEntry == null) {
 			continue;
 		}
-		const baseUser: TransformedMember = existingEntry == null ? {id: userId, username: ''} : existingEntry.user;
-		const mergedUser: TransformedMember = {...baseUser, ...update};
+		const baseUser: TransformedUser = existingEntry == null ? {id: userId, username: ''} : existingEntry.user;
+		const mergedUser: TransformedUser = {...baseUser, ...update};
 		if (update._removeGuild && baseUser.username.length > 0) {
 			mergedUser.username = baseUser.username;
 		}

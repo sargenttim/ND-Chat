@@ -2,7 +2,6 @@
 
 import AttachmentUrlRefresher from '@app/features/messaging/state/AttachmentUrlRefresher';
 import {TEXT_PREVIEW_MAX_BYTES} from '@app/features/messaging/utils/AttachmentPreviewUtils';
-import {wrapDesktopLocalResourceURL} from '@app/features/messaging/utils/DesktopResourceUrl';
 
 const SIGNATURE_REFUSAL_STATUSES = new Set([401, 403, 404, 410]);
 
@@ -13,11 +12,11 @@ export class PreviewSizeLimitError extends Error {
 	}
 }
 
-function isAttachmentSignatureRefusal(status: number): boolean {
+export function isAttachmentSignatureRefusal(status: number): boolean {
 	return SIGNATURE_REFUSAL_STATUSES.has(status);
 }
 
-async function readPreviewText(response: Response): Promise<string> {
+export async function readPreviewText(response: Response): Promise<string> {
 	const contentLength = response.headers.get('content-length');
 	if (contentLength !== null) {
 		const parsedContentLength = Number(contentLength);
@@ -66,7 +65,7 @@ function requestFailed(response: Response): Error {
 
 export async function fetchTextualPreviewText(url: string, signal: AbortSignal): Promise<string> {
 	const target = await AttachmentUrlRefresher.refresh(url);
-	const response = await fetch(wrapDesktopLocalResourceURL(target), {signal});
+	const response = await fetch(target, {signal});
 	if (response.ok) {
 		return readPreviewText(response);
 	}
@@ -77,7 +76,7 @@ export async function fetchTextualPreviewText(url: string, signal: AbortSignal):
 	if (refreshed === target) {
 		throw requestFailed(response);
 	}
-	const retried = await fetch(wrapDesktopLocalResourceURL(refreshed), {signal});
+	const retried = await fetch(refreshed, {signal});
 	if (!retried.ok) {
 		throw requestFailed(retried);
 	}

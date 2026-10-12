@@ -7,16 +7,7 @@ import {Button as BaseButton} from '@base-ui/react/button';
 import {clsx} from 'clsx';
 import React from 'react';
 
-export const ButtonVariant = Object.freeze({
-	PRIMARY: 'primary',
-	SECONDARY: 'secondary',
-	DANGER: 'danger',
-	INVERTED: 'inverted',
-	INVERTED_OUTLINE: 'inverted-outline',
-	GHOST: 'ghost',
-} as const);
-
-export type ButtonVariant = (typeof ButtonVariant)[keyof typeof ButtonVariant];
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'inverted' | 'inverted-outline' | 'ghost';
 
 interface BaseButtonProps
 	extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onClick' | 'type' | 'disabled' | 'className' | 'title'> {
@@ -50,14 +41,14 @@ type SquareButtonAccessibleName =
 			'aria-label'?: string;
 			'aria-labelledby': string;
 	  };
-type SquareButtonProps = BaseButtonProps &
+export type SquareButtonProps = BaseButtonProps &
 	SquareButtonAccessibleName & {
 		square: true;
 		children?: never;
 		icon: React.ReactNode;
 	};
 
-interface RegularButtonProps extends BaseButtonProps {
+export interface RegularButtonProps extends BaseButtonProps {
 	square?: false;
 	children?: React.ReactNode;
 }

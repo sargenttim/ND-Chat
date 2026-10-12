@@ -14,10 +14,7 @@ import {
 	type VoiceRemoteSpeakingEvent,
 	type VoiceRemoteSpeakingSnapshot,
 } from '@app/features/voice/engine/VoiceParticipantStateMachine';
-import {
-	getSharedVoiceAudioContext,
-	resolveAudioContextConstructor,
-} from '@app/features/voice/engine/VoiceSharedAudioContext';
+import {getSharedVoiceAudioContext} from '@app/features/voice/engine/VoiceSharedAudioContext';
 import {getRemoteSpeakingThresholdRms} from '@app/features/voice/engine/VoiceSpeakingThreshold';
 import {VoiceTrackKind, VoiceTrackSource} from '@app/features/voice/engine/VoiceTrackSource';
 import {
@@ -34,8 +31,8 @@ import VoiceSettings from '@app/features/voice/state/VoiceSettings';
 import type {Participant, RemoteAudioTrack, RemoteTrack, RemoteTrackPublication, Room} from 'livekit-client';
 
 const logger = new Logger('VoiceEngineV2AppRemoteSpeakingAdapter');
-const REMOTE_SPEAKING_ANALYSER_INTERVAL_MS = 50;
-const REMOTE_SPEAKING_ANALYSER_HANDLES_CAP = 256;
+export const REMOTE_SPEAKING_ANALYSER_INTERVAL_MS = 50;
+export const REMOTE_SPEAKING_ANALYSER_HANDLES_CAP = 256;
 
 export function computeTimeDomainRms(samples: Float32Array): number {
 	if (samples.length === 0) return 0;
@@ -56,11 +53,11 @@ interface AnalyserHandle {
 	nextTickAtMs: number;
 }
 
-interface VoiceEngineV2AppRemoteSpeakingAdapterOptions {
+export interface VoiceEngineV2AppRemoteSpeakingAdapterOptions {
 	autoSchedule?: boolean;
 }
 
-class VoiceEngineV2AppRemoteSpeakingAdapter {
+export class VoiceEngineV2AppRemoteSpeakingAdapter {
 	private audioContext: AudioContext | null = null;
 	private audioContextIsShared = false;
 	private analysers = new Map<string, AnalyserHandle>();
@@ -140,7 +137,13 @@ class VoiceEngineV2AppRemoteSpeakingAdapter {
 			assert.notEqual(shared.state, 'closed', 'shared voice AudioContext for analyser must not be closed');
 			return shared;
 		}
-		const AudioContextCtor = resolveAudioContextConstructor();
+		const AudioContextCtor =
+			window.AudioContext ||
+			(
+				window as typeof window & {
+					webkitAudioContext?: typeof AudioContext;
+				}
+			).webkitAudioContext;
 		if (!AudioContextCtor) return null;
 		try {
 			this.audioContext = new AudioContextCtor({latencyHint: 'interactive'});
@@ -365,6 +368,15 @@ class VoiceEngineV2AppRemoteSpeakingAdapter {
 		if (typeof window === 'undefined') return;
 		window.clearInterval(this.autoScheduleTimerId);
 		this.autoScheduleTimerId = null;
+	}
+
+	get analyserCount(): number {
+		return this.analysers.size;
+	}
+
+	hasAnalyserForIdentity(identity: string): boolean {
+		assertNonEmptyString(identity, 'hasAnalyserForIdentity.identity');
+		return this.analysers.has(identity);
 	}
 
 	private closeAudioContext(): void {

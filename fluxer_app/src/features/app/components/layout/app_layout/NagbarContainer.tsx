@@ -2,19 +2,21 @@
 
 import {type NagbarState, NagbarType} from '@app/features/app/components/layout/app_layout/AppLayoutTypes';
 import styles from '@app/features/app/components/layout/app_layout/NagbarContainer.module.css';
-import {AccountLimitedNagbar} from '@app/features/app/components/layout/app_layout/nagbars/AccountLimitedNagbar';
 import {BuildEnvironmentNagbar} from '@app/features/app/components/layout/app_layout/nagbars/BuildEnvironmentNagbar';
 import {ConnectionNagbar} from '@app/features/app/components/layout/app_layout/nagbars/ConnectionNagbar';
 import {CorruptedInstallationNagbar} from '@app/features/app/components/layout/app_layout/nagbars/CorruptedInstallationNagbar';
 import {DesktopDownloadNagbar} from '@app/features/app/components/layout/app_layout/nagbars/DesktopDownloadNagbar';
 import {DesktopNotificationNagbar} from '@app/features/app/components/layout/app_layout/nagbars/DesktopNotificationNagbar';
+import {DesktopUpdateReadyNagbar} from '@app/features/app/components/layout/app_layout/nagbars/DesktopUpdateReadyNagbar';
 import {DomainMovedNagbar} from '@app/features/app/components/layout/app_layout/nagbars/DomainMovedNagbar';
 import {EmailVerificationNagbar} from '@app/features/app/components/layout/app_layout/nagbars/EmailVerificationNagbar';
 import {GiftInventoryNagbar} from '@app/features/app/components/layout/app_layout/nagbars/GiftInventoryNagbar';
 import {GuildMembershipCtaNagbar} from '@app/features/app/components/layout/app_layout/nagbars/GuildMembershipCtaNagbar';
 import {LegacyPriceOptInNagbar} from '@app/features/app/components/layout/app_layout/nagbars/LegacyPriceOptInNagbar';
+import {LinuxInputAccessNagbar} from '@app/features/app/components/layout/app_layout/nagbars/LinuxInputAccessNagbar';
+import {PremiumExpiredNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PremiumExpiredNagbar';
+import {PremiumGracePeriodNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PremiumGracePeriodNagbar';
 import {PremiumOnboardingNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PremiumOnboardingNagbar';
-import {PremiumStatusNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PremiumStatusNagbar';
 import {PriceAnnouncementNagbar} from '@app/features/app/components/layout/app_layout/nagbars/PriceAnnouncementNagbar';
 import {ScheduledMaintenanceNagbar} from '@app/features/app/components/layout/app_layout/nagbars/ScheduledMaintenanceNagbar';
 import {StreamerModeNagbar} from '@app/features/app/components/layout/app_layout/nagbars/StreamerModeNagbar';
@@ -22,7 +24,6 @@ import {TermsAcceptanceNagbar} from '@app/features/app/components/layout/app_lay
 import {UnclaimedAccountNagbar} from '@app/features/app/components/layout/app_layout/nagbars/UnclaimedAccountNagbar';
 import {VisionaryMfaNagbar} from '@app/features/app/components/layout/app_layout/nagbars/VisionaryMfaNagbar';
 import {VoiceSessionRestoreNagbar} from '@app/features/app/components/layout/app_layout/nagbars/VoiceSessionRestoreNagbar';
-import {WindowsFontNagbar} from '@app/features/app/components/layout/app_layout/nagbars/WindowsFontNagbar';
 import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import {SoftwareEncoderNagbar} from '@app/features/voice/components/SoftwareEncoderNagbar';
@@ -104,14 +105,6 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 								data-flx="app.app-layout.nagbar-container.email-verification-nagbar"
 							/>
 						);
-					case NagbarType.ACCOUNT_LIMITED:
-						return (
-							<AccountLimitedNagbar
-								key={nagbar.type}
-								isMobile={mobileLayout.enabled}
-								data-flx="app.app-layout.nagbar-container.account-limited-nagbar"
-							/>
-						);
 					case NagbarType.DESKTOP_NOTIFICATION:
 						return (
 							<DesktopNotificationNagbar
@@ -123,8 +116,7 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 					case NagbarType.PREMIUM_GRACE_PERIOD:
 						if (!showPremiumFeatures) return null;
 						return (
-							<PremiumStatusNagbar
-								variant="grace-period"
+							<PremiumGracePeriodNagbar
 								key={nagbar.type}
 								isMobile={mobileLayout.enabled}
 								data-flx="app.app-layout.nagbar-container.premium-grace-period-nagbar"
@@ -133,8 +125,7 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 					case NagbarType.PREMIUM_EXPIRED:
 						if (!showPremiumFeatures) return null;
 						return (
-							<PremiumStatusNagbar
-								variant="expired"
+							<PremiumExpiredNagbar
 								key={nagbar.type}
 								isMobile={mobileLayout.enabled}
 								data-flx="app.app-layout.nagbar-container.premium-expired-nagbar"
@@ -184,6 +175,14 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 								data-flx="app.app-layout.nagbar-container.desktop-download-nagbar"
 							/>
 						);
+					case NagbarType.DESKTOP_UPDATE_READY:
+						return (
+							<DesktopUpdateReadyNagbar
+								key={nagbar.type}
+								isMobile={mobileLayout.enabled}
+								data-flx="app.app-layout.nagbar-container.desktop-update-ready-nagbar"
+							/>
+						);
 					case NagbarType.GUILD_MEMBERSHIP_CTA:
 						return (
 							<GuildMembershipCtaNagbar
@@ -209,6 +208,14 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 								data-flx="app.app-layout.nagbar-container.voice-session-restore-nagbar"
 							/>
 						);
+					case NagbarType.LINUX_INPUT_ACCESS:
+						return (
+							<LinuxInputAccessNagbar
+								key={nagbar.type}
+								isMobile={mobileLayout.enabled}
+								data-flx="app.app-layout.nagbar-container.linux-input-access-nagbar"
+							/>
+						);
 					case NagbarType.SOFTWARE_ENCODER:
 						return (
 							<SoftwareEncoderNagbar
@@ -230,14 +237,6 @@ export const NagbarContainer: React.FC<NagbarContainerProps> = observer(({nagbar
 								key={nagbar.type}
 								isMobile={mobileLayout.enabled}
 								data-flx="app.app-layout.nagbar-container.domain-moved-nagbar"
-							/>
-						);
-					case NagbarType.WINDOWS_FONT:
-						return (
-							<WindowsFontNagbar
-								key={nagbar.type}
-								isMobile={mobileLayout.enabled}
-								data-flx="app.app-layout.nagbar-container.windows-font-nagbar"
 							/>
 						);
 					default:

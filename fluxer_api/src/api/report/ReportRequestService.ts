@@ -2,25 +2,10 @@
 
 import {requireEmailVerified} from '@app/api/auth/EmailVerificationUtils';
 import {createChannelID, createGuildID, createInviteCode, createMessageID, createUserID} from '@app/api/BrandedTypes';
-import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
-import {Logger} from '@app/api/Logger';
 import type {User} from '@app/api/models/User';
-import {
-	getReportFlowResponse,
-	resolveReportFlowAnswers,
-	resolveReportFlowLocale,
-} from '@app/api/report/flows/ReportFlowRegistry';
-import {type ReportStatus, reportStatusToString} from '@app/api/report/ReportModels';
-import type {ReportFlowRecord, ReportService} from '@app/api/report/ReportService';
+import {type ReportStatus, reportStatusToString} from '@app/api/report/IReportRepository';
+import type {ReportService} from '@app/api/report/ReportService';
 import {UnclaimedAccountCannotSubmitReportsError} from '@fluxer/errors/src/domains/moderation/UnclaimedAccountCannotSubmitReportsError';
-import type {
-	ReportFlowMessageSubmissionRequest,
-	ReportFlowResponse,
-	ReportFlowStep,
-	ReportFlowSurface,
-	ReportFlowTargetType,
-	ReportFlowUserSubmissionRequest,
-} from '@fluxer/schema/src/domains/report/ReportFlowSchemas';
 import type {
 	DsaReportEmailSendRequest,
 	DsaReportEmailVerifyRequest,
@@ -42,18 +27,6 @@ interface ReportDsaRequestContext<T> {
 	locale?: string | null;
 }
 
-interface ReportFlowSubmissionContext<T> {
-	user: User;
-	data: T;
-	locale: string | null;
-}
-
-interface ReportFlowAnswersInput {
-	revision_hash: string;
-	steps: Array<ReportFlowStep>;
-	locale?: string | undefined;
-}
-
 interface ReportRecord {
 	reportId: bigint;
 	status: ReportStatus;
@@ -63,15 +36,10 @@ interface ReportRecord {
 export class ReportRequestService {
 	constructor(private reportService: ReportService) {}
 
-	async reportMessage({
-		user,
-		viewer,
-		data,
-	}: ReportUserRequestContext<ReportMessageRequest> & {viewer: ThreadViewer}): Promise<ReportResponse> {
+	async reportMessage({user, data}: ReportUserRequestContext<ReportMessageRequest>): Promise<ReportResponse> {
 		this.requireVerifiedAccount(user);
 		const report = await this.reportService.reportMessage(
 			this.createReporter(user),
-			viewer,
 			createChannelID(data.channel_id),
 			createMessageID(data.message_id),
 			data.category,
@@ -101,52 +69,6 @@ export class ReportRequestService {
 		return this.toReportResponse(report);
 	}
 
-	getReportFlow(params: {
-		target: ReportFlowTargetType;
-		surface: ReportFlowSurface;
-		locale: string | null;
-	}): ReportFlowResponse {
-		return getReportFlowResponse(params.target, params.surface, params.locale);
-	}
-
-	async submitMessageReportFlow({
-		user,
-		viewer,
-		data,
-		locale,
-	}: ReportFlowSubmissionContext<ReportFlowMessageSubmissionRequest> & {
-		viewer: ThreadViewer;
-	}): Promise<ReportResponse> {
-		this.requireVerifiedAccount(user);
-		const flow = this.resolveInAppFlow('message', data, locale);
-		const report = await this.reportService.reportMessage(
-			this.createReporter(user),
-			viewer,
-			createChannelID(data.channel_id),
-			createMessageID(data.message_id),
-			flow.category,
-			flow.record,
-		);
-		return this.toReportResponse(report);
-	}
-
-	async submitUserReportFlow({
-		user,
-		data,
-		locale,
-	}: ReportFlowSubmissionContext<ReportFlowUserSubmissionRequest>): Promise<ReportResponse> {
-		this.requireVerifiedAccount(user);
-		const flow = this.resolveInAppFlow('user', data, locale);
-		const report = await this.reportService.reportUser(
-			this.createReporter(user),
-			createUserID(data.user_id),
-			flow.category,
-			data.guild_id ? createGuildID(data.guild_id) : undefined,
-			flow.record,
-		);
-		return this.toReportResponse(report);
-	}
-
 	async sendDsaReportVerificationEmail({
 		data,
 		locale,
@@ -159,38 +81,9 @@ export class ReportRequestService {
 		return {ticket};
 	}
 
-	async createDsaReport({data, locale}: ReportDsaRequestContext<DsaReportRequest>): Promise<ReportResponse> {
-		const report = await this.reportService.createDsaReport(data, locale ?? null);
+	async createDsaReport({data}: ReportDsaRequestContext<DsaReportRequest>): Promise<ReportResponse> {
+		const report = await this.reportService.createDsaReport(data);
 		return this.toReportResponse(report);
-	}
-
-	private resolveInAppFlow(
-		target: ReportFlowTargetType,
-		data: ReportFlowAnswersInput,
-		locale: string | null,
-	): {category: string; record: ReportFlowRecord} {
-		const answers = resolveReportFlowAnswers({
-			target,
-			surface: 'in_app',
-			revisionHash: data.revision_hash,
-			steps: data.steps,
-		});
-		if (!answers.isCurrentRevision) {
-			Logger.warn(
-				{clientRevision: data.revision_hash, currentRevision: answers.currentRevisionHash, target},
-				'Accepted a report flow submission from an outdated revision',
-			);
-		}
-		return {
-			category: answers.legacyCategory,
-			record: {
-				reason: answers.reason,
-				revisionHash: data.revision_hash,
-				stepsJson: answers.stepsJson,
-				locale: resolveReportFlowLocale(data.locale ?? locale),
-				surface: 'in_app',
-			},
-		};
 	}
 
 	private requireVerifiedAccount(user: User): void {

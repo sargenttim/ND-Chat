@@ -18,40 +18,34 @@
 -type channel_id() :: integer().
 
 -spec maybe_ensure_parent_category_visible(
-    channel_id(), map(), guild_state(), map(), integer()
+    channel_id(), map(), guild_state(), pid() | term(), integer()
 ) -> map().
-maybe_ensure_parent_category_visible(ChannelId, ViewableMap, State, SessionData, GuildId) ->
-    case
-        {snowflake_id(GuildId), guild_permissions_check:find_channel_by_id(ChannelId, State)}
-    of
+maybe_ensure_parent_category_visible(ChannelId, ViewableMap, State, Pid, GuildId) ->
+    case {snowflake_id(GuildId), guild_permissions:find_channel_by_id(ChannelId, State)} of
         {undefined, _} ->
             ViewableMap;
         {_, undefined} ->
             ViewableMap;
         {ResolvedGuildId, Channel} ->
             ensure_parent_category_visible(
-                channel_parent_id(Channel), ViewableMap, State, SessionData, ResolvedGuildId
+                channel_parent_id(Channel), ViewableMap, State, Pid, ResolvedGuildId
             )
     end.
 
 -spec ensure_parent_category_visible(
-    channel_id() | undefined, map(), guild_state(), map(), integer()
+    channel_id() | undefined, map(), guild_state(), pid() | term(), integer()
 ) -> map().
-ensure_parent_category_visible(undefined, ViewableMap, _State, _SessionData, _GuildId) ->
+ensure_parent_category_visible(undefined, ViewableMap, _State, _Pid, _GuildId) ->
     ViewableMap;
-ensure_parent_category_visible(
-    ParentId, ViewableMap, State, #{pid := Pid} = SessionData, GuildId
-) when
-    is_pid(Pid)
-->
+ensure_parent_category_visible(ParentId, ViewableMap, State, Pid, GuildId) when is_pid(Pid) ->
     case maps:is_key(ParentId, ViewableMap) of
         true ->
             ViewableMap;
         false ->
-            dispatch_channel_create(ParentId, SessionData, State, GuildId),
+            dispatch_channel_create(ParentId, Pid, State, GuildId),
             ViewableMap#{ParentId => true}
     end;
-ensure_parent_category_visible(_ParentId, ViewableMap, _State, _SessionData, _GuildId) ->
+ensure_parent_category_visible(_ParentId, ViewableMap, _State, _Pid, _GuildId) ->
     ViewableMap.
 
 -spec dispatch_channel_delete(channel_id(), pid(), guild_state(), integer()) -> ok.
@@ -67,16 +61,14 @@ dispatch_channel_delete(ChannelId, SessionPid, OldState, GuildId) ->
             ok
     end.
 
--spec dispatch_channel_create(channel_id(), map(), guild_state(), integer()) -> ok.
-dispatch_channel_create(ChannelId, SessionData, NewState, GuildId) ->
-    case
-        {maps:get(pid, SessionData, undefined), snowflake_id(ChannelId), snowflake_id(GuildId)}
-    of
-        {SessionPid, ResolvedChannelId, ResolvedGuildId} when
-            is_pid(SessionPid), is_integer(ResolvedChannelId), is_integer(ResolvedGuildId)
+-spec dispatch_channel_create(channel_id(), pid(), guild_state(), integer()) -> ok.
+dispatch_channel_create(ChannelId, SessionPid, NewState, GuildId) ->
+    case {is_pid(SessionPid), snowflake_id(ChannelId), snowflake_id(GuildId)} of
+        {true, ResolvedChannelId, ResolvedGuildId} when
+            is_integer(ResolvedChannelId), is_integer(ResolvedGuildId)
         ->
             maybe_dispatch_channel_create(
-                ResolvedChannelId, SessionData, NewState, ResolvedGuildId
+                ResolvedChannelId, SessionPid, NewState, ResolvedGuildId
             );
         _ ->
             ok
@@ -131,7 +123,7 @@ send_sync_for_list(SessionId, SessionData, SessionPid, ChannelId, GuildId, ListI
 maybe_dispatch_sync(SessionUserId, SessionPid, ChannelId, GuildId, ListId, Ranges, State) ->
     case can_send_member_list(SessionUserId, ChannelId, State) of
         true ->
-            SyncResponse = guild_member_list_read:build_sync_response(
+            SyncResponse = guild_member_list:build_sync_response(
                 GuildId, ListId, Ranges, State
             ),
             SyncResponseWithChannel = SyncResponse#{
@@ -148,16 +140,14 @@ maybe_dispatch_sync(SessionUserId, SessionPid, ChannelId, GuildId, ListId, Range
 can_send_member_list(UserId, ChannelId, State) ->
     case snowflake_id(ChannelId) of
         ResolvedChannelId when is_integer(UserId), is_integer(ResolvedChannelId) ->
-            guild_permissions_check:can_view_channel(
-                UserId, ResolvedChannelId, undefined, State
-            );
+            guild_permissions:can_view_channel(UserId, ResolvedChannelId, undefined, State);
         undefined ->
             false
     end.
 
 -spec maybe_dispatch_channel_delete(channel_id(), pid(), guild_state(), integer()) -> ok.
 maybe_dispatch_channel_delete(ChannelId, SessionPid, OldState, GuildId) ->
-    case guild_permissions_check:find_channel_by_id(ChannelId, OldState) of
+    case guild_permissions:find_channel_by_id(ChannelId, OldState) of
         undefined ->
             ok;
         _Channel ->
@@ -168,29 +158,16 @@ maybe_dispatch_channel_delete(ChannelId, SessionPid, OldState, GuildId) ->
             gateway_dispatch_relay:dispatch(SessionPid, channel_delete, ChannelDelete, GuildId)
     end.
 
--spec maybe_dispatch_channel_create(channel_id(), map(), guild_state(), integer()) -> ok.
-maybe_dispatch_channel_create(ChannelId, #{pid := SessionPid} = SessionData, NewState, GuildId) ->
-    case guild_permissions_check:find_channel_by_id(ChannelId, NewState) of
+-spec maybe_dispatch_channel_create(channel_id(), pid(), guild_state(), integer()) -> ok.
+maybe_dispatch_channel_create(ChannelId, SessionPid, NewState, GuildId) ->
+    case guild_permissions:find_channel_by_id(ChannelId, NewState) of
         undefined ->
             ok;
         Channel ->
-            SessionChannel = session_channel(Channel, SessionData, NewState),
-            ChannelWithGuild = SessionChannel#{<<"guild_id">> => integer_to_binary(GuildId)},
+            ChannelWithGuild = Channel#{<<"guild_id">> => integer_to_binary(GuildId)},
             gateway_dispatch_relay:dispatch(
                 SessionPid, channel_create, ChannelWithGuild, GuildId
             )
-    end.
-
--spec session_channel(map(), map(), guild_state()) -> map().
-session_channel(Channel, SessionData, State) ->
-    case
-        guild_thread_gate:needs_variant(State) andalso
-            not guild_thread_gate:session_viewer(SessionData)
-    of
-        true ->
-            guild_thread_gate:mask_overwrites(guild_thread_gate:strip_channel_surface(Channel));
-        false ->
-            Channel
     end.
 
 -spec channel_parent_id(map()) -> channel_id() | undefined.

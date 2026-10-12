@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
 import {ActivityContextMiddleware} from '@app/api/infrastructure/activity/ActivityMeta';
 import {applySharedListUpdate, resetSharedListsForTests} from '@app/api/infrastructure/activity/SharedLists';
 import {IpBanMiddleware, ipBanCache} from '@app/api/middleware/IpBanMiddleware';
@@ -85,17 +87,6 @@ describe('client ip resolution across the request pipeline', () => {
 		expect(pipeline.errors[0]).toBeInstanceOf(ForbiddenError);
 		expect(pipeline.errors[0]).not.toBeInstanceOf(IpBannedError);
 	});
-	it('rejects x-forwarded-for with an empty first hop', async () => {
-		const pipeline = createPipeline();
-		const response = await pipeline.request({'x-forwarded-for': ', 10.0.0.1'});
-		expect(response.status).toBe(403);
-		expect(pipeline.errors[0]).toBeInstanceOf(ForbiddenError);
-	});
-	it('passes requests through when the client ip header holds only whitespace', async () => {
-		const pipeline = createPipeline();
-		const response = await pipeline.request({'x-forwarded-for': '   '});
-		expect(response.status).toBe(200);
-	});
 	it('passes requests through when no client ip header is present', async () => {
 		const pipeline = createPipeline();
 		const response = await pipeline.request({});
@@ -111,7 +102,7 @@ describe('client ip resolution across the request pipeline', () => {
 		expect(pipeline.resolutions[0]?.ip).toBe('203.0.113.10');
 		expect(pipeline.resolutions[1]?.ip).toBe('203.0.113.10');
 	});
-	it('rejects an invalid trusted header even when the configured header contains a valid address', async () => {
+	it('rejects an invalid trusted header even when the configured header carries a valid address', async () => {
 		const pipeline = createPipeline('x-real-ip');
 		const response = await pipeline.request({'x-forwarded-for': '203.0.113.10', 'x-real-ip': 'not-an-ip'});
 		expect(response.status).toBe(403);

@@ -8,7 +8,6 @@
 		"./*": "./*"
 	},
 	"scripts": {
-		"test": "node --test 'src/**/*.test.mjs'",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {

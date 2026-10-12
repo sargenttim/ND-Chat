@@ -34,14 +34,6 @@ export function computeEffectiveChannelNsfw(
 	return guild.nsfw;
 }
 
-export function resolveEffectiveThreadNsfw(
-	parent: ContentWarningChannelLike,
-	parentCategory: ContentWarningChannelLike | null,
-	guild: ContentWarningGuildLike,
-): boolean {
-	return computeEffectiveChannelNsfw(parent, parentCategory, guild);
-}
-
 export function computeEffectiveContentWarning(
 	channel: ContentWarningChannelLike,
 	parentCategory: ContentWarningChannelLike | null,

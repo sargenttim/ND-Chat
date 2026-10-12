@@ -13,11 +13,7 @@ import {
 	precacheAssets,
 	seedAppShell,
 } from '@app/features/platform/service_worker/WorkerAppShell';
-import {
-	shouldDeleteWorkerCache,
-	WORKER_CACHE_PREFIX,
-	WORKER_NAVIGATION_CACHE_PREFIX,
-} from '@app/features/platform/service_worker/WorkerCacheCleanup';
+import {shouldDeleteWorkerCache, WORKER_CACHE_PREFIX} from '@app/features/platform/service_worker/WorkerCacheCleanup';
 import {getWorkerFetchRoute} from '@app/features/platform/service_worker/WorkerFetchRouting';
 import {
 	getBadgeCount,
@@ -32,7 +28,6 @@ import {
 	shouldRenotifyPushNotification,
 	shouldSilenceNonMobilePushNotification,
 } from '@app/features/platform/service_worker/WorkerPushPayload';
-import {isObjectLike as isRecord} from '@fluxer/record_utils/src/RecordGuards';
 
 type SwLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
@@ -50,7 +45,7 @@ const ensureServiceWorkerReady: Promise<void> = Promise.resolve();
 const SERVICE_WORKER_VERSION = typeof __FLUXER_SW_VERSION__ === 'string' ? __FLUXER_SW_VERSION__ : 'dev';
 const PRECACHE_MANIFEST = typeof __FLUXER_PRECACHE_MANIFEST__ === 'undefined' ? [] : __FLUXER_PRECACHE_MANIFEST__;
 const PRECACHE_CACHE = `${WORKER_CACHE_PREFIX}-precache-${SERVICE_WORKER_VERSION}`;
-const NAVIGATION_CACHE = `${WORKER_NAVIGATION_CACHE_PREFIX}${SERVICE_WORKER_VERSION}`;
+const NAVIGATION_CACHE = `${WORKER_CACHE_PREFIX}-navigation-${SERVICE_WORKER_VERSION}`;
 const EXPECTED_CACHES = new Set([PRECACHE_CACHE, NAVIGATION_CACHE]);
 const NAVIGATION_NETWORK_TIMEOUT_MS = 650;
 const serviceWorkerCaches = self.caches;
@@ -186,6 +181,10 @@ self.addEventListener('message', (event: ExtendableMessageEvent) => {
 	}
 	event.waitUntil(log('debug', 'message: unknown', {type}));
 });
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
+}
 
 const updateAppBadge = async (count: number | null): Promise<void> => {
 	if (typeof navigator.setAppBadge !== 'function' && typeof navigator.clearAppBadge !== 'function') {

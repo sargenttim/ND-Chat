@@ -154,7 +154,6 @@ function resolveForwardChannelRow(channelId: string): ForwardRowIdentity | null 
 		case ChannelTypes.GUILD_VOICE:
 			return {id: channel.id, type: 'voice_channel'};
 		case ChannelTypes.GUILD_TEXT:
-		case ChannelTypes.GUILD_ANNOUNCEMENT:
 			return {id: channel.id, type: 'text_channel'};
 		default:
 			return null;

@@ -11,15 +11,20 @@ import type {
 import {enforceLocalMediaPublicationCap} from '@app/features/voice/engine/VoiceTrackPublicationUtils';
 import {VoiceTrackSource} from '@app/features/voice/engine/VoiceTrackSource';
 import type {VoiceEngineV2AppScreenShareExecutionAdapter} from '@app/features/voice/engine/v2/VoiceEngineV2AppScreenShareExecutionAdapter';
+import LocalVoiceState from '@app/features/voice/state/LocalVoiceState';
 import type {ScreenShareContentSource} from '@app/features/voice/utils/CodecCapabilityDetector';
 import type {LocalParticipant, Room, TrackPublishOptions} from 'livekit-client';
 
-interface ScreenSharePublishPipelineOptions {
+export interface ScreenSharePublishPipelineOptions {
 	readonly contentSource: ScreenShareContentSource | undefined;
 	readonly effectivePublishOptions: TrackPublishOptions | undefined;
 }
 
-interface ScreenShareActivationRitualSteps {
+export type ScreenShareActivationAudioSync =
+	| {readonly kind: 'participant-after-watch'}
+	| {readonly kind: 'self-stream-before-watch'; readonly published: boolean};
+
+export interface ScreenShareActivationRitualSteps {
 	readonly acquireStreamingPriority: boolean;
 	readonly enforcePublicationCap: boolean;
 	readonly applyState: ((active: boolean) => void) | null;
@@ -27,6 +32,7 @@ interface ScreenShareActivationRitualSteps {
 	readonly publishPipeline: ScreenSharePublishPipelineOptions | null;
 	readonly deactivateCleanup: (() => Promise<void>) | null;
 	readonly updateLocalParticipant: boolean;
+	readonly audioSync: ScreenShareActivationAudioSync;
 	readonly syncPersistedAudioPreferenceWhenActive: boolean;
 	readonly playSound: boolean;
 	readonly buildResolveTransition: (() => VoiceScreenShareEvent) | null;
@@ -85,7 +91,9 @@ export async function runScreenShareActivationRitual(args: ScreenShareActivation
 	if (steps.publishPipeline) {
 		assert.ok(participant, 'participant is required to run the publish pipeline');
 	}
-	assert.ok(participant, 'participant is required for participant-scoped audio sync');
+	if (steps.audioSync.kind === 'participant-after-watch') {
+		assert.ok(participant, 'participant is required for participant-scoped audio sync');
+	}
 	if (steps.acquireStreamingPriority) {
 		adapter.setStreamingPriorityInternal(true);
 	}
@@ -104,10 +112,16 @@ export async function runScreenShareActivationRitual(args: ScreenShareActivation
 	if (steps.applyState && steps.applyStatePosition === 'after-pipeline') {
 		steps.applyState(active);
 	}
+	if (steps.audioSync.kind === 'self-stream-before-watch') {
+		LocalVoiceState.updateSelfStreamAudio(steps.audioSync.published);
+	}
 	if (steps.updateLocalParticipant) {
 		updateLocalParticipantFromRoom(room);
 	}
 	adapter.syncLocalStreamWatchStateInternal(active);
+	if (steps.audioSync.kind === 'participant-after-watch' && participant) {
+		adapter.syncLocalScreenShareAudioStateInternal(participant, active);
+	}
 	if (active && steps.syncPersistedAudioPreferenceWhenActive && participant) {
 		adapter.syncPersistedScreenShareAudioPreferenceInternal(participant);
 	}
@@ -138,6 +152,7 @@ export function settleScreenShareFailure(args: ScreenShareFailureSettleArgs): bo
 	args.applyState(actual);
 	updateLocalParticipantFromRoom(room);
 	adapter.syncLocalStreamWatchStateInternal(actual);
+	adapter.syncLocalScreenShareAudioStateInternal(participant, actual);
 	if (!actual) {
 		args.onInactiveAfterSync?.();
 	}

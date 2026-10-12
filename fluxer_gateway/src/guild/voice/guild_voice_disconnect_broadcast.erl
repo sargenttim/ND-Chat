@@ -125,9 +125,10 @@ clear_pending_voice_connections_for_user(UserId, RequestSessionId, State) ->
 pending_session_matches(_PendingData, undefined) ->
     true;
 pending_session_matches(PendingData, RequestSessionId) ->
-    guild_voice_connection_normalize:normalize_session_id(
-        maps:get(session_id, PendingData, undefined)
-    ) =:= RequestSessionId.
+    normalize_session_id(maps:get(session_id, PendingData, undefined)) =:= RequestSessionId.
+
+-spec normalize_session_id(term()) -> binary() | undefined.
+normalize_session_id(Value) -> voice_state_utils:normalize_session_id(Value).
 
 -spec clear_pending_voice_connections_for_user_channel(integer(), integer(), guild_state()) ->
     guild_state().

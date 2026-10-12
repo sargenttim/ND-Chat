@@ -73,7 +73,7 @@ function watchBackdropActivation(ownerDocument: Document): () => void {
 	};
 }
 
-function isBackdropActivationLeftOver(ownerDocument: Document): boolean {
+function isBackdropActivationCarriedOver(ownerDocument: Document): boolean {
 	const watcher = backdropActivationWatchers.get(ownerDocument);
 	if (!watcher) {
 		return false;
@@ -81,8 +81,8 @@ function isBackdropActivationLeftOver(ownerDocument: Document): boolean {
 	return watcher.isRepeatActivation || watcher.isPressTargetDetached;
 }
 
-type ModalSize = 'medium' | 'small' | 'large' | 'xlarge' | 'fullscreen';
-type LabelSource = 'header' | 'screen-reader';
+export type ModalSize = 'medium' | 'small' | 'large' | 'xlarge' | 'fullscreen';
+export type LabelSource = 'header' | 'screen-reader';
 
 export type ModalTransitionPreset = 'default' | 'instant' | 'quick' | 'profile-slide';
 
@@ -222,7 +222,7 @@ export function useModalLogic({
 	}, [handleClose, modalKey]);
 	const handleBackdropClick = useCallback(
 		(customOnClose?: () => void) => {
-			if (isBackdropActivationLeftOver(ownerDocument)) {
+			if (isBackdropActivationCarriedOver(ownerDocument)) {
 				return;
 			}
 			handleClose(customOnClose);

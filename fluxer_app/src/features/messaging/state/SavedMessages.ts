@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import {Message} from '@app/features/messaging/models/MessagingMessage';
 import type {SavedMessageEntry, SavedMessageMissingEntry} from '@app/features/messaging/models/SavedMessageEntry';
 import {SAVED_MESSAGES_PAGE_SIZE} from '@fluxer/constants/src/LimitConstants';
@@ -30,6 +29,10 @@ class SavedMessages {
 			this.savedMessages.some((message) => message.id === messageId) ||
 			this.missingSavedMessages.some((entry) => entry.id === messageId)
 		);
+	}
+
+	getMissingEntries(): Array<SavedMessageMissingEntry> {
+		return this.missingSavedMessages.slice();
 	}
 
 	getHasMore(): boolean {
@@ -154,6 +157,4 @@ class SavedMessages {
 	}
 }
 
-const savedMessages = new SavedMessages();
-ResettableStates.register(savedMessages, savedMessages.handleGatewayReady);
-export default savedMessages;
+export default new SavedMessages();

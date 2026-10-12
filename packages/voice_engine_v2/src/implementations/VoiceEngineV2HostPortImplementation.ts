@@ -6,10 +6,12 @@ import {
 	VoiceEngineV2ImplementationBase,
 } from '@fluxer/voice_engine_v2/src/implementations/VoiceEngineV2ImplementationBase';
 import type {
+	CapabilitiesPort,
 	DevicePort,
 	DiagnosticsPort,
 	GatewayPort,
 	LiveKitMediaPort,
+	LiveKitPort,
 	NativeMediaPort,
 	ParticipantProjectionIngestionPort,
 	PermissionPort,
@@ -29,6 +31,7 @@ import type {
 	VoiceEngineV2DeviceInventory,
 	VoiceEngineV2DisconnectReason,
 	VoiceEngineV2GatewayVoiceStateWrite,
+	VoiceEngineV2HardwareEncoderCapabilities,
 	VoiceEngineV2MicrophoneOptions,
 	VoiceEngineV2NativeAudioTapOptions,
 	VoiceEngineV2NativeCaptureOptions,
@@ -42,7 +45,7 @@ import type {
 	VoiceEngineV2ScreenEncodingOptions,
 	VoiceEngineV2ScreenOptions,
 	VoiceEngineV2Stats,
-} from '@fluxer/voice_engine_v2/src/protocol/types';
+} from '@fluxer/voice_engine_v2/src/protocol';
 
 export class VoiceEngineV2HostPortImplementation extends VoiceEngineV2ImplementationBase {
 	readonly kind = 'native' as const;
@@ -67,7 +70,7 @@ export class VoiceEngineV2HostPortDriver implements VoiceEngineV2Driver {
 	}
 
 	async prewarm(): Promise<void> {
-		const port = this.ports.media;
+		const port = this.ports.media ?? this.ports.liveKit;
 		if (port) await port.prewarm();
 	}
 
@@ -149,6 +152,10 @@ export class VoiceEngineV2HostPortDriver implements VoiceEngineV2Driver {
 
 	async collectStats(): Promise<VoiceEngineV2Stats> {
 		return this.statsPort().collectStats();
+	}
+
+	async getHardwareEncoderCapabilities(): Promise<VoiceEngineV2HardwareEncoderCapabilities> {
+		return this.capabilitiesPort().getHardwareEncoderCapabilities();
 	}
 
 	async checkPermission(name: VoiceEngineV2PermissionName): Promise<VoiceEngineV2PermissionResult> {
@@ -233,20 +240,20 @@ export class VoiceEngineV2HostPortDriver implements VoiceEngineV2Driver {
 		return port;
 	}
 
-	private mediaPort(): LiveKitMediaPort {
-		const port = this.ports.media;
+	private mediaPort(): LiveKitMediaPort | LiveKitPort {
+		const port = this.ports.media ?? this.ports.liveKit;
 		if (!port) throw unsupportedPortError('media');
 		return port;
 	}
 
-	private subscriptionPort(): SubscriptionPort {
-		const port = this.ports.subscriptions;
+	private subscriptionPort(): SubscriptionPort | LiveKitPort {
+		const port = this.ports.subscriptions ?? this.ports.liveKit;
 		if (!port) throw unsupportedPortError('subscriptions');
 		return port;
 	}
 
-	private statsPort(): StatsPort {
-		const port = this.ports.stats;
+	private statsPort(): StatsPort | LiveKitPort {
+		const port = this.ports.stats ?? this.ports.liveKit;
 		if (!port) throw unsupportedPortError('stats');
 		return port;
 	}
@@ -254,6 +261,12 @@ export class VoiceEngineV2HostPortDriver implements VoiceEngineV2Driver {
 	private nativeMediaPort(): NativeMediaPort {
 		const port = this.ports.nativeMedia;
 		if (!port) throw unsupportedPortError('nativeMedia');
+		return port;
+	}
+
+	private capabilitiesPort(): CapabilitiesPort {
+		const port = this.ports.capabilities;
+		if (!port) throw unsupportedPortError('capabilities');
 		return port;
 	}
 

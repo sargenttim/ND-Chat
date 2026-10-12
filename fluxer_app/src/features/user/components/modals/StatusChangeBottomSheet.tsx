@@ -221,6 +221,7 @@ const CustomStatusSection = observer(({onOpenEditor}: CustomStatusSectionProps) 
 			>
 				<CustomStatusDisplay
 					customStatus={normalizedExisting}
+					showText={true}
 					animateOnParentHover
 					data-flx="user.status-change-bottom-sheet.custom-status-section.custom-status-display"
 				/>

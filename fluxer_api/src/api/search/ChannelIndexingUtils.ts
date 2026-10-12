@@ -2,13 +2,10 @@
 
 import {CHANNEL_REINDEX_AFTER_TIMESTAMP} from '@fluxer/constants/src/ChannelConstants';
 
-export function channelNeedsReindexing(
-	indexedAt: Date | null | undefined,
-	cutoffSeconds = CHANNEL_REINDEX_AFTER_TIMESTAMP,
-): boolean {
+export function channelNeedsReindexing(indexedAt: Date | null | undefined): boolean {
 	if (!indexedAt) {
 		return true;
 	}
 	const indexedAtSeconds = Math.floor(indexedAt.getTime() / 1000);
-	return indexedAtSeconds < cutoffSeconds;
+	return indexedAtSeconds < CHANNEL_REINDEX_AFTER_TIMESTAMP;
 }

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {ATTACH_FILES_PERMISSION, SEND_MESSAGES_PERMISSION} from '@app/features/app/config/I18nDisplayConstants';
+import RequiredActionModal from '@app/features/auth/components/modals/RequiredActionModal';
 import {
 	DeveloperOptionCheckbox,
 	DeveloperOptionRadioItems,
@@ -11,15 +12,20 @@ import {
 	getGiftDurationOptions,
 	getMatureContentChannelGateOptions,
 	getMatureContentMediaGateOptions,
+	getRequiredActionModeOptions,
+	getRequiredActionPhoneStepOptions,
+	getRequiredActionResendOutcomeOptions,
+	getRequiredActionTabOptions,
 	getVerificationBarrierOptions,
 } from '@app/features/channel/components/channel_header_components/developer_tools/OptionPresets';
 import {updateOption} from '@app/features/channel/components/channel_header_components/developer_tools/ResetOptions';
 import * as DeveloperOptionsCommands from '@app/features/devtools/commands/DeveloperOptionsCommands';
 import DeveloperOptions from '@app/features/devtools/state/DeveloperOptions';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
-import {SubMenu as MenuItemSubmenu} from '@app/features/ui/action_menu/ContextMenu';
 import {MenuItem} from '@app/features/ui/action_menu/MenuItem';
 import {MenuItemSlider} from '@app/features/ui/action_menu/MenuItemSlider';
+import {MenuItemSubmenu} from '@app/features/ui/action_menu/MenuItemSubmenu';
+import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import Users from '@app/features/user/state/Users';
 import {msg, plural} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
@@ -51,8 +57,28 @@ const SLOWMODE_TIME_REMAINING_DESCRIPTOR = msg({
 	message: 'Slowmode time remaining',
 	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
 });
+const REQUIRED_ACTION_FLOW_DESCRIPTOR = msg({
+	message: 'Required action flow',
+	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
+});
+const MOCK_VARIANT_DESCRIPTOR = msg({
+	message: 'Mock variant',
+	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
+});
 const MOCK_INCOMING_CALL_DESCRIPTOR = msg({
 	message: 'Mock incoming call',
+	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
+});
+const DEFAULT_TAB_DESCRIPTOR = msg({
+	message: 'Default tab',
+	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
+});
+const PHONE_STEP_DESCRIPTOR = msg({
+	message: 'Phone step',
+	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
+});
+const RESEND_OUTCOME_DESCRIPTOR = msg({
+	message: 'Resend outcome',
 	comment: 'Developer tools debug menu label. Internal-only surface for developers; translators may keep this terse.',
 });
 const CONTENT_SAFETY_GATES_DESCRIPTOR = msg({
@@ -164,6 +190,71 @@ const SlowmodeSimulationMenu: React.FC = observer(() => {
 		/>
 	);
 });
+const RequiredActionFlowMenu: React.FC<{onOpenOverlay: () => void}> = observer(({onOpenOverlay}) => {
+	const {i18n} = useLingui();
+	const shouldShowDefaultTab = DeveloperOptions.mockRequiredActionsMode === 'email_or_phone';
+	const shouldShowPhoneStep =
+		DeveloperOptions.mockRequiredActionsMode === 'phone' ||
+		(DeveloperOptions.mockRequiredActionsMode === 'email_or_phone' &&
+			DeveloperOptions.mockRequiredActionsSelectedTab === 'phone');
+	return (
+		<MenuItemSubmenu
+			label={i18n._(REQUIRED_ACTION_FLOW_DESCRIPTOR)}
+			render={() => (
+				<>
+					<DeveloperOptionRadioSubmenu
+						label={i18n._(MOCK_VARIANT_DESCRIPTOR)}
+						optionKey="mockRequiredActionsMode"
+						options={getRequiredActionModeOptions()}
+						data-flx="channel.channel-header-components.developer-tools-context-menu.required-action-flow-menu.developer-option-radio-submenu"
+					/>
+					<MenuItem
+						disabled={!Users.currentUser}
+						onClick={onOpenOverlay}
+						data-flx="channel.channel-header-components.developer-tools-context-menu.required-action-flow-menu.menu-item.open-overlay"
+					>
+						<Trans>Open overlay</Trans>
+					</MenuItem>
+					{shouldShowDefaultTab && (
+						<DeveloperOptionRadioSubmenu
+							label={i18n._(DEFAULT_TAB_DESCRIPTOR)}
+							optionKey="mockRequiredActionsSelectedTab"
+							options={getRequiredActionTabOptions()}
+							data-flx="channel.channel-header-components.developer-tools-context-menu.required-action-flow-menu.developer-option-radio-submenu--2"
+						/>
+					)}
+					{shouldShowPhoneStep && (
+						<DeveloperOptionRadioSubmenu
+							label={i18n._(PHONE_STEP_DESCRIPTOR)}
+							optionKey="mockRequiredActionsPhoneStep"
+							options={getRequiredActionPhoneStepOptions()}
+							data-flx="channel.channel-header-components.developer-tools-context-menu.required-action-flow-menu.developer-option-radio-submenu--3"
+						/>
+					)}
+					<DeveloperOptionCheckbox
+						optionKey="mockRequiredActionsReverify"
+						data-flx="channel.channel-header-components.developer-tools-context-menu.required-action-flow-menu.developer-option-checkbox"
+					>
+						<Trans>Use reverification text</Trans>
+					</DeveloperOptionCheckbox>
+					<DeveloperOptionCheckbox
+						optionKey="mockRequiredActionsResending"
+						data-flx="channel.channel-header-components.developer-tools-context-menu.required-action-flow-menu.developer-option-checkbox--2"
+					>
+						<Trans>Resend button loading</Trans>
+					</DeveloperOptionCheckbox>
+					<DeveloperOptionRadioSubmenu
+						label={i18n._(RESEND_OUTCOME_DESCRIPTOR)}
+						optionKey="mockRequiredActionsResendOutcome"
+						options={getRequiredActionResendOutcomeOptions()}
+						data-flx="channel.channel-header-components.developer-tools-context-menu.required-action-flow-menu.developer-option-radio-submenu--4"
+					/>
+				</>
+			)}
+			data-flx="channel.channel-header-components.developer-tools-context-menu.required-action-flow-menu.menu-item-submenu"
+		/>
+	);
+});
 const ContentSafetyGatesMenu: React.FC = () => {
 	const {i18n} = useLingui();
 	return (
@@ -194,6 +285,12 @@ const ContentSafetyGatesMenu: React.FC = () => {
 						data-flx="channel.channel-header-components.developer-tools-context-menu.content-safety-gates-menu.developer-option-checkbox--2"
 					>
 						<Trans>Mock UK geo</Trans>
+					</DeveloperOptionCheckbox>
+					<DeveloperOptionCheckbox
+						optionKey="mockGeoBlocked"
+						data-flx="channel.channel-header-components.developer-tools-context-menu.content-safety-gates-menu.developer-option-checkbox--3"
+					>
+						<Trans>Mock geo block overlay</Trans>
 					</DeveloperOptionCheckbox>
 				</>
 			)}
@@ -247,8 +344,20 @@ const GiftInventoryFlowMenu: React.FC = observer(() => {
 		/>
 	);
 });
-export const MockingMenu: React.FC = observer(() => {
+export const MockingMenu: React.FC<{onClose: () => void}> = observer(({onClose}) => {
 	const {i18n} = useLingui();
+	const openRequiredActionOverlay = () => {
+		ModalCommands.pushWithKeyAfterBottomSheetClose(
+			onClose,
+			ModalCommands.modal(() => (
+				<RequiredActionModal
+					mock={true}
+					data-flx="channel.channel-header-components.developer-tools-context-menu.open-required-action-overlay.required-action-modal"
+				/>
+			)),
+			'required-actions-mock',
+		);
+	};
 	return (
 		<MenuItemSubmenu
 			label={i18n._(MOCKED_PRODUCT_FLOWS_DESCRIPTOR)}
@@ -306,6 +415,10 @@ export const MockingMenu: React.FC = observer(() => {
 						data-flx="channel.channel-header-components.developer-tools-context-menu.mocking-menu.menu-item-submenu.mock-incoming-call"
 					/>
 					<SlowmodeSimulationMenu data-flx="channel.channel-header-components.developer-tools-context-menu.mocking-menu.slowmode-simulation-menu" />
+					<RequiredActionFlowMenu
+						onOpenOverlay={openRequiredActionOverlay}
+						data-flx="channel.channel-header-components.developer-tools-context-menu.mocking-menu.required-action-flow-menu"
+					/>
 					<ContentSafetyGatesMenu data-flx="channel.channel-header-components.developer-tools-context-menu.mocking-menu.content-safety-gates-menu" />
 					<GiftInventoryFlowMenu data-flx="channel.channel-header-components.developer-tools-context-menu.mocking-menu.gift-inventory-flow-menu" />
 				</>

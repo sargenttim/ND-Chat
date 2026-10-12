@@ -12,18 +12,17 @@ import type {
 import {getAppStoreProductSlot, STORE_PRODUCT_SLOTS} from '@app/api/store_billing/StoreBillingConfig';
 import {
 	buildAppStoreStoreKey,
-	normalizeAccountToken,
 	type StoreEnvironment,
 	type StorePurchaseSnapshot,
 	type StorePurchaseState,
 	type StoreSlot,
 } from '@app/api/store_billing/StoreBillingTypes';
 
-const APP_STORE_SUBSCRIPTION_STATUS_ACTIVE = 1;
-const APP_STORE_SUBSCRIPTION_STATUS_EXPIRED = 2;
-const APP_STORE_SUBSCRIPTION_STATUS_BILLING_RETRY = 3;
-const APP_STORE_SUBSCRIPTION_STATUS_GRACE = 4;
-const APP_STORE_SUBSCRIPTION_STATUS_REVOKED = 5;
+export const APP_STORE_SUBSCRIPTION_STATUS_ACTIVE = 1;
+export const APP_STORE_SUBSCRIPTION_STATUS_EXPIRED = 2;
+export const APP_STORE_SUBSCRIPTION_STATUS_BILLING_RETRY = 3;
+export const APP_STORE_SUBSCRIPTION_STATUS_GRACE = 4;
+export const APP_STORE_SUBSCRIPTION_STATUS_REVOKED = 5;
 const APP_STORE_AUTO_RENEWABLE_TYPE = 'Auto-Renewable Subscription';
 const APP_STORE_AUTO_RENEW_OFF = 0;
 const APP_STORE_AUTO_RENEW_ON = 1;
@@ -57,6 +56,10 @@ function resolveSlot(productId: string): StoreSlot {
 	return slot;
 }
 
+function normalizeAccountToken(token: string | null | undefined): string | null {
+	return token ? token.toLowerCase() : null;
+}
+
 function revocationReason(transaction: AppStoreTransactionPayload): string | null {
 	if (transaction.revocationType) {
 		return transaction.revocationType;
@@ -66,7 +69,7 @@ function revocationReason(transaction: AppStoreTransactionPayload): string | nul
 		: String(transaction.revocationReason);
 }
 
-function resolveAppStoreSubscriptionState(
+export function resolveAppStoreSubscriptionState(
 	status: number,
 	transaction: AppStoreTransactionPayload,
 	renewalInfo: AppStoreRenewalInfoPayload | null,
@@ -88,7 +91,7 @@ function resolveAppStoreSubscriptionState(
 	}
 }
 
-function buildAppStoreSubscriptionSnapshot(item: AppStoreLastTransaction): StorePurchaseSnapshot {
+export function buildAppStoreSubscriptionSnapshot(item: AppStoreLastTransaction): StorePurchaseSnapshot {
 	const {transaction, renewalInfo, status} = item;
 	if (transaction.originalTransactionId !== item.originalTransactionId) {
 		throw new AppStorePurchaseSyncError('mismatch');
@@ -145,7 +148,7 @@ function buildAppStoreSubscriptionSnapshot(item: AppStoreLastTransaction): Store
 	};
 }
 
-function buildAppStoreGiftSnapshot(transaction: AppStoreTransactionPayload): StorePurchaseSnapshot {
+export function buildAppStoreGiftSnapshot(transaction: AppStoreTransactionPayload): StorePurchaseSnapshot {
 	if (transaction.type === APP_STORE_AUTO_RENEWABLE_TYPE) {
 		throw new AppStorePurchaseSyncError('mismatch');
 	}

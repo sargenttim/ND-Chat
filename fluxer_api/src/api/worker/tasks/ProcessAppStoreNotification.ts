@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Config} from '@app/api/Config';
-import {KvOnceClaims} from '@app/api/infrastructure/KvOnceClaims';
 import {
 	AppStoreJwsVerificationError,
 	type AppStoreVerifiedNotification,
@@ -13,6 +12,7 @@ import type {StoreEntitlementService} from '@app/api/store_billing/StoreEntitlem
 import {
 	appStoreNotificationClaimKey,
 	rescheduleStoreNotification,
+	StoreNotificationClaims,
 } from '@app/api/store_billing/StoreNotificationClaims';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
 import {StorePurchaseInvalidError} from '@fluxer/errors/src/domains/payment/StorePurchaseInvalidError';
@@ -84,7 +84,7 @@ const processAppStoreNotification: WorkerTaskHandler = async (payload, helpers) 
 		throw error;
 	}
 	const {kvClient, storeEntitlementService} = getWorkerDependencies();
-	const claims = new KvOnceClaims(kvClient);
+	const claims = new StoreNotificationClaims(kvClient);
 	const claimKey = appStoreNotificationClaimKey(notification.notificationUUID);
 	const claim = await claims.tryClaim(claimKey);
 	if (claim === 'already_processed') {

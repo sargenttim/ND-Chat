@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {UserSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
+import {showDmActionErrorModal} from '@app/features/app/components/alerts/DmActionErrorModal';
+import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
 import {
 	CustomStatusDisplay,
 	type EmojiPressData,
@@ -8,10 +9,14 @@ import {
 import {useAnimatedImageUrl} from '@app/features/app/hooks/useAnimatedImageUrl';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import Authentication from '@app/features/auth/state/Authentication';
+import * as PrivateChannelCommands from '@app/features/channel/commands/PrivateChannelCommands';
 import {GifIndicator} from '@app/features/channel/components/embeds/media/GifIndicator';
 import Channels from '@app/features/channel/state/Channels';
 import {ExpressionInfoBottomSheet} from '@app/features/expressions/components/bottomsheets/ExpressionInfoBottomSheet';
-import {OPEN_DM_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {
+	BLOCKED_USER_DM_WARNING_DESCRIPTOR,
+	OPEN_DM_DESCRIPTOR,
+} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import GuildMembers from '@app/features/member/state/GuildMembers';
 import SelectedChannel from '@app/features/navigation/state/SelectedChannel';
 import Permission from '@app/features/permissions/state/Permission';
@@ -40,6 +45,7 @@ import {NoteEditSheet} from '@app/features/user/components/modals/NoteEditSheet'
 import {UserProfileActionsSheet} from '@app/features/user/components/modals/UserProfileActionsSheet';
 import styles from '@app/features/user/components/modals/UserProfileMobileSheet.module.css';
 import {getContrastingNotchColor} from '@app/features/user/components/modals/UserProfileUtils';
+import {UserSettingsModal} from '@app/features/user/components/modals/UserSettingsModal';
 import {getMutualItemsDescriptor} from '@app/features/user/components/modals/user_profile_modal/MutualItemsDescriptors';
 import {
 	getMutualCommunityDisplayItems,
@@ -60,7 +66,6 @@ import UserNote from '@app/features/user/state/UserNote';
 import UserProfile from '@app/features/user/state/UserProfile';
 import UserProfileMobile from '@app/features/user/state/UserProfileMobile';
 import Users from '@app/features/user/state/Users';
-import {blockedDmConfirmModal, openDMChannelOrShowError} from '@app/features/user/utils/DMActionUtils';
 import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
 import * as ProfileDisplayUtils from '@app/features/user/utils/ProfileDisplayUtils';
 import {
@@ -69,8 +74,6 @@ import {
 	toProfileDisplayContext,
 } from '@app/features/user/utils/ProfileGuildMembership';
 import {createMockProfile} from '@app/features/user/utils/ProfileUtils';
-import {SEND_FRIEND_REQUEST_DESCRIPTOR, UNBLOCK_USER_DESCRIPTOR} from '@app/features/user/utils/UserMessageDescriptors';
-import {shouldShowDiscriminator} from '@app/features/user/utils/UserTagUtils';
 import * as CallUtils from '@app/features/voice/utils/CallUtils';
 import {hasActiveDirectCallWithUser} from '@app/features/voice/utils/PrivateCallMenuUtils';
 import {ME} from '@fluxer/constants/src/AppConstants';
@@ -80,6 +83,7 @@ import {
 	MEDIA_PROXY_PROFILE_BANNER_SIZE_MODAL,
 } from '@fluxer/constants/src/MediaProxyAssetSizes';
 import {PublicUserFlags, RelationshipTypes} from '@fluxer/constants/src/UserConstants';
+import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {
 	ChatTeardropIcon,
@@ -98,6 +102,15 @@ import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useEffect, useMemo, useState} from 'react';
 
+const UNBLOCK_USER_DESCRIPTOR = msg({
+	message: 'Unblock user',
+	comment:
+		'Button or menu action label in the user profile mobile sheet. Keep it concise. Keep the tone plain and specific.',
+});
+const SEND_FRIEND_REQUEST_DESCRIPTOR = msg({
+	message: 'Send friend request',
+	comment: 'Button or menu action label in the user profile mobile sheet. Keep it concise.',
+});
 const logger = new Logger('UserProfileMobileSheet');
 export const UserProfileMobileSheet: React.FC = observer(function UserProfileMobileSheet() {
 	const store = UserProfileMobile;
@@ -307,21 +320,30 @@ const UserProfileMobileSheetContent: React.FC<UserProfileMobileSheetContentProps
 			[effectiveProfile?.banner_color, bannerUrl],
 		);
 		const handleMessage = async () => {
-			onClose();
-			await openDMChannelOrShowError(user.id);
+			try {
+				onClose();
+				await PrivateChannelCommands.openDMChannel(user.id);
+			} catch (error) {
+				logger.error('Failed to open DM channel:', error);
+				showDmActionErrorModal(error);
+			}
 		};
 		const handleOpenBlockedDm = () => {
 			ModalCommands.push(
-				blockedDmConfirmModal(
-					i18n,
-					displayName,
-					handleMessage,
-					'user.user-profile-mobile-sheet.handle-open-blocked-dm.confirm-modal',
-				),
+				modal(() => (
+					<ConfirmModal
+						title={i18n._(OPEN_DM_DESCRIPTOR)}
+						description={i18n._(BLOCKED_USER_DM_WARNING_DESCRIPTOR, {userName: displayName})}
+						primaryText={i18n._(OPEN_DM_DESCRIPTOR)}
+						primaryVariant="primary"
+						onPrimary={handleMessage}
+						data-flx="user.user-profile-mobile-sheet.handle-open-blocked-dm.confirm-modal"
+					/>
+				)),
 			);
 		};
 		const handleSendFriendRequest = () => {
-			void RelationshipActionUtils.sendFriendRequest(i18n, user.id);
+			RelationshipCommands.sendFriendRequest(user.id);
 		};
 		const handleAcceptFriendRequest = () => {
 			RelationshipActionUtils.showAcceptFriendRequestConfirmation(i18n, user);
@@ -337,22 +359,31 @@ const UserProfileMobileSheetContent: React.FC<UserProfileMobileSheetContentProps
 		};
 		const handleEditProfile = () => {
 			ModalCommands.push(
-				modal(
-					() => (
-						<UserSettingsModal
-							initialTab="my_profile"
-							data-flx="user.user-profile-mobile-sheet.handle-edit-profile.user-settings-modal"
-						/>
-					),
-					'user-settings',
-				),
+				modal(() => (
+					<UserSettingsModal
+						initialTab="my_profile"
+						data-flx="user.user-profile-mobile-sheet.handle-edit-profile.user-settings-modal"
+					/>
+				)),
 			);
 		};
 		const handleStartVoiceCall = async () => {
-			await CallUtils.startCallWithUser(i18n, user.id, {kind: 'voice'});
+			try {
+				const channelId = await PrivateChannelCommands.ensureDMChannel(user.id);
+				await CallUtils.requestStartCall(i18n, channelId, {kind: 'voice'});
+			} catch (error) {
+				logger.error('Failed to start voice call:', error);
+				showDmActionErrorModal(error);
+			}
 		};
 		const handleStartVideoCall = async () => {
-			await CallUtils.startCallWithUser(i18n, user.id, {kind: 'video'});
+			try {
+				const channelId = await PrivateChannelCommands.ensureDMChannel(user.id);
+				await CallUtils.requestStartCall(i18n, channelId, {kind: 'video'});
+			} catch (error) {
+				logger.error('Failed to start video call:', error);
+				showDmActionErrorModal(error);
+			}
 		};
 		const handleEmojiPress = (emoji: EmojiPressData) => {
 			setSelectedEmoji({
@@ -578,7 +609,7 @@ const UserProfileMobileSheetContent: React.FC<UserProfileMobileSheetContentProps
 													>
 														{displayName}
 													</span>
-													{isDisplayNameUsername && shouldShowDiscriminator(user) && (
+													{isDisplayNameUsername && (
 														<span
 															className={styles.discriminator}
 															data-flx="user.user-profile-mobile-sheet.user-profile-mobile-sheet-content.discriminator"
@@ -596,7 +627,7 @@ const UserProfileMobileSheetContent: React.FC<UserProfileMobileSheetContentProps
 															className={styles.fullTag}
 															data-flx="user.user-profile-mobile-sheet.user-profile-mobile-sheet-content.full-tag"
 														>
-															{NicknameUtils.formatTagForStreamerMode(user.tag)}
+															{NicknameUtils.formatTagForStreamerMode(`${user.username}#${user.discriminator}`)}
 														</span>
 													)}
 													<div
@@ -917,7 +948,6 @@ const UserProfileMobileSheetContent: React.FC<UserProfileMobileSheetContentProps
 					onToggleProfileView={() => setShowGlobalProfile(!showGlobalProfile)}
 					guildId={guildId}
 					guildMember={guildMember}
-					showReportUserProfile
 					data-flx="user.user-profile-mobile-sheet.user-profile-mobile-sheet-content.user-profile-actions-sheet"
 				/>
 				<ExpressionInfoBottomSheet
@@ -929,6 +959,7 @@ const UserProfileMobileSheetContent: React.FC<UserProfileMobileSheetContentProps
 				/>
 				{mutualSheetView != null && (
 					<MutualItemsSheet
+						isOpen={true}
 						onClose={() => setMutualSheetView(null)}
 						view={mutualSheetView}
 						profile={profile}

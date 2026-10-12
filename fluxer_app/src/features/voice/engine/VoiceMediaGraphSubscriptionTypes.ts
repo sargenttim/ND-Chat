@@ -6,6 +6,18 @@ export type VoiceMediaGraphVideoQuality = 'low' | 'medium' | 'high';
 export type VoiceMediaGraphSubscriptionContext = 'focused' | 'carousel' | 'hidden';
 export type VoiceMediaGraphSubscriptionObservedElement = object | null;
 
+export interface VoiceMediaGraphRemoteSubscriptionCommand {
+	participantIdentity: string;
+	source: VoiceTrackSource;
+	subscribed: boolean;
+	enabled?: boolean;
+	quality?: VoiceMediaGraphVideoQuality;
+}
+
+export interface VoiceMediaGraphRemoteTrackSubscriptionController {
+	setRemoteTrackSubscription(options: VoiceMediaGraphRemoteSubscriptionCommand): void;
+}
+
 export interface VoiceMediaGraphSubscriptionTarget {
 	participantIdentity: string;
 	source: VoiceTrackSource;
@@ -19,7 +31,7 @@ export interface VoiceMediaGraphSubscriptionDesiredState {
 	observedElement: VoiceMediaGraphSubscriptionObservedElement;
 }
 
-interface VoiceMediaGraphSubscriptionActualError {
+export interface VoiceMediaGraphSubscriptionActualError {
 	code: number;
 	reason: string;
 	at: number;
@@ -96,7 +108,7 @@ export interface VoiceMediaGraphSubscriptionSubscribeEvent extends VoiceMediaGra
 	context?: VoiceMediaGraphSubscriptionContext;
 }
 
-interface VoiceMediaGraphSubscriptionUnsubscribeEvent extends VoiceMediaGraphSubscriptionTarget {
+export interface VoiceMediaGraphSubscriptionUnsubscribeEvent extends VoiceMediaGraphSubscriptionTarget {
 	type: 'subscription.unsubscribe';
 }
 
@@ -136,16 +148,16 @@ export interface VoiceMediaGraphSubscriptionReattachAfterPublishEvent extends Vo
 	forceResubscribe?: boolean;
 }
 
-interface VoiceMediaGraphSubscriptionPublicationMissingEvent extends VoiceMediaGraphSubscriptionTarget {
+export interface VoiceMediaGraphSubscriptionPublicationMissingEvent extends VoiceMediaGraphSubscriptionTarget {
 	type: 'subscription.publicationMissing';
 }
 
-interface VoiceMediaGraphSubscriptionCleanupEvent {
+export interface VoiceMediaGraphSubscriptionCleanupEvent {
 	type: 'subscription.cleanup';
 	source?: VoiceTrackSource;
 }
 
-interface VoiceMediaGraphSubscriptionClearCommandsEvent {
+export interface VoiceMediaGraphSubscriptionClearCommandsEvent {
 	type: 'subscription.clearCommands';
 }
 
@@ -169,7 +181,7 @@ export interface VoiceMediaGraphSubscriptionCommandFailedEvent extends VoiceMedi
 	generation?: number;
 }
 
-interface VoiceMediaGraphSubscriptionReconcileEvent {
+export interface VoiceMediaGraphSubscriptionReconcileEvent {
 	type: 'subscription.reconcile';
 }
 

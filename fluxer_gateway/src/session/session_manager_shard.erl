@@ -14,6 +14,7 @@
 -type user_id() :: integer().
 -type session_ref() :: {pid(), reference()}.
 -type status() :: online | offline | idle | dnd | invisible.
+-type identify_timestamp() :: integer().
 
 -type identify_request() :: #{
     session_id := session_id(),
@@ -42,6 +43,7 @@
 
 -type state() :: #{
     sessions := #{session_id() => session_ref()},
+    identify_attempts := [identify_timestamp()],
     pending_identifies := #{session_id() => pending_identify()},
     identify_workers := #{reference() => {session_id(), pid()}},
     shard_index := non_neg_integer(),
@@ -89,6 +91,7 @@ init(Args) ->
         #{
             sessions => #{},
             session_refs => #{},
+            identify_attempts => [],
             pending_identifies => #{},
             identify_workers => #{},
             shard_index => ShardIndex
@@ -137,6 +140,11 @@ handle_call(get_global_count, _From, State) ->
 handle_call(reconnect_drain, _From, State) ->
     DrainCount = session_manager_shard_drain:broadcast_reconnect_drain(State),
     {reply, {ok, DrainCount}, State};
+handle_call({transfer_to, TargetNode}, _From, State) when is_atom(TargetNode) ->
+    TransferCount = session_manager_shard_drain:broadcast_transfer_to(TargetNode, State),
+    {reply, {ok, TransferCount}, State};
+handle_call({transfer_to_topology, TargetNodes}, _From, State) ->
+    handle_transfer_topology(TargetNodes, State);
 handle_call({handoff_to_topology, TargetNodes}, _From, State) ->
     handle_handoff_topology(TargetNodes, State);
 handle_call(_, _From, State) ->
@@ -155,6 +163,17 @@ handle_session_count(State) ->
     Sessions = maps:get(sessions, State),
     {reply, {ok, maps:size(Sessions)}, State}.
 
+-spec handle_transfer_topology(term(), state()) ->
+    {reply, {ok, non_neg_integer()}, state()}.
+handle_transfer_topology(TargetNodes, State) ->
+    case atom_list(TargetNodes) of
+        {ok, Nodes} ->
+            Count = session_manager_shard_drain:broadcast_transfer_to_topology(Nodes, State),
+            {reply, {ok, Count}, State};
+        error ->
+            {reply, {ok, 0}, State}
+    end.
+
 -spec handle_handoff_topology(term(), state()) ->
     {reply, {ok, #{attempted := non_neg_integer(), handed_off := non_neg_integer()}}, state()}.
 handle_handoff_topology(TargetNodes, State) ->
@@ -167,6 +186,11 @@ handle_handoff_topology(TargetNodes, State) ->
     end.
 
 -spec handle_cast(term(), state()) -> {noreply, state()}.
+handle_cast({broadcast_dispatch, Event, {pre_encoded, Encoded} = Data}, State) when
+    is_atom(Event), is_binary(Encoded)
+->
+    session_manager_shard_drain:broadcast_dispatch(Event, Data, State),
+    {noreply, State};
 handle_cast(_, State) ->
     {noreply, State}.
 

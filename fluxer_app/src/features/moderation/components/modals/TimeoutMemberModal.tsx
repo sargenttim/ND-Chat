@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
 import * as Modal from '@app/features/app/components/dialogs/Modal';
-import {SOMETHING_WENT_WRONG_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import * as GuildMemberCommands from '@app/features/member/commands/GuildMemberCommands';
+import {showModerationErrorModal} from '@app/features/moderation/components/alerts/ModerationErrorModalUtils';
 import styles from '@app/features/moderation/components/modals/TimeoutMemberModal.module.css';
 import {getTimeoutDurationOptions} from '@app/features/moderation/components/modals/TimeoutMemberOptions';
 import {Logger} from '@app/features/platform/utils/AppLogger';
@@ -14,7 +13,7 @@ import {Combobox as FormCombobox} from '@app/features/ui/components/form/FormCom
 import {Textarea} from '@app/features/ui/components/form/FormInput';
 import {formatGuildSettingsPath} from '@app/features/user/components/settings_utils/GuildSettingsConstants';
 import type {User} from '@app/features/user/models/User';
-import * as DisplayNameUtils from '@app/features/user/utils/NicknameUtils';
+import * as DisplayNameUtils from '@app/features/user/utils/DisplayNameUtils';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {observer} from 'mobx-react-lite';
@@ -71,12 +70,11 @@ export const TimeoutMemberModal: React.FC<TimeoutMemberModalProps> = observer(({
 			ModalCommands.pop();
 		} catch (error) {
 			logger.error('Failed to time out member:', error);
-			showGenericErrorModal({
-				title: () => i18n._(SOMETHING_WENT_WRONG_DESCRIPTOR),
-				message: <Trans>Failed to time out member. Try again.</Trans>,
-				dataFlx: 'moderation.timeout-member-modal.timeout-error-modal',
-				defer: false,
-			});
+			showModerationErrorModal(
+				i18n,
+				<Trans>Failed to time out member. Try again.</Trans>,
+				'moderation.timeout-member-modal.timeout-error-modal',
+			);
 		} finally {
 			setIsSubmitting(false);
 		}

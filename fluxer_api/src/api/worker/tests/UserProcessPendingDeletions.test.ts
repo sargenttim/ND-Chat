@@ -4,13 +4,14 @@ import {createUserID, type UserID} from '@app/api/BrandedTypes';
 import {EMPTY_USER_ROW, type UserRow} from '@app/api/database/types/UserTypes';
 import {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAccountDeletionQueueService';
 import {User} from '@app/api/models/User';
-import {createTestWorkerHelpers} from '@app/api/test/SyncTaskWorkerService';
+import {MockKVProvider} from '@app/api/test/mocks/MockKVProvider';
+import {NoopLogger} from '@app/api/test/mocks/NoopLogger';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
 import userProcessPendingDeletions from '@app/api/worker/tasks/UserProcessPendingDeletions';
 import {clearWorkerDependencies, setWorkerDependenciesForTest} from '@app/api/worker/WorkerContext';
 import {UserFlags} from '@fluxer/constants/src/UserConstants';
-import {MockKVProvider} from '@pkgs/kv_client/src/testing/MockKVProvider';
 import type {IWorkerService} from '@pkgs/worker/src/contracts/IWorkerService';
+import type {WorkerTaskHelpers} from '@pkgs/worker/src/contracts/WorkerTask';
 import {afterEach, describe, expect, test} from 'vitest';
 
 function createFakeUser(
@@ -30,7 +31,7 @@ function createFakeUser(
 
 async function createHarness(users: Array<User>) {
 	const kvClient = new MockKVProvider();
-
+	const removedPendingDeletions: Array<string> = [];
 	const scheduledJobs: Array<string> = [];
 	const usersById = new Map<string, User>();
 	for (const user of users) {
@@ -39,6 +40,9 @@ async function createHarness(users: Array<User>) {
 	const userRepository = {
 		async findUnique(userId: UserID): Promise<User | null> {
 			return usersById.get(userId.toString()) ?? null;
+		},
+		async removePendingDeletion(userId: UserID): Promise<void> {
+			removedPendingDeletions.push(userId.toString());
 		},
 	} as unknown as UserRepository;
 	const workerService = {
@@ -55,7 +59,18 @@ async function createHarness(users: Array<User>) {
 		}
 	}
 	setWorkerDependenciesForTest({userRepository, workerService, deletionQueueService});
-	return {deletionQueueService, scheduledJobs};
+	return {deletionQueueService, scheduledJobs, removedPendingDeletions};
+}
+
+function createHelpers(): WorkerTaskHelpers {
+	return {
+		logger: new NoopLogger(),
+		jobId: 1n,
+		addJob: async () => 0n,
+		reportProgress: async () => {},
+		shouldCancel: async () => false,
+		setContextLink: async () => {},
+	};
 }
 
 describe('userProcessPendingDeletions', () => {
@@ -75,14 +90,14 @@ describe('userProcessPendingDeletions', () => {
 		users.push(createFakeUser(genuineUserId, genuineAt));
 		const harness = await createHarness(users);
 
-		await userProcessPendingDeletions({}, createTestWorkerHelpers());
+		await userProcessPendingDeletions({}, createHelpers());
 		const queueSizeAfterFirstPass = await harness.deletionQueueService.getQueueSize();
-		await userProcessPendingDeletions({}, createTestWorkerHelpers());
+		await userProcessPendingDeletions({}, createHelpers());
 
 		expect(harness.scheduledJobs).toEqual([
 			`userProcessPendingDeletion:${genuineUserId.toString()}:${genuineAt.toISOString()}`,
 		]);
-
+		expect(harness.removedPendingDeletions).toEqual([]);
 		expect(queueSizeAfterFirstPass).toBe(1);
 		expect(await harness.deletionQueueService.getQueueSize()).toBe(0);
 	});
@@ -96,9 +111,10 @@ describe('userProcessPendingDeletions', () => {
 			createFakeUser(reviewerId, pendingAt, {flags: UserFlags.APP_STORE_REVIEWER}),
 		]);
 
-		await userProcessPendingDeletions({}, createTestWorkerHelpers());
+		await userProcessPendingDeletions({}, createHelpers());
 
 		expect(await harness.deletionQueueService.getQueueSize()).toBe(0);
 		expect(harness.scheduledJobs).toEqual([]);
+		expect(harness.removedPendingDeletions).toEqual([]);
 	});
 });

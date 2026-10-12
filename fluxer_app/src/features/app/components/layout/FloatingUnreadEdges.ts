@@ -19,7 +19,7 @@ export interface FloatingUnreadEdges {
 	bottom: MeasuredFloatingUnreadTarget | null;
 }
 
-interface FloatingUnreadTargetIndex {
+export interface FloatingUnreadTargetIndex {
 	byBottom: ReadonlyArray<MeasuredFloatingUnreadTarget>;
 	topCandidates: ReadonlyArray<MeasuredFloatingUnreadTarget>;
 	byTop: ReadonlyArray<MeasuredFloatingUnreadTarget>;
@@ -31,7 +31,7 @@ export interface FloatingUnreadTargetBounds {
 	readonly top: number;
 }
 
-interface FloatingUnreadViewport {
+export interface FloatingUnreadViewport {
 	scrollTop: number;
 	viewportHeight: number;
 	targetIndex: FloatingUnreadTargetIndex;

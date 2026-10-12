@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {AdminAuditReadActions} from '@app/api/admin/AdminAuditActions';
-import {recordAdminRead, recordAdminWrite} from '@app/api/admin/AdminAuditRecorder';
+import {recordAdminRead} from '@app/api/admin/AdminAuditRecorder';
 import {createGuildID} from '@app/api/BrandedTypes';
 import {requireAdminACL} from '@app/api/middleware/AdminMiddleware';
 import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
@@ -120,14 +120,21 @@ export function GatewayAdminController(app: HonoApp) {
 		}),
 		async (ctx) => {
 			const adminService = ctx.get('adminService');
+			const adminUserId = ctx.get('adminUserId');
+			const auditLogReason = ctx.get('auditLogReason');
 			const body = ctx.req.valid('json');
 			const guildIds = body.guild_ids.map((id) => createGuildID(id));
 			const result = await adminService.guildServiceAggregate.managementService.reloadAllGuilds(guildIds);
-			await recordAdminWrite(ctx, {
+			await adminService.auditService.createAuditLog({
+				adminUserId,
 				targetType: 'guild',
 				targetId: BigInt(0),
 				action: 'reload_guilds',
-				metadata: {guild_count: guildIds.length.toString(), reloaded: result.count.toString()},
+				auditLogReason,
+				metadata: new Map([
+					['guild_count', guildIds.length.toString()],
+					['reloaded', result.count.toString()],
+				]),
 			});
 			return ctx.json(result);
 		},

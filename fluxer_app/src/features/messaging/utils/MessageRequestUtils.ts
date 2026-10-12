@@ -4,17 +4,17 @@ import ChatInputSettings from '@app/features/messaging/state/ChatInputSettings';
 import {convertEmoticonsToEmoji} from '@app/features/messaging/utils/EmoticonConversionUtils';
 import {parseSilentMessagePrefix} from '@app/features/messaging/utils/SilentMessagePrefix';
 import {maybeSanitizeOutgoingMessage} from '@app/features/messaging/utils/UrlSanitizationUtils';
+import {hasVisibleMessageContent} from '@app/features/messaging/utils/VisibleMessageContent';
 import {MessageFlags} from '@fluxer/constants/src/ChannelConstants';
 import type {
 	AllowedMentions,
 	MessageReference,
 	MessageStickerItem,
 } from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
-import {hasVisibleContent as hasVisibleMessageContent} from '@fluxer/schema/src/primitives/MessageValidators';
 
 const DEFAULT_ALLOWED_MENTIONS: AllowedMentions = {replied_user: true};
 
-export {hasVisibleContent as hasVisibleMessageContent} from '@fluxer/schema/src/primitives/MessageValidators';
+export {hasVisibleMessageContent} from '@app/features/messaging/utils/VisibleMessageContent';
 
 export interface ApiAttachmentMetadata {
 	id: string;
@@ -29,7 +29,7 @@ export interface ApiAttachmentMetadata {
 	waveform?: string;
 }
 
-interface ApiAttachmentReferenceMetadata {
+export interface ApiAttachmentReferenceMetadata {
 	id: string;
 	filename?: string;
 	title?: string | null;
@@ -123,7 +123,7 @@ export function getComposerMessageContent(content: string, isEditingMessageOnMob
 	return silentPrefix == null ? content : content.slice(silentPrefix.end);
 }
 
-function normalizeMessageEditContent(content: string): string {
+export function normalizeMessageEditContent(content: string): string {
 	return applyOutgoingEmoticonConversion(content);
 }
 

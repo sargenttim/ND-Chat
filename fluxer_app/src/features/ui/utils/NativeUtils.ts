@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {unwrapDesktopLocalResourceURL} from '@app/features/messaging/utils/DesktopLocalResourceTarget';
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {hasUnavailableElectronNativeContext, isElectron} from '@app/features/ui/utils/ElectronRuntime';
+import {isElectron} from '@app/features/ui/utils/ElectronRuntime';
 import type {ElectronAPI} from '@app/types/electron.d';
 import Bowser from 'bowser';
 
@@ -150,6 +149,8 @@ export function supportsDesktopScreenShareAudioCapture(): boolean {
 	return electronApi.platform === 'win32' || electronApi.platform === 'linux' || electronApi.platform === 'darwin';
 }
 
+let externalLinkHandlerAttached = false;
+
 const BLOCKED_EXTERNAL_URL_PROTOCOLS = new Set([
 	'file:',
 	'javascript:',
@@ -163,9 +164,9 @@ const BLOCKED_EXTERNAL_URL_PROTOCOLS = new Set([
 ]);
 const EXPLICIT_URL_PROTOCOL_PATTERN = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 
-export function getSafeExternalUrl(href: string | null): string | null {
+const getSafeExternalUrl = (href: string | null): string | null => {
 	if (!href) return null;
-	const trimmed = unwrapDesktopLocalResourceURL(href.trim());
+	const trimmed = href.trim();
 	if (!EXPLICIT_URL_PROTOCOL_PATTERN.test(trimmed)) return null;
 	try {
 		const url = new URL(trimmed);
@@ -174,23 +175,7 @@ export function getSafeExternalUrl(href: string | null): string | null {
 	} catch {
 		return null;
 	}
-}
-
-export async function navigateToExternalURL(url: string): Promise<void> {
-	const safeUrl = getSafeExternalUrl(url);
-	if (!safeUrl) {
-		throw new Error('External navigation URL is invalid');
-	}
-	const electronApi = getElectronAPI();
-	if (electronApi) {
-		await electronApi.openExternal(safeUrl);
-		return;
-	}
-	if (hasUnavailableElectronNativeContext()) {
-		throw new Error('Desktop external navigation bridge is unavailable');
-	}
-	window.location.assign(safeUrl);
-}
+};
 
 async function refreshAttachmentUrl(url: string): Promise<string> {
 	const {default: AttachmentUrlRefresher} = await import('@app/features/messaging/state/AttachmentUrlRefresher');
@@ -233,6 +218,40 @@ export function handleExternalLinkClick(
 		event.stopPropagation();
 	}
 	void openExternalUrl(url);
+}
+
+export function attachExternalLinkInterceptor() {
+	if (!isDesktop() || externalLinkHandlerAttached) return () => undefined;
+	const handler = (event: MouseEvent) => {
+		if (event.defaultPrevented) return;
+		if (event.button !== 0) return;
+		const target = event.target as HTMLElement | null;
+		const anchor = target?.closest?.('a[target="_blank"]') as HTMLAnchorElement | null;
+		if (!anchor) return;
+		const href = anchor.getAttribute('href');
+		if (!getSafeExternalUrl(href)) return;
+		event.preventDefault();
+		void openExternalUrl(href ?? '');
+	};
+	const auxHandler = (event: MouseEvent) => {
+		if (event.defaultPrevented) return;
+		if (event.button !== 1) return;
+		const target = event.target as HTMLElement | null;
+		const anchor = target?.closest?.('a[target="_blank"]') as HTMLAnchorElement | null;
+		if (!anchor) return;
+		const href = anchor.getAttribute('href');
+		if (!getSafeExternalUrl(href)) return;
+		event.preventDefault();
+		void openExternalUrl(href ?? '');
+	};
+	document.addEventListener('click', handler);
+	document.addEventListener('auxclick', auxHandler);
+	externalLinkHandlerAttached = true;
+	return () => {
+		document.removeEventListener('click', handler);
+		document.removeEventListener('auxclick', auxHandler);
+		externalLinkHandlerAttached = false;
+	};
 }
 
 export type NativeDownloadOutcome = 'success' | 'canceled' | 'checksum-mismatch' | 'failed' | 'unavailable';

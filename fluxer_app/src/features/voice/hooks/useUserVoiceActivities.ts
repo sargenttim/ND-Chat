@@ -63,7 +63,7 @@ function collectParticipantUsers(channelStates: Readonly<Record<string, Normaliz
 	return {participantUserIds, participantUsers};
 }
 
-function useUserVoiceActivities(userId: string): ReadonlyArray<UserVoiceActivity> {
+export function useUserVoiceActivities(userId: string): ReadonlyArray<UserVoiceActivity> {
 	useMediaEngineVersion();
 	const allVoiceStates = MediaEngine.getAllVoiceStates();
 	return useMemo(() => {

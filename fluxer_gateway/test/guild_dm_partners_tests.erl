@@ -83,17 +83,6 @@ guild_wide_visibility_change_reevaluates_test() ->
         ?assertEqual({dm_partner_mutual, ?GUILD_ID, [30]}, receive_mutual())
     end).
 
-partner_role_change_after_registration_reevaluates_test() ->
-    with_flag(true, fun() ->
-        Before = register_partners(state(), [30]),
-        ?assertEqual(none, receive_mutual()),
-        After = with_member(member(30, [?VIEWER_ROLE]), Before),
-        _ = guild_dm_partners:maybe_reevaluate(
-            guild_member_update, #{<<"user">> => #{<<"id">> => <<"30">>}}, Before, After
-        ),
-        ?assertEqual({dm_partner_mutual, ?GUILD_ID, [30]}, receive_mutual())
-    end).
-
 disconnected_sessions_are_dropped_on_reevaluation_test() ->
     with_flag(true, fun() ->
         Before = register_partners(state(), [20]),
@@ -120,7 +109,7 @@ state() ->
         )
     },
     Viewable = guild_sessions:build_viewable_channel_map(
-        guild_visibility_channels:get_user_viewable_channels(10, Base)
+        guild_visibility:get_user_viewable_channels(10, Base)
     ),
     Base#{
         sessions => #{
@@ -146,11 +135,6 @@ members() ->
 
 without_member(UserId, #{data := Data} = State) ->
     State#{data => Data#{<<"members">> => maps:remove(UserId, maps:get(<<"members">>, Data))}}.
-
-with_member(Member, #{data := Data} = State) ->
-    #{<<"user">> := #{<<"id">> := RawId}} = Member,
-    Members = maps:get(<<"members">>, Data),
-    State#{data => Data#{<<"members">> => Members#{binary_to_integer(RawId) => Member}}}.
 
 with_channels(Channels, #{data := Data} = State) ->
     State#{

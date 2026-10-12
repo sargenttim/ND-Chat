@@ -12,10 +12,10 @@ export const GENERATOR_AUDIO_PREBUFFER_STEP_US = 100_000;
 export const GENERATOR_AUDIO_PREBUFFER_TIMEOUT_MS = 250;
 export const GENERATOR_AUDIO_REBUFFER_GAP_MS = 160;
 export const MAX_GENERATOR_BUFFERED_AUDIO_US = 1_500_000;
-const MIN_NATIVE_AUDIO_SAMPLE_RATE = 8000;
-const MAX_NATIVE_AUDIO_SAMPLE_RATE = 192000;
-const MAX_NATIVE_AUDIO_CHANNELS = 8;
-const MAX_NATIVE_AUDIO_FRAME_SECONDS = 1;
+export const MIN_NATIVE_AUDIO_SAMPLE_RATE = 8000;
+export const MAX_NATIVE_AUDIO_SAMPLE_RATE = 192000;
+export const MAX_NATIVE_AUDIO_CHANNELS = 8;
+export const MAX_NATIVE_AUDIO_FRAME_SECONDS = 1;
 
 export type ArmedNativeAudioCapture =
 	| {
@@ -32,7 +32,7 @@ export type ArmedNativeAudioCapture =
 			kind: 'self-window-web-audio';
 	  };
 
-type NativeAudioBridgeCleanup = (stopRemote?: boolean, endDetail?: string) => Promise<void>;
+export type NativeAudioBridgeCleanup = (stopRemote?: boolean, endDetail?: string) => Promise<void>;
 
 export interface NativeAudioBridgeHandle {
 	track: MediaStreamTrack;
@@ -81,7 +81,7 @@ export function nativeAudioRoutingRulesEqual(
 	);
 }
 
-interface GeneratorAudioTrack extends MediaStreamTrack {
+export interface GeneratorAudioTrack extends MediaStreamTrack {
 	writable: WritableStream<unknown>;
 }
 
@@ -213,7 +213,7 @@ export function getNativeAudioApi() {
 	return getElectronAPI()?.nativeAudio ?? null;
 }
 
-function isArrayBuffer(value: unknown): value is ArrayBuffer {
+export function isArrayBuffer(value: unknown): value is ArrayBuffer {
 	return value instanceof ArrayBuffer || Object.prototype.toString.call(value) === '[object ArrayBuffer]';
 }
 
@@ -364,7 +364,15 @@ export async function replaceStreamAudioTrack(stream: MediaStream, nextTrack: Me
 	stream.addTrack(nextTrack);
 }
 
-function restoreTrackStop(track: MediaStreamTrack, originalStop: MediaStreamTrack['stop']): void {
+export function stopStreamTracks(stream: MediaStream): void {
+	for (const track of stream.getTracks()) {
+		try {
+			track.stop();
+		} catch {}
+	}
+}
+
+export function restoreTrackStop(track: MediaStreamTrack, originalStop: MediaStreamTrack['stop']): void {
 	try {
 		Object.defineProperty(track, 'stop', {
 			value: originalStop,

@@ -7,7 +7,7 @@ type GuildAfkChannelMoveState = Readonly<{
 	inactiveDurationMs: number;
 }>;
 
-function shouldMoveToGuildAfkChannel(state: GuildAfkChannelMoveState): boolean {
+export function shouldMoveToGuildAfkChannel(state: GuildAfkChannelMoveState): boolean {
 	if (!state.afkChannelId || state.channelId === state.afkChannelId) return false;
 	if (state.afkTimeoutSeconds == null || state.afkTimeoutSeconds <= 0) return false;
 	return state.inactiveDurationMs >= state.afkTimeoutSeconds * 1000;

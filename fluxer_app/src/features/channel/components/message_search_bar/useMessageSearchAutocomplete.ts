@@ -1123,6 +1123,7 @@ export function useMessageSearchAutocomplete({
 		autocompleteType,
 		inputRef,
 		setInputRefs,
+		suppressAutoOpen,
 		setSuppressAutoOpen,
 		filterOptions,
 		historyFilterRows,

@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {hashString} from '@app/lib/placeholder-gradient';
+function hashSkeletonSeed(input: string): number {
+	let hash = 2166136261;
+	for (let index = 0; index < input.length; index++) {
+		hash ^= input.charCodeAt(index);
+		hash = Math.imul(hash, 16777619);
+	}
+	return hash >>> 0;
+}
 
 function createSkeletonRandom(seed: number): () => number {
 	let state = seed >>> 0;
@@ -16,5 +23,5 @@ function createSkeletonRandom(seed: number): () => number {
 }
 
 export function createSkeletonRandomFromKey(key: string): () => number {
-	return createSkeletonRandom(hashString(key));
+	return createSkeletonRandom(hashSkeletonSeed(key));
 }

@@ -1,15 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {PublicationSubscriptionManager} from '@app/features/voice/engine/PublicationSubscriptionManager';
 import ScreenSharePublicationMigration from '@app/features/voice/engine/ScreenSharePublicationMigration';
-import type {
-	VoiceMediaGraphSubscriptionCommand,
-	VoiceMediaGraphSubscriptionContext,
-	VoiceMediaGraphVideoQuality,
+import {Store} from '@app/features/voice/engine/Store';
+import {
+	selectVoiceMediaGraphSubscriptionEntry,
+	type VoiceMediaGraphSubscriptionCommand,
+	type VoiceMediaGraphSubscriptionContext,
+	type VoiceMediaGraphSubscriptionEntry,
+	type VoiceMediaGraphSubscriptionEvent,
+	type VoiceMediaGraphVideoQuality,
 } from '@app/features/voice/engine/VoiceMediaGraph';
 import {voiceMediaGraphStore} from '@app/features/voice/engine/VoiceMediaGraphStore';
 import {asVoiceTrackSource, VoiceTrackSource} from '@app/features/voice/engine/VoiceTrackSource';
+import {
+	getScreenShareWatchFailureForPublicationOperation,
+	type ScreenSharePublicationOperation,
+	ScreenShareWatchErrorCode,
+} from '@app/features/voice/state/ScreenShareWatchFailures';
 import {
 	clearScreenShareViewerDemand,
 	resolveScreenSharePublicationVideoRequest,
@@ -33,21 +41,28 @@ const graphQualityMap = new Map<VideoQuality, VoiceMediaGraphVideoQuality>(
 	]),
 );
 
-export class ScreenShareSubscriptionManager extends PublicationSubscriptionManager {
-	protected readonly source = VoiceTrackSource.ScreenShare;
-	protected readonly logger = logger;
-	protected readonly publicationCommandFailedMessage = 'Screen share publication command failed';
-
+export class ScreenShareSubscriptionManager extends Store {
+	private room: Room | null = null;
+	private observers = new Map<string, IntersectionObserver>();
 	private reattachPublicationTargets = new Map<string, RemoteTrackPublication>();
 	private resubscribePulseTokens = new Map<string, number>();
 	private resubscribePulseSequence = 0;
 	private pendingResubscribePulses = new Set<string>();
+	private readonly intersectionOptions: IntersectionObserverInit = {
+		root: null,
+		rootMargin: '50px',
+		threshold: [0, 0.1],
+	};
 
 	setRoom(room: Room | null): void {
 		clearScreenShareViewerDemand();
 		this.update(() => {
 			this.room = room;
 		});
+	}
+
+	cleanup(): void {
+		this.transition({type: 'subscription.cleanup', source: VoiceTrackSource.ScreenShare});
 	}
 
 	subscribeToParticipant(
@@ -104,13 +119,17 @@ export class ScreenShareSubscriptionManager extends PublicationSubscriptionManag
 			type: 'subscription.setContext',
 			participantIdentity,
 			source: VoiceTrackSource.ScreenShare,
-			hasPublication: this.hasPublicationForIdentity(participantIdentity),
+			hasPublication: this.hasScreenSharePublicationForIdentity(participantIdentity),
 			context,
 		});
 	}
 
 	isSubscribed(participantIdentity: string): boolean {
 		return this.getSubscriptionEntry(participantIdentity)?.subscribed ?? false;
+	}
+
+	getContext(participantIdentity: string): VoiceMediaGraphSubscriptionContext | null {
+		return this.getSubscriptionEntry(participantIdentity)?.context ?? null;
 	}
 
 	reattachAfterPublish(participantIdentity: string, publication?: RemoteTrackPublication): void {
@@ -130,7 +149,7 @@ export class ScreenShareSubscriptionManager extends PublicationSubscriptionManag
 				type: 'subscription.reattachAfterPublish',
 				participantIdentity,
 				source: VoiceTrackSource.ScreenShare,
-				hasPublication: publication != null || this.hasPublicationForIdentity(participantIdentity),
+				hasPublication: publication != null || this.hasScreenSharePublicationForIdentity(participantIdentity),
 				forceResubscribe: true,
 			});
 		} finally {
@@ -156,7 +175,7 @@ export class ScreenShareSubscriptionManager extends PublicationSubscriptionManag
 		return this.findScreenSharePublication(this.getParticipant(participantIdentity));
 	}
 
-	protected hasPublicationForIdentity(participantIdentity: string): boolean {
+	private hasScreenSharePublicationForIdentity(participantIdentity: string): boolean {
 		return this.findScreenSharePublicationForIdentity(participantIdentity) != null;
 	}
 
@@ -211,6 +230,67 @@ export class ScreenShareSubscriptionManager extends PublicationSubscriptionManag
 		return this.getSubscriptionEntry(participantIdentity)?.subscribed ?? false;
 	}
 
+	private runPublicationOperation(
+		participantIdentity: string,
+		publication: RemoteTrackPublication,
+		operation: ScreenSharePublicationOperation,
+		apply: () => void,
+	): boolean {
+		try {
+			apply();
+			return true;
+		} catch (error) {
+			logger.error('Screen share publication command failed', {
+				participantIdentity,
+				trackSid: publication.trackSid,
+				operation,
+				error,
+			});
+			const failure = getScreenShareWatchFailureForPublicationOperation(operation);
+			this.reportCommandFailed(participantIdentity, failure.code, failure.reason);
+			return false;
+		}
+	}
+
+	private reportActualChanged(
+		participantIdentity: string,
+		changes: {
+			subscribed?: boolean | null;
+			enabled?: boolean | null;
+			quality?: VoiceMediaGraphVideoQuality | null;
+			trackSid?: string | null;
+		},
+	): void {
+		voiceMediaGraphStore.transition({
+			type: 'subscription.actualChanged',
+			participantIdentity,
+			source: VoiceTrackSource.ScreenShare,
+			at: voiceMediaGraphStore.nowMs(),
+			...changes,
+		});
+	}
+
+	private reportCommandFailed(participantIdentity: string, code: number, reason: string): void {
+		voiceMediaGraphStore.transition({
+			type: 'subscription.commandFailed',
+			participantIdentity,
+			source: VoiceTrackSource.ScreenShare,
+			at: voiceMediaGraphStore.nowMs(),
+			code,
+			reason,
+		});
+	}
+
+	private reportPublicationObserved(participantIdentity: string, trackSid: string | null): void {
+		voiceMediaGraphStore.transition({
+			type: 'publication.observed',
+			participantIdentity,
+			source: VoiceTrackSource.ScreenShare,
+			trackSid,
+			at: voiceMediaGraphStore.nowMs(),
+		});
+	}
+
 	private reportPublicationLost(participantIdentity: string): void {
 		voiceMediaGraphStore.transition({
 			type: 'publication.lost',
@@ -237,7 +317,77 @@ export class ScreenShareSubscriptionManager extends PublicationSubscriptionManag
 		return graphQualityMap.get(request.quality) ?? null;
 	}
 
-	protected applyCommand(command: VoiceMediaGraphSubscriptionCommand): void {
+	private createObserver(participantIdentity: string, element: HTMLElement): IntersectionObserver {
+		const observer = new IntersectionObserver((entries) => {
+			for (const entry of entries) {
+				const isIntersecting = entry.isIntersecting;
+				if (!this.getSubscriptionEntry(participantIdentity)) continue;
+				this.transition({
+					type: 'subscription.intersection',
+					participantIdentity,
+					source: VoiceTrackSource.ScreenShare,
+					hasPublication: this.hasScreenSharePublicationForIdentity(participantIdentity),
+					isIntersecting,
+				});
+				logger.debug('Intersection changed', {participantIdentity, isIntersecting});
+			}
+		}, this.intersectionOptions);
+		observer.observe(element);
+		return observer;
+	}
+
+	private attachObserver(participantIdentity: string, element: HTMLElement): void {
+		try {
+			this.observers.set(participantIdentity, this.createObserver(participantIdentity, element));
+		} catch (error) {
+			logger.error('Failed to attach intersection observer', {participantIdentity, error});
+			this.reportCommandFailed(
+				participantIdentity,
+				ScreenShareWatchErrorCode.ObserverAttachFailed,
+				'observer-attach-failed',
+			);
+		}
+	}
+
+	private detachObserver(participantIdentity: string): void {
+		const observer = this.observers.get(participantIdentity);
+		this.observers.delete(participantIdentity);
+		if (!observer) return;
+		try {
+			observer.disconnect();
+		} catch (error) {
+			logger.error('Failed to detach intersection observer', {participantIdentity, error});
+			this.reportCommandFailed(
+				participantIdentity,
+				ScreenShareWatchErrorCode.ObserverDetachFailed,
+				'observer-detach-failed',
+			);
+		}
+	}
+
+	private getSubscriptionEntry(participantIdentity: string): VoiceMediaGraphSubscriptionEntry | null {
+		return selectVoiceMediaGraphSubscriptionEntry(
+			voiceMediaGraphStore.getGraphSnapshot(),
+			participantIdentity,
+			VoiceTrackSource.ScreenShare,
+		);
+	}
+
+	applyReconciledCommand(command: VoiceMediaGraphSubscriptionCommand): void {
+		this.applyCommand(command);
+	}
+
+	private transition(event: VoiceMediaGraphSubscriptionEvent): void {
+		let commands: Array<VoiceMediaGraphSubscriptionCommand> = [];
+		this.update(() => {
+			commands = voiceMediaGraphStore.takeSubscriptionCommands(event);
+		});
+		for (const command of commands) {
+			this.applyCommand(command);
+		}
+	}
+
+	private applyCommand(command: VoiceMediaGraphSubscriptionCommand): void {
 		if (command.source !== VoiceTrackSource.ScreenShare) return;
 		switch (command.type) {
 			case 'subscribePublication':

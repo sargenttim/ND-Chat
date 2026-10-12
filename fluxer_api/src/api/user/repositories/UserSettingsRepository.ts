@@ -3,12 +3,14 @@
 import type {GuildID, UserID} from '@app/api/BrandedTypes';
 import {deleteOneOrMany, fetchMany, fetchOne} from '@app/api/database/CassandraQueryExecution';
 import {buildPatchFromData, executeVersionedUpdate} from '@app/api/database/CassandraVersionedUpdate';
+import type {ExactRow} from '@app/api/database/types/DatabaseRowTypes';
 import type {UserGuildSettingsRow, UserSettingsRow} from '@app/api/database/types/UserTypes';
 import {USER_GUILD_SETTINGS_COLUMNS, USER_SETTINGS_COLUMNS} from '@app/api/database/types/UserTypes';
 import {Logger} from '@app/api/Logger';
 import {UserGuildSettings} from '@app/api/models/UserGuildSettings';
 import {UserSettings} from '@app/api/models/UserSettings';
 import {UserGuildSettings as UserGuildSettingsTable, UserSettings as UserSettingsTable} from '@app/api/Tables';
+import type {IUserSettingsRepository} from '@app/api/user/repositories/IUserSettingsRepository';
 
 const FETCH_USER_SETTINGS_CQL = UserSettingsTable.selectCql({
 	where: UserSettingsTable.where.eq('user_id'),
@@ -22,7 +24,7 @@ const FETCH_ALL_USER_GUILD_SETTINGS_CQL = UserGuildSettingsTable.selectCql({
 	where: UserGuildSettingsTable.where.eq('user_id'),
 });
 
-export class UserSettingsRepository {
+export class UserSettingsRepository implements IUserSettingsRepository {
 	async deleteAllUserGuildSettings(userId: UserID): Promise<void> {
 		await deleteOneOrMany(
 			UserGuildSettingsTable.deleteCql({
@@ -65,7 +67,7 @@ export class UserSettingsRepository {
 		return settings ? new UserSettings(settings) : null;
 	}
 
-	async upsertGuildSettings(settings: UserGuildSettingsRow): Promise<UserGuildSettings> {
+	async upsertGuildSettings(settings: ExactRow<UserGuildSettingsRow>): Promise<UserGuildSettings> {
 		const userId = settings.user_id;
 		const guildId = settings.guild_id;
 		const result = await executeVersionedUpdate<UserGuildSettingsRow, 'user_id' | 'guild_id'>(
@@ -88,7 +90,7 @@ export class UserSettingsRepository {
 		return new UserGuildSettings({...settings, version: result.finalVersion ?? 1});
 	}
 
-	async upsertSettings(settings: UserSettingsRow): Promise<UserSettings> {
+	async upsertSettings(settings: ExactRow<UserSettingsRow>): Promise<UserSettings> {
 		const userId = settings.user_id;
 		const result = await executeVersionedUpdate<UserSettingsRow, 'user_id'>(
 			() =>

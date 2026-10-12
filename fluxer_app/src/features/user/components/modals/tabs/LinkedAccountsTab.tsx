@@ -7,7 +7,7 @@ import {StatusSlate} from '@app/features/app/components/dialogs/shared/StatusSla
 import {computeVerticalDropPosition} from '@app/features/app/components/layout/dnd/DndDropPosition';
 import type {ConnectionDragItem} from '@app/features/app/components/layout/types/DndTypes';
 import {DragItemType} from '@app/features/app/components/layout/types/DndTypes';
-import {BLUESKY_PROVIDER_NAME} from '@app/features/app/config/I18nDisplayConstants';
+import {BLUESKY_PROVIDER_NAME, PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {useMergeRefs} from '@app/features/app/hooks/useMergeRefs';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import * as ConnectionCommands from '@app/features/connection/commands/ConnectionCommands';
@@ -28,14 +28,8 @@ import {Spinner} from '@app/features/ui/components/Spinner';
 import {useDragAutoScroll} from '@app/features/ui/hooks/useDragAutoScroll';
 import {Tooltip} from '@app/features/ui/tooltip/Tooltip';
 import styles from '@app/features/user/components/modals/tabs/LinkedAccountsTab.module.css';
-import {REMOVE_DESCRIPTOR} from '@app/features/user/components/settings_utils/section_registry/SharedDescriptors';
-import {
-	EDIT_DESCRIPTOR,
-	THIS_CONNECTION_HAS_BEEN_VERIFIED_DESCRIPTOR,
-	THIS_CONNECTION_HAS_NOT_BEEN_VERIFIED_DESCRIPTOR,
-} from '@app/features/user/utils/UserMessageDescriptors';
 import {type ConnectionType, ConnectionTypes} from '@fluxer/constants/src/ConnectionConstants';
-import {msg, ph} from '@lingui/core/macro';
+import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {DotsSixVerticalIcon, GlobeSimpleIcon, PencilSimpleIcon, TrashIcon, UserListIcon} from '@phosphor-icons/react';
 import {clsx} from 'clsx';
@@ -46,6 +40,22 @@ import type {ConnectableElement} from 'react-dnd';
 import {DndProvider, useDrag, useDragLayer, useDrop} from 'react-dnd';
 import {getEmptyImage, HTML5Backend} from 'react-dnd-html5-backend';
 
+const THIS_CONNECTION_HAS_BEEN_VERIFIED_DESCRIPTOR = msg({
+	message: 'This connection has been verified.',
+	comment: 'Description text in the linked accounts tab.',
+});
+const THIS_CONNECTION_HAS_NOT_BEEN_VERIFIED_DESCRIPTOR = msg({
+	message: 'This connection has not been verified.',
+	comment: 'Description text in the linked accounts tab.',
+});
+const EDIT_DESCRIPTOR = msg({
+	message: 'Edit',
+	comment: 'Button or menu action label in the linked accounts tab. Keep it concise.',
+});
+const REMOVE_DESCRIPTOR = msg({
+	message: 'Remove',
+	comment: 'Button or menu action label in the linked accounts tab. Keep it concise. Keep the tone plain and specific.',
+});
 const REMOVE_CONNECTION_DESCRIPTOR = msg({
 	message: 'Remove connection',
 	comment: 'Button or menu action label in the linked accounts tab. Keep it concise. Keep the tone plain and specific.',
@@ -369,8 +379,8 @@ const LinkedAccountsTab: React.FC = observer(() => {
 					title={i18n._(CONNECTIONS_DESCRIPTOR)}
 					description={
 						<Trans>
-							Link external accounts and domains to your {ph({PRODUCT_NAME: RuntimeConfig.productName})} profile.
-							Verified connections will be displayed on your profile for others to see.
+							Link external accounts and domains to your {PRODUCT_NAME} profile. Verified connections will be displayed
+							on your profile for others to see.
 						</Trans>
 					}
 					data-flx="user.linked-accounts-tab.connections"

@@ -3,7 +3,6 @@
 import {HttpError} from '@app/features/platform/types/EndpointError';
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
 import {HttpStatus} from '@fluxer/constants/src/HttpConstants';
-import {isObjectLike as isRecord} from '@fluxer/record_utils/src/RecordGuards';
 
 const DEFAULT_IP_AUTHORIZATION_RESEND_SECONDS = 30;
 
@@ -15,7 +14,7 @@ interface ValidationFault {
 	message: string;
 }
 
-interface ApiErrorResponse {
+export interface ApiErrorResponse {
 	status: number | undefined;
 	code: string | undefined;
 	message: string | undefined;
@@ -32,7 +31,7 @@ export interface IpAuthorizationRequiredResponse {
 	resend_available_in: number;
 }
 
-function parseAPIErrorResponse(body: unknown, httpStatus?: number): ApiErrorResponse | null {
+export function parseAPIErrorResponse(body: unknown, httpStatus?: number): ApiErrorResponse | null {
 	if (!isRecord(body)) return null;
 	const details = isRecord(body.details) ? body.details : undefined;
 	const retry = details != null && isRecord(details.retry) ? details.retry : undefined;
@@ -51,12 +50,24 @@ export function replyCode(body: unknown): string | undefined {
 	return parseAPIErrorResponse(body)?.code;
 }
 
+export function replyMessage(body: unknown): string | undefined {
+	return parseAPIErrorResponse(body)?.message;
+}
+
+export function replyRetryAfter(body: unknown): number | undefined {
+	return parseAPIErrorResponse(body)?.retryAfterSeconds;
+}
+
 export function failureCode(error: unknown): string | undefined {
 	return failureResponse(error)?.code;
 }
 
 export function failureMessage(error: unknown): string | undefined {
 	return failureResponse(error)?.message;
+}
+
+export function failureRetryAfter(error: unknown): number | undefined {
+	return failureResponse(error)?.retryAfterSeconds;
 }
 
 export function failureValidationErrors(error: unknown): ReadonlyArray<ValidationFault> | undefined {
@@ -110,6 +121,10 @@ function readValidationFaults(value: unknown): ReadonlyArray<ValidationFault> | 
 		faults.push(code == null ? {path, message} : {path, code, message});
 	}
 	return faults.length > 0 ? faults : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null;
 }
 
 function readString(value: unknown, key: string): string | undefined {

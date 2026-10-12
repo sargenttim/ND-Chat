@@ -2,6 +2,8 @@
 
 import {msg} from '@lingui/core/macro';
 
+export {BLOCKED_USER_DM_WARNING_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+
 export const COPY_DEVICE_ID_DESCRIPTOR = msg({
 	message: 'Copy device ID',
 	comment: 'Developer-mode voice menu action that copies the unique identifier of a voice device or connection.',
@@ -24,9 +26,8 @@ export const CHANGE_STREAM_DESCRIPTOR = msg({
 	comment: 'Voice screen share menu action that changes the shared source.',
 });
 export const PAUSE_OWN_STREAM_PREVIEW_DESCRIPTOR = msg({
-	message: 'Pause preview when {productName} isn’t focused',
-	comment:
-		'Voice screen share menu preference that pauses the local stream preview while the app is unfocused. {productName} is the app name.',
+	message: 'Pause preview when Fluxer isn’t focused',
+	comment: 'Voice screen share menu preference that pauses the local stream preview while the app is unfocused.',
 });
 export const SCREEN_SHARE_PRIVACY_DESCRIPTOR = msg({
 	message: 'Screen share privacy',
@@ -94,6 +95,10 @@ export const TURN_OFF_DEVICE_STREAM_DESCRIPTOR = msg({
 export const TURN_OFF_STREAM_DESCRIPTOR = msg({
 	message: 'Turn off stream',
 	comment: 'Voice menu action that ends the current user screen share.',
+});
+export const SHOW_MY_OWN_CAMERA_DESCRIPTOR = msg({
+	message: 'Show my own camera',
+	comment: 'Voice display preference checkbox that controls whether the current user sees their own camera tile.',
 });
 export const SHOW_MY_SCREEN_SHARE_DESCRIPTOR = msg({
 	message: 'Show my screen share',

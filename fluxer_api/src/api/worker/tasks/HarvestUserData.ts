@@ -12,7 +12,6 @@ import {
 	throwIfArchiveTerminallyFailed,
 } from '@app/api/archive/ArchiveTask';
 import {makeDataPackageAttachmentCdnUrl} from '@app/api/attachment/AttachmentUrls';
-import {findRecoveryKitCreatedAt} from '@app/api/auth/AuthRecoveryKit';
 import {
 	type ChannelID,
 	createAttachmentID,
@@ -23,17 +22,14 @@ import {
 	type UserID,
 } from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
-import type {ThreadRepository} from '@app/api/channel/repositories/ThreadRepository';
 import {
 	isChannelEligible,
 	isTimestampInWindow,
-	loadSelfMessageEligibilityContext,
 	type SelfMessageEligibilityContext,
 	type SelfMessageFilter,
 } from '@app/api/channel/services/message/SelfMessageFilter';
 import type {UserConnectionRow} from '@app/api/database/types/ConnectionTypes';
 import type {StorePurchaseRow} from '@app/api/database/types/StoreBillingTypes';
-import {isTainted} from '@app/api/experiment/ChannelThreadsGate';
 import type {IStorageService} from '@app/api/infrastructure/IStorageService';
 import {Logger} from '@app/api/Logger';
 import type {Application} from '@app/api/models/Application';
@@ -49,7 +45,6 @@ import type {Payment} from '@app/api/models/Payment';
 import type {PushSubscription} from '@app/api/models/PushSubscription';
 import type {Relationship} from '@app/api/models/Relationship';
 import type {SavedMessage} from '@app/api/models/SavedMessage';
-import type {ThreadMember} from '@app/api/models/ThreadMember';
 import type {User} from '@app/api/models/User';
 import type {UserGuildSettings} from '@app/api/models/UserGuildSettings';
 import type {UserSettings} from '@app/api/models/UserSettings';
@@ -69,6 +64,7 @@ import {ContentAddressedAttachmentCollector} from '@app/api/worker/utils/Content
 import {deserializeSelfMessageFilter, SelfMessageFilterPayload} from '@app/api/worker/utils/SelfMessageFilterPayload';
 import {getWorkerDependencies} from '@app/api/worker/WorkerContext';
 import type {WorkerDependencies} from '@app/api/worker/WorkerDependencies';
+import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 import {
 	decodeSyncedPreferencesLenient,
 	syncedPreferencesToJson,
@@ -130,14 +126,12 @@ interface UserDataJsonParams {
 	userSettings: UserSettings | null;
 	guildMemberships: Array<GuildMembershipEntry>;
 	guildSettings: Array<UserGuildSettings | null>;
-	threadMemberships: Array<ThreadMember>;
 	savedMessages: Array<SavedMessage>;
 	privateChannels: Array<Channel>;
 	favoriteMemes: Array<FavoriteMeme>;
 	pushSubscriptions: Array<PushSubscription>;
 	webAuthnCredentials: Array<WebAuthnCredential>;
 	mfaBackupCodes: Array<MfaBackupCode>;
-	recoveryKitCreatedAt: Date | null;
 	createdGiftCodes: Array<GiftCode>;
 	payments: Array<Payment>;
 	storePurchases: Array<StorePurchaseRow>;
@@ -416,20 +410,6 @@ export async function harvestMessages(
 	return {channelMessagesMap, totalMessages};
 }
 
-export async function collectThreadMemberships(
-	threads: Pick<ThreadRepository, 'listJoinedThreadIds' | 'getMember'>,
-	userId: UserID,
-	guildIds: ReadonlyArray<GuildID>,
-): Promise<Array<ThreadMember>> {
-	const perGuild = await mapWithConcurrency(guildIds, HARVEST_READ_CONCURRENCY, async (guildId) => {
-		if (!(await isTainted(guildId, {fresh: true}))) return [];
-		const threadIds = await threads.listJoinedThreadIds(userId, guildId);
-		const members = await Promise.all(threadIds.map((threadId) => threads.getMember(threadId, userId)));
-		return members.filter((member): member is ThreadMember => member !== null);
-	});
-	return perGuild.flat();
-}
-
 export function buildUserDataJson(params: UserDataJsonParams) {
 	const {
 		user,
@@ -441,14 +421,12 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 		userSettings,
 		guildMemberships,
 		guildSettings,
-		threadMemberships,
 		savedMessages,
 		privateChannels,
 		favoriteMemes,
 		pushSubscriptions,
 		webAuthnCredentials,
 		mfaBackupCodes,
-		recoveryKitCreatedAt,
 		createdGiftCodes,
 		payments,
 		storePurchases,
@@ -468,13 +446,14 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 			email: user.email,
 			email_verified: user.emailVerified,
 			email_bounced: user.emailBounced,
+			has_verified_phone: user.hasVerifiedPhone,
 			avatar_hash: user.avatarHash,
 			avatar_url: user.avatarHash
-				? `${Config.endpoints.media}/avatars/${userId}/${user.avatarHash}.${getAnimatedAssetExtension(user.avatarHash)}`
+				? `${Config.endpoints.media}/avatars/${userId}/${user.avatarHash}.${user.avatarHash.startsWith('a_') ? 'gif' : 'png'}`
 				: null,
 			banner_hash: user.bannerHash,
 			banner_url: user.bannerHash
-				? `${Config.endpoints.media}/banners/${userId}/${user.bannerHash}.${getAnimatedAssetExtension(user.bannerHash)}`
+				? `${Config.endpoints.media}/banners/${userId}/${user.bannerHash}.${user.bannerHash.startsWith('a_') ? 'gif' : 'png'}`
 				: null,
 			bio: user.bio,
 			pronouns: user.pronouns,
@@ -568,8 +547,6 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 					staff_dm_access_user_ids: Array.from(userSettings.staffDmAccessUserIds).map((id) => id.toString()),
 					synced_preferences: syncedPreferencesToJson(decodeSyncedPreferencesLenient(userSettings.syncedPreferences)),
 					profile_privacy: userSettings.profilePrivacy,
-					privacy_setup_version: userSettings.privacySetupVersion,
-					privacy_setup_completed_at: userSettings.privacySetupCompletedAt?.toISOString() ?? null,
 				}
 			: null,
 		guild_memberships: guildMemberships
@@ -600,18 +577,6 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 				suppress_roles: settings!.suppressRoles,
 				hide_muted_channels: settings!.hideMutedChannels,
 			})),
-		...(threadMemberships.length > 0
-			? {
-					thread_memberships: threadMemberships.map((member) => ({
-						thread_id: member.threadId.toString(),
-						guild_id: member.guildId.toString(),
-						parent_id: member.parentId.toString(),
-						join_timestamp: member.joinTimestamp.toISOString(),
-						flags: member.flags,
-						muted: member.muted,
-					})),
-				}
-			: {}),
 		saved_messages: savedMessages.map((msg) => ({
 			channel_id: msg.channelId.toString(),
 			message_id: msg.messageId.toString(),
@@ -658,7 +623,6 @@ export function buildUserDataJson(params: UserDataJsonParams) {
 			consumed_count: mfaBackupCodes.filter((code) => code.consumed).length,
 			remaining_count: mfaBackupCodes.filter((code) => !code.consumed).length,
 		},
-		...(recoveryKitCreatedAt ? {recovery_kit: {created_at: recoveryKitCreatedAt.toISOString()}} : {}),
 		gift_codes_created: createdGiftCodes.map((gift) => ({
 			code: gift.code,
 			duration_months: gift.durationMonths,
@@ -830,22 +794,30 @@ const harvestUserData: ArchiveTaskHandler = async (payload, helpers, attempt) =>
 		let filterArgs: HarvestMessagesFilterArgs | null = null;
 		if (validated.filter) {
 			const filter = deserializeSelfMessageFilter(validated.filter);
-			const context = await loadSelfMessageEligibilityContext(userId, {userRepository, guildRepository});
+			const [privateChannelsForFilter, userGuildsForFilter] = await Promise.all([
+				userRepository.listPrivateChannels(userId),
+				guildRepository.listUserGuilds(userId),
+			]);
+			const openDmChannelIds = new Set<string>();
+			for (const channel of privateChannelsForFilter) {
+				if (channel.type === ChannelTypes.DM || channel.type === ChannelTypes.GROUP_DM) {
+					openDmChannelIds.add(channel.id.toString());
+				}
+			}
+			const context: SelfMessageEligibilityContext = {
+				currentGuildIds: new Set(userGuildsForFilter.map((guild) => guild.id.toString())),
+				openDmChannelIds,
+			};
 			filterArgs = {
 				filter,
 				context,
-				findChannel: (channelId) => channelRepository.channelData.findUnique(channelId),
+				findChannel: (channelId) => channelRepository.findUnique(channelId),
 			};
 		}
 		Logger.debug({userId, harvestId, elapsed: Date.now() - startTime}, 'Starting user data harvest');
 		await progressReporter.updateProgress(INITIAL_PROGRESS, 'Harvesting messages');
 		Logger.debug({elapsed: Date.now() - startTime}, 'Set progress to INITIAL_PROGRESS');
-		const {channelMessagesMap, totalMessages} = await harvestMessages(
-			channelRepository.messages,
-			userId,
-			startTime,
-			filterArgs,
-		);
+		const {channelMessagesMap, totalMessages} = await harvestMessages(channelRepository, userId, startTime, filterArgs);
 		if (totalMessages > 0) {
 			const progress = Math.min(INITIAL_PROGRESS + Math.floor((totalMessages / 10000) * 50), MESSAGES_PROGRESS_MAX);
 			await progressReporter.updateProgress(progress, `Harvested ${totalMessages} messages`);
@@ -878,7 +850,6 @@ const harvestUserData: ArchiveTaskHandler = async (payload, helpers, attempt) =>
 			pushSubscriptions,
 			webAuthnCredentials,
 			mfaBackupCodes,
-			recoveryKitCreatedAt,
 			createdGiftCodes,
 			payments,
 			storePurchases,
@@ -899,7 +870,6 @@ const harvestUserData: ArchiveTaskHandler = async (payload, helpers, attempt) =>
 			userRepository.listPushSubscriptions(userId),
 			userRepository.listWebAuthnCredentials(userId),
 			userRepository.listMfaBackupCodes(userId),
-			findRecoveryKitCreatedAt(userId),
 			userRepository.findGiftCodesByCreator(userId),
 			paymentRepository.findPaymentsByUserId(userId),
 			storeEntitlementService.listStorePurchases(userId),
@@ -919,7 +889,6 @@ const harvestUserData: ArchiveTaskHandler = async (payload, helpers, attempt) =>
 		const guildSettings = await mapWithConcurrency(guildIds, HARVEST_READ_CONCURRENCY, (guildId) =>
 			userRepository.findGuildSettings(userId, guildId),
 		);
-		const threadMemberships = await collectThreadMemberships(channelRepository.threads, userId, guildIds);
 		const {branding} = await instanceConfigRepository.getAppPublicConfig();
 		const userData = buildUserDataJson({
 			user,
@@ -931,14 +900,12 @@ const harvestUserData: ArchiveTaskHandler = async (payload, helpers, attempt) =>
 			userSettings,
 			guildMemberships,
 			guildSettings,
-			threadMemberships,
 			savedMessages,
 			privateChannels,
 			favoriteMemes,
 			pushSubscriptions,
 			webAuthnCredentials,
 			mfaBackupCodes,
-			recoveryKitCreatedAt,
 			createdGiftCodes,
 			payments,
 			storePurchases,

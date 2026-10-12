@@ -6,18 +6,10 @@ import type {UserRow} from '@app/api/database/types/UserTypes';
 import {Logger} from '@app/api/Logger';
 import {getBillingRepository} from '@app/api/middleware/ServiceRegistry';
 import type {User} from '@app/api/models/User';
-import {mirrorBestEffort} from '@app/api/stripe/StripeMirror';
 import {extractId} from '@app/api/stripe/StripeUtils';
-import {
-	buildRefundEligibility,
-	refundCooldownExpiresAt,
-	refundWindowExpiresAt,
-	SELF_SERVE_REFUND_WINDOW_DAYS,
-	shouldBlockFurtherPurchases,
-} from '@app/api/stripe/services/RefundAllowance';
 import {REFUND_ALLOWANCE_CLAIM_PREFIX} from '@app/api/stripe/services/StripeDisputeWebhookHandler';
 import type {StripeSubscriptionService} from '@app/api/stripe/services/StripeSubscriptionService';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {PremiumFlags} from '@fluxer/constants/src/UserConstants';
 import {FeatureNotAvailableSelfHostedError} from '@fluxer/errors/src/domains/core/FeatureNotAvailableSelfHostedError';
 import {StripeError} from '@fluxer/errors/src/domains/payment/StripeError';
@@ -28,10 +20,14 @@ import {StripeRefundOutsideWindowError} from '@fluxer/errors/src/domains/payment
 import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
 import type {
 	SelfServeRefundEligibilityResponse,
+	SelfServeRefundIneligibilityReason,
 	SelfServeRefundResponse,
 } from '@fluxer/schema/src/domains/premium/PremiumSchemas';
 import type Stripe from 'stripe';
 
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
+export const SELF_SERVE_REFUND_WINDOW_DAYS = 3;
+export const SELF_SERVE_REFUND_COOLDOWN_DAYS = 30;
 const PIX_EXACT_AMOUNT_REFUND_SHORTFALL_CENTS = 1;
 
 interface RefundTarget {
@@ -94,7 +90,7 @@ function getInvoicePaymentRef(invoice: Stripe.Invoice): {
 export class StripeRefundService {
 	constructor(
 		private readonly stripe: Stripe | null,
-		private readonly userRepository: UserRepository,
+		private readonly userRepository: IUserRepository,
 		private readonly subscriptionService: StripeSubscriptionService,
 	) {}
 
@@ -152,11 +148,66 @@ export class StripeRefundService {
 		return null;
 	}
 
+	private cooldownExpiresAt(user: User): Date | null {
+		if (!user.firstRefundAt) {
+			return null;
+		}
+		const expiresAt = new Date(user.firstRefundAt.getTime() + SELF_SERVE_REFUND_COOLDOWN_DAYS * MILLISECONDS_PER_DAY);
+		return expiresAt.getTime() > Date.now() ? expiresAt : null;
+	}
+
+	private windowExpiresAt(target: RefundTarget): Date {
+		return new Date(target.paidAt.getTime() + SELF_SERVE_REFUND_WINDOW_DAYS * MILLISECONDS_PER_DAY);
+	}
+
 	async getEligibility(userId: UserID): Promise<SelfServeRefundEligibilityResponse> {
-		if (Config.instance.selfHosted || !this.stripe) return buildRefundEligibility({reason: 'feature_unavailable'});
+		if (Config.instance.selfHosted || !this.stripe) {
+			return {
+				eligible: false,
+				reason: 'feature_unavailable',
+				invoice_id: null,
+				invoice_amount_paid_cents: null,
+				currency: null,
+				paid_at: null,
+				refund_window_expires_at: null,
+				cooldown_expires_at: null,
+				cancels_subscription: false,
+			};
+		}
 		const user = await this.getRequiredUser(userId);
 		const target = await this.resolveLatestRefundTarget(user);
-		return buildRefundEligibility({target, cooldownExpiresAt: refundCooldownExpiresAt(user)});
+		if (!target) {
+			return {
+				eligible: false,
+				reason: 'no_refundable_purchase',
+				invoice_id: null,
+				invoice_amount_paid_cents: null,
+				currency: null,
+				paid_at: null,
+				refund_window_expires_at: null,
+				cooldown_expires_at: this.cooldownExpiresAt(user)?.toISOString() ?? null,
+				cancels_subscription: false,
+			};
+		}
+		const windowExpiresAt = this.windowExpiresAt(target);
+		const cooldownExpiresAt = this.cooldownExpiresAt(user);
+		let reason: SelfServeRefundIneligibilityReason | null = null;
+		if (windowExpiresAt.getTime() <= Date.now()) {
+			reason = 'outside_refund_window';
+		} else if (cooldownExpiresAt) {
+			reason = 'cooldown_active';
+		}
+		return {
+			eligible: reason === null,
+			reason,
+			invoice_id: target.invoiceId,
+			invoice_amount_paid_cents: target.amountPaidCents,
+			currency: target.currency,
+			paid_at: target.paidAt.toISOString(),
+			refund_window_expires_at: windowExpiresAt.toISOString(),
+			cooldown_expires_at: cooldownExpiresAt?.toISOString() ?? null,
+			cancels_subscription: target.subscriptionId !== null,
+		};
 	}
 
 	private async resolveChargePaymentMethodType(stripe: Stripe, target: RefundTarget): Promise<string | null> {
@@ -220,31 +271,17 @@ export class StripeRefundService {
 		}
 		const claimKey = `${REFUND_ALLOWANCE_CLAIM_PREFIX}:${refund.id}`;
 		const claim = await getBillingRepository().webhookEvents.tryClaim(claimKey);
-		if (claim === 'in_flight') {
+		if (claim !== 'claimed') {
 			Logger.debug(
 				{userId: user.id.toString(), refundId: refund.id, claim},
-				'Self-serve refund allowance is being counted by another delivery',
+				'Self-serve refund already counted against the user refund allowance',
 			);
 			return;
 		}
 		const isFirstRefund = !user.firstRefundAt;
-		let patch: Partial<UserRow>;
-		let countedRefundIds: Array<string> = [];
-		if (isFirstRefund) {
-			patch = {first_refund_at: new Date()};
-		} else {
-			const outcome = await shouldBlockFurtherPurchases(user, this.userRepository);
-			countedRefundIds = outcome.countedRefundIds;
-			if (!outcome.blocked) {
-				await getBillingRepository().webhookEvents.markProcessed(claimKey);
-				Logger.info(
-					{userId: user.id.toString(), refundId: refund.id, countedRefundIds},
-					'Self-serve refund redelivered after the allowance claim expired; not counting it twice',
-				);
-				return;
-			}
-			patch = {premium_flags: user.premiumFlags | PremiumFlags.PURCHASE_DISABLED};
-		}
+		const patch: Partial<UserRow> = isFirstRefund
+			? {first_refund_at: new Date()}
+			: {premium_flags: user.premiumFlags | PremiumFlags.PURCHASE_DISABLED};
 		try {
 			await this.userRepository.patchUpsert(user.id, patch, user.toRow());
 		} catch (error) {
@@ -253,13 +290,7 @@ export class StripeRefundService {
 		}
 		await getBillingRepository().webhookEvents.markProcessed(claimKey);
 		Logger.info(
-			{
-				userId: user.id.toString(),
-				refundId: refund.id,
-				subscriptionId: subscriptionId || null,
-				isFirstRefund,
-				countedRefundIds,
-			},
+			{userId: user.id.toString(), refundId: refund.id, subscriptionId: subscriptionId || null, isFirstRefund},
 			'Self-serve refund confirmed succeeded; refund allowance and cancellation finalized',
 		);
 	}
@@ -276,10 +307,10 @@ export class StripeRefundService {
 			throw new StripeNoPurchaseHistoryError();
 		}
 		const now = Date.now();
-		if (refundWindowExpiresAt(target.paidAt).getTime() <= now) {
+		if (this.windowExpiresAt(target).getTime() <= now) {
 			throw new StripeRefundOutsideWindowError();
 		}
-		if (refundCooldownExpiresAt(user)) {
+		if (this.cooldownExpiresAt(user)) {
 			throw new StripeRefundCooldownActiveError();
 		}
 		const priorFailures = await this.countPriorTerminalFailures(target.invoiceId);
@@ -320,16 +351,15 @@ export class StripeRefundService {
 			);
 			throw new StripeError(error instanceof Error ? error.message : 'Failed to refund latest purchase');
 		}
-		await mirrorBestEffort(
-			() =>
-				getBillingRepository().refunds.upsertFromStripe(refund, {
-					invoiceId: target.invoiceId,
-					customerId: user.stripeCustomerId ?? undefined,
-					userId: user.id,
-				}),
-			{refundId: refund.id},
-			'Mirror upsert failed after Stripe write; reconciler will heal',
-		);
+		try {
+			await getBillingRepository().refunds.upsertFromStripe(refund, {
+				invoiceId: target.invoiceId,
+				customerId: user.stripeCustomerId ?? undefined,
+				userId: user.id,
+			});
+		} catch (mirrorErr) {
+			Logger.error({mirrorErr, refundId: refund.id}, 'Mirror upsert failed after Stripe write; reconciler will heal');
+		}
 		await this.finalizeIfSucceeded(refund);
 		const succeeded = refund.status === 'succeeded';
 		Logger.info(

@@ -24,11 +24,13 @@ export interface LocalMediaPublicationCapResult {
 	}>;
 }
 
-function isMicrophoneSourcePublication(publication: Pick<LocalTrackPublication, 'source'> | null | undefined): boolean {
+export function isMicrophoneSourcePublication(
+	publication: Pick<LocalTrackPublication, 'source'> | null | undefined,
+): boolean {
 	return asVoiceTrackSource(publication?.source) === VoiceTrackSourceValue.Microphone;
 }
 
-function isControllableMicrophonePublication(
+export function isControllableMicrophonePublication(
 	publication: Pick<LocalTrackPublication, 'source'> | null | undefined,
 ): boolean {
 	if (!publication) {
@@ -51,7 +53,7 @@ export function getPrimaryLocalMicrophonePublication(
 	return getLocalMicrophonePublications(participant)[0] ?? null;
 }
 
-function getLocalTrackPublicationsBySource(
+export function getLocalTrackPublicationsBySource(
 	participant: LocalParticipantWithTrackPublications,
 	source: VoiceTrackSource,
 ): Array<LocalTrackPublication> {
@@ -84,7 +86,7 @@ export function getLocalScreenSharePublications(
 	return [...getLocalScreenShareVideoPublications(participant), ...getLocalScreenShareAudioPublications(participant)];
 }
 
-function getLocalPublicationTrack(publication: LocalTrackPublication): LocalTrack | null {
+export function getLocalPublicationTrack(publication: LocalTrackPublication): LocalTrack | null {
 	return (publication.track ?? publication.videoTrack ?? publication.audioTrack ?? null) as LocalTrack | null;
 }
 

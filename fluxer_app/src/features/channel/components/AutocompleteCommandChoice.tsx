@@ -1,9 +1,19 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {AutocompleteItem} from '@app/features/channel/components/AutocompleteItem';
-import type {AutocompleteListProps} from '@app/features/channel/components/AutocompleteTypes';
-import {isCommandChoice} from '@app/features/channel/components/AutocompleteTypes';
+import {type AutocompleteOption, isCommandChoice} from '@app/features/channel/components/AutocompleteTypes';
 import type React from 'react';
+
+interface AutocompleteCommandChoiceProps {
+	onSelect: (option: AutocompleteOption) => void;
+	keyboardFocusIndex: number;
+	hoverIndex: number;
+	options: Array<AutocompleteOption>;
+	onMouseEnter: (index: number) => void;
+	onMouseLeave: () => void;
+	rowRefs?: React.RefObject<Array<HTMLButtonElement | null>>;
+	getOptionId?: (index: number) => string;
+}
 
 export function AutocompleteCommandChoice({
 	onSelect,
@@ -14,7 +24,7 @@ export function AutocompleteCommandChoice({
 	onMouseLeave,
 	rowRefs,
 	getOptionId,
-}: AutocompleteListProps): React.ReactNode {
+}: AutocompleteCommandChoiceProps): React.ReactNode {
 	const choices = options.filter(isCommandChoice);
 	return choices.map((option, index) => (
 		<AutocompleteItem

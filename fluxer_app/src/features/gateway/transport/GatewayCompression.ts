@@ -4,6 +4,7 @@ import {
 	compressZstdStreamChunk,
 	createZstdStreamDecoder,
 	createZstdStreamEncoderSync,
+	decompressZstdFrame,
 	decompressZstdStreamChunk,
 	ensureLibfluxcoreReady,
 	freeZstdStreamDecoder,
@@ -33,18 +34,20 @@ export function isGatewayCompressionError(error: unknown): error is GatewayCompr
 
 export class GatewayCompression {
 	private readonly type: CompressionType;
+	private readonly stream: boolean;
 	private zstdStreamDecoder: number | null = null;
 	private zstdStreamEncoder: number | null = null;
 	private pendingStreamOperations = 0;
 	private destroyed = false;
 	private streamQueue: Promise<void> = Promise.resolve();
 
-	constructor(type: CompressionType) {
+	constructor(type: CompressionType, stream = type === 'zstd-stream') {
 		this.type = type;
+		this.stream = stream;
 	}
 
 	canCompress(): boolean {
-		return this.type === 'zstd-stream';
+		return this.type === 'zstd-stream' && this.stream;
 	}
 
 	async warmup(): Promise<void> {
@@ -82,10 +85,24 @@ export class GatewayCompression {
 			case 'none':
 				return new TextDecoder().decode(input);
 			case 'zstd-stream':
-				return this.decompressZstdStream(input);
+				return this.stream ? this.decompressZstdStream(input) : this.decompressZstdFrame(input);
 			default:
 				throw new Error(`Unsupported compression type: ${this.type}`);
 		}
+	}
+
+	private async decompressZstdFrame(data: Uint8Array): Promise<string> {
+		let wasmDecoded: Uint8Array | null;
+		try {
+			wasmDecoded = await decompressZstdFrame(data);
+		} catch (error) {
+			throw new GatewayCompressionError(this.type, error);
+		}
+		if (!wasmDecoded) {
+			throw new GatewayCompressionError(this.type, new Error('Gateway zstd WASM not available'));
+		}
+		const decompressed = wasmDecoded;
+		return new TextDecoder().decode(decompressed);
 	}
 
 	private async decompressZstdStream(data: Uint8Array): Promise<string> {
@@ -134,5 +151,19 @@ export class GatewayCompression {
 		if (!this.destroyed || this.pendingStreamOperations > 0 || this.zstdStreamDecoder == null) return;
 		freeZstdStreamDecoder(this.zstdStreamDecoder);
 		this.zstdStreamDecoder = null;
+	}
+}
+
+export function getPreferredCompression(): CompressionType {
+	return 'zstd-stream';
+}
+
+export function isCompressionSupported(type: CompressionType): boolean {
+	switch (type) {
+		case 'none':
+		case 'zstd-stream':
+			return true;
+		default:
+			return false;
 	}
 }

@@ -23,8 +23,7 @@
     bot := boolean(),
     is_staff := boolean(),
     initial_guild_id := guild_id() | undefined,
-    user_data := map(),
-    thread_channels_capable => boolean()
+    user_data := map()
 }.
 
 -spec do_local_guild_connect(connect_ctx()) ->
@@ -204,8 +203,7 @@ do_start_connect_async(GuildPid, Ctx) ->
         bot => Bot,
         is_staff => IsStaff,
         initial_guild_id => InitialGuildId,
-        active_guilds => ActiveGuilds,
-        thread_channels_capable => maps:get(thread_channels_capable, Ctx, false)
+        active_guilds => ActiveGuilds
     },
     CastMsg =
         {session_connect_async, #{
@@ -252,35 +250,3 @@ notify_remote_timing(SessionPid, Role, OwnerNode, FunctionName, StartedAt) when
     ok;
 notify_remote_timing(_, _, _, _, _) ->
     ok.
-
--ifdef(TEST).
--include_lib("eunit/include/eunit.hrl").
-
-connect_request_carries_thread_channels_capability_test() ->
-    ?assertEqual(true, sent_capability(#{thread_channels_capable => true})),
-    ?assertEqual(false, sent_capability(#{thread_channels_capable => false})),
-    ?assertEqual(false, sent_capability(#{})).
-
-sent_capability(Extra) ->
-    Ctx = maps:merge(
-        #{
-            session_pid => self(),
-            guild_id => 1,
-            attempt => 0,
-            session_id => <<"s">>,
-            user_id => 2,
-            bot => false,
-            is_staff => false,
-            initial_guild_id => undefined,
-            user_data => #{}
-        },
-        Extra
-    ),
-    pending = do_start_connect_async(self(), Ctx),
-    receive
-        {'$gen_cast', {session_connect_async, #{request := Request}}} ->
-            maps:get(thread_channels_capable, Request)
-    after 1000 -> erlang:error(connect_cast_not_sent)
-    end.
-
--endif.

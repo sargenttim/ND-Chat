@@ -1,17 +1,12 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
-
-import {Logger} from '@app/api/Logger';
 import type {IKVProvider, IKVSubscription} from '@pkgs/kv_client/src/IKVProvider';
 
 type RefreshTrigger = 'notification' | 'periodic';
 
-export interface RefreshSubscriptionOptions {
+interface RefreshSubscriptionOptions {
 	name: string;
 	channels: ReadonlyArray<string>;
 	refresh: () => Promise<void>;
-	onRefreshError?: (error: unknown, trigger: RefreshTrigger) => void;
-	onPeriodicRefreshError?: (error: unknown) => void;
-	escalateAfterConsecutiveFailures?: number;
+	onRefreshError: (error: unknown, trigger: RefreshTrigger) => void;
 	shouldRefresh?: (channel: string, message: string) => boolean;
 	drainInitialNotifications?: boolean;
 	periodicIntervalMs?: () => number | null;
@@ -26,10 +21,6 @@ export class RefreshSubscriptionUnavailableError extends Error {
 }
 
 export class RefreshSubscription {
-	resetFailures(): void {
-		this.session?.resetFailures();
-	}
-
 	private session: RefreshSubscriptionSession | null = null;
 
 	constructor(private readonly options: RefreshSubscriptionOptions) {}
@@ -71,28 +62,6 @@ export class RefreshSubscription {
 }
 
 class RefreshSubscriptionSession {
-	private consecutiveFailures = 0;
-	resetFailures(): void {
-		this.consecutiveFailures = 0;
-	}
-
-	private reportRefreshError(error: unknown, trigger: RefreshTrigger): void {
-		if (trigger === 'periodic' && this.options.onPeriodicRefreshError) {
-			this.options.onPeriodicRefreshError(error);
-			return;
-		}
-		if (this.options.onRefreshError) {
-			this.options.onRefreshError(error, trigger);
-			return;
-		}
-		this.consecutiveFailures++;
-		const details = {error: error instanceof Error ? error.message : String(error)};
-		const message = `Failed to refresh ${this.options.name} after notification`;
-		if (this.consecutiveFailures >= (this.options.escalateAfterConsecutiveFailures ?? 5))
-			Logger.error(details, message);
-		else Logger.warn(details, message);
-	}
-
 	private readonly subscription: IKVSubscription | null;
 	private phase: 'starting' | 'running' | 'stopping' | 'stopped' = 'starting';
 	private startCompletion: Promise<void> | null = null;
@@ -148,12 +117,10 @@ class RefreshSubscriptionSession {
 			}
 		}
 		await this.options.refresh();
-		this.resetFailures();
 		this.assertActive();
 		while (this.options.drainInitialNotifications && this.pendingRefresh !== null) {
 			this.pendingRefresh = null;
 			await this.options.refresh();
-			this.resetFailures();
 			this.assertActive();
 		}
 		this.phase = 'running';
@@ -193,9 +160,8 @@ class RefreshSubscriptionSession {
 			this.pendingRefresh = null;
 			try {
 				await this.options.refresh();
-				this.resetFailures();
 			} catch (error) {
-				this.reportRefreshError(error, trigger);
+				this.options.onRefreshError(error, trigger);
 			}
 		}
 	}

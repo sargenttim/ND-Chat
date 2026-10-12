@@ -30,11 +30,12 @@ describe('Admin Deletion Queue', () => {
 	afterEach(async () => {
 		await harness?.shutdown();
 	});
-	test('admin scheduling queues deletion and rescheduling replaces the queued deletion', async () => {
+	test('admin scheduling queues deletion and rescheduling replaces the old Cassandra row', async () => {
 		const adminIp = createUniqueTestIp();
 		const targetIp = createUniqueTestIp();
 		const admin = await createTestAccount(harness, {ipAddress: adminIp});
 		const targetUser = await createTestAccount(harness, {ipAddress: targetIp});
+		const userRepository = new UserRepository();
 		await setUserACLs(harness, admin, ['admin:authenticate', 'user:delete']);
 		const firstSchedule = await createBuilder<{
 			user: {
@@ -46,7 +47,7 @@ describe('Admin Deletion Queue', () => {
 			.body({reason_code: 2, days_until_deletion: 60})
 			.execute();
 		expect(await harness.kvProvider.zcard('deletion_queue')).toBe(1);
-		await createBuilder<{
+		const secondSchedule = await createBuilder<{
 			user: {
 				pending_deletion_at: string;
 			};
@@ -59,8 +60,19 @@ describe('Admin Deletion Queue', () => {
 				replace_pending_deletion_at: firstSchedule.user.pending_deletion_at,
 			})
 			.execute();
-
+		const firstDate = firstSchedule.user.pending_deletion_at.slice(0, 10);
+		const secondDate = secondSchedule.user.pending_deletion_at.slice(0, 10);
 		expect(await harness.kvProvider.zcard('deletion_queue')).toBe(1);
+		expect(
+			(await userRepository.findUsersPendingDeletionByDate(firstDate)).some(
+				(row) => row.user_id.toString() === targetUser.userId,
+			),
+		).toBe(false);
+		expect(
+			(await userRepository.findUsersPendingDeletionByDate(secondDate)).some(
+				(row) => row.user_id.toString() === targetUser.userId,
+			),
+		).toBe(true);
 	});
 	test('cancel deletion clears the queued KV entry', async () => {
 		const adminIp = createUniqueTestIp();
@@ -88,6 +100,11 @@ describe('Admin Deletion Queue', () => {
 			.body({expected_pending_deletion_at: schedule.user.pending_deletion_at})
 			.execute();
 		expect(await harness.kvProvider.zcard('deletion_queue')).toBe(0);
+		expect(
+			(await new UserRepository().findUsersPendingDeletionByDate(schedule.user.pending_deletion_at.slice(0, 10))).some(
+				(row) => row.user_id.toString() === targetUser.userId,
+			),
+		).toBe(false);
 	});
 	test('user-requested scheduled deletion does not ban user identifiers', async () => {
 		const adminIp = createUniqueTestIp();

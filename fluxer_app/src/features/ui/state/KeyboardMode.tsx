@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {Logger} from '@app/features/platform/utils/AppLogger';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import {registerKeyboardModeRestoreCallback, registerKeyboardModeStateResolver} from '@app/features/ui/state/Modal';
 import {makeSyncedField} from '@app/features/user/state/SyncedField';
 import {KeyboardModeIntroStateSchema} from '@fluxer/schema/src/gen/fluxer/user/preferences/v1/preferences_pb';
@@ -15,17 +14,15 @@ class KeyboardMode {
 
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
-		initializeStore(this, () =>
-			makeSyncedField(this, {
-				field: 'keyboardModeIntro',
-				schema: KeyboardModeIntroStateSchema,
-				persist: ['introSeen'],
-				toMessage: (s) => ({seen: s.introSeen}),
-				applyMessage: (s, m) => {
-					s.introSeen = m.seen;
-				},
-			}),
-		);
+		void makeSyncedField(this, {
+			field: 'keyboardModeIntro',
+			schema: KeyboardModeIntroStateSchema,
+			persist: ['introSeen'],
+			toMessage: (s) => ({seen: s.introSeen}),
+			applyMessage: (s, m) => {
+				s.introSeen = m.seen;
+			},
+		});
 	}
 
 	enterKeyboardMode(showIntro = true): void {

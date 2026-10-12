@@ -3,12 +3,14 @@
 import type {SearchableSettingDescriptor} from '@app/features/user/components/settings_utils/search_index/SearchIndexTypes';
 import {
 	CODES_DESCRIPTOR,
-	PURCHASED_GIFTS_DESCRIPTOR,
-	REDEEM_A_GIFT_DESCRIPTOR,
-} from '@app/features/user/components/settings_utils/section_registry/SharedDescriptors';
-import {GIFTS_DESCRIPTOR} from '@app/features/user/utils/UserMessageDescriptors';
+	GIFTS_DESCRIPTOR,
+} from '@app/features/user/components/settings_utils/search_index/SharedDescriptors';
 import {msg} from '@lingui/core/macro';
 
+const REDEEM_A_GIFT_DESCRIPTOR = msg({
+	message: 'Redeem a gift',
+	comment: 'Settings search entry label. Names the settings search entry in the settings UI.',
+});
 const INVENTORY_DESCRIPTOR = msg({
 	message: 'Inventory',
 	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
@@ -33,7 +35,10 @@ const YOUR_PURCHASED_GIFTS_DESCRIPTOR = msg({
 	message: 'Your purchased gifts',
 	comment: 'Settings search entry label. Names the settings search entry in the settings UI.',
 });
-
+const PURCHASED_GIFTS_DESCRIPTOR = msg({
+	message: 'Purchased gifts',
+	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',
+});
 const GIFT_INVENTORY_DESCRIPTOR = msg({
 	message: 'Gift inventory',
 	comment: 'Settings search synonym. Used to match this term when the user types it in the settings search bar.',

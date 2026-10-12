@@ -2,21 +2,20 @@
 
 import {Config} from '@app/api/Config';
 import {GatewayRpcMethodError, GatewayRpcMethodErrorCodes} from '@app/api/infrastructure/GatewayRpcError';
+import type {IGatewayRpcTransport} from '@app/api/infrastructure/IGatewayRpcTransport';
 import {type CallCaller, type CallData, callCallerRpcParams} from '@app/api/infrastructure/IGatewayService';
 import {NatsGatewayRpcTransport} from '@app/api/infrastructure/NatsGatewayRpcTransport';
 import {Logger} from '@app/api/Logger';
 import {NatsConnectionManager} from '@pkgs/nats/src/NatsConnectionManager';
 import {ms} from 'itty-time';
 
-export type GatewayRpcTransport = Pick<NatsGatewayRpcTransport, 'call' | 'destroy'>;
-
 const MAX_RETRY_ATTEMPTS = 2;
 
 export class GatewayRpcClient {
 	private static instance: GatewayRpcClient | null = null;
-	private readonly transport: GatewayRpcTransport;
+	private readonly transport: IGatewayRpcTransport;
 
-	private constructor(transport: GatewayRpcTransport) {
+	private constructor(transport: IGatewayRpcTransport) {
 		this.transport = transport;
 	}
 
@@ -27,7 +26,7 @@ export class GatewayRpcClient {
 		return GatewayRpcClient.instance;
 	}
 
-	static createForTests(transport: GatewayRpcTransport): GatewayRpcClient {
+	static createForTests(transport: IGatewayRpcTransport): GatewayRpcClient {
 		const client = new GatewayRpcClient(transport);
 		GatewayRpcClient.instance = client;
 		return client;
@@ -58,6 +57,10 @@ export class GatewayRpcClient {
 			}
 		}
 		throw new Error('Unexpected gateway RPC retry failure');
+	}
+
+	publish(subject: string, payload: Record<string, unknown>): Promise<void> {
+		return this.transport.publish(subject, payload);
 	}
 
 	private async executeCall<T>(method: string, params: Record<string, unknown>): Promise<T> {
@@ -151,6 +154,10 @@ export class GatewayRpcClient {
 
 	async stopRingingCallRecipients(channelId: string, recipients: Array<string>): Promise<boolean> {
 		return this.call('call.stop_ringing', {channel_id: channelId, recipients});
+	}
+
+	async deleteCall(channelId: string): Promise<boolean> {
+		return this.call('call.delete', {channel_id: channelId});
 	}
 
 	async getNodeStats(): Promise<unknown> {

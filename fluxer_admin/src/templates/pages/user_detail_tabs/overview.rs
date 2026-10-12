@@ -2,7 +2,7 @@
 
 use crate::{
     acl, admin_flags,
-    api::types::{AdminUser, LimitConfigResponse, ListUserChangeLogResponse},
+    api::types::{AdminUser, LimitConfigResponse, ListBadgesResponse, ListUserChangeLogResponse},
     config::AdminConfig,
     templates::components::{
         badge::{BadgeVariant, badge},
@@ -12,7 +12,6 @@ use crate::{
     utils::{
         bigint::format_discriminator,
         timestamps::{format_admin_timestamp, snowflake_creation_date},
-        user_tag::user_tag,
     },
 };
 use maud::{Markup, html};
@@ -25,11 +24,10 @@ pub fn overview_tab(
     change_log: Option<&ListUserChangeLogResponse>,
 ) -> Markup {
     render_overview_tab(
-        config, user, admin_acls, csrf_token, change_log, None, false, false,
+        config, user, admin_acls, csrf_token, change_log, None, None, false,
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn overview_tab_with_limit_config(
     config: &AdminConfig,
     user: &AdminUser,
@@ -37,7 +35,7 @@ pub fn overview_tab_with_limit_config(
     csrf_token: &str,
     change_log: Option<&ListUserChangeLogResponse>,
     limit_config: Option<&LimitConfigResponse>,
-    username_sign_in: bool,
+    badges: Option<&ListBadgesResponse>,
 ) -> Markup {
     render_overview_tab(
         config,
@@ -46,8 +44,8 @@ pub fn overview_tab_with_limit_config(
         csrf_token,
         change_log,
         limit_config,
+        badges,
         true,
-        username_sign_in,
     )
 }
 
@@ -59,20 +57,20 @@ fn render_overview_tab(
     csrf_token: &str,
     change_log: Option<&ListUserChangeLogResponse>,
     limit_config: Option<&LimitConfigResponse>,
+    badges: Option<&ListBadgesResponse>,
     show_traits: bool,
-    username_sign_in: bool,
 ) -> Markup {
     html! {
         div class="space-y-6" {
             @if let Some(until) = &user.temp_banned_until {
                 div class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm font-medium text-red-900" {
-                    "Temporarily banned until " (format_admin_timestamp(until))
+                    "Temporarily banned until " (until)
                 }
             }
             @if user.temp_banned_until.is_none() {
                 @if let Some(pending) = &user.pending_deletion_at {
                     div class="rounded-lg border border-orange-200 bg-orange-50 p-4 text-sm text-orange-900" {
-                        div class="font-medium" { "Scheduled for deletion: " (format_admin_timestamp(pending)) }
+                        div class="font-medium" { "Scheduled for deletion: " (pending) }
                         @if let Some(code) = user.deletion_reason_code {
                             div class="mt-1" { "Reason code: " (code) }
                         }
@@ -101,7 +99,7 @@ fn render_overview_tab(
             @if let Some(pending) = &user.pending_bulk_message_deletion_at {
                 div class="rounded-lg border border-neutral-200 bg-neutral-50 p-4" {
                     div class="font-medium text-neutral-700 text-sm" {
-                        "Bulk message deletion scheduled for " (format_admin_timestamp(pending))
+                        "Bulk message deletion scheduled for " (pending)
                     }
                     @if acl::has_permission(admin_acls, acl::USER_CANCEL_BULK_MESSAGE_DELETION) {
                         form method="post"
@@ -124,7 +122,7 @@ fn render_overview_tab(
                         (snowflake_creation_date(&user.id))
                     }))
                     (detail_row("Username", html! {
-                        (user_tag(&user.username, &format_discriminator(&user.discriminator), user.bot))
+                        (user.username) "#" (format_discriminator(&user.discriminator))
                     }))
                     (detail_row("Display Name", html! {
                         @if let Some(ref name) = user.global_name {
@@ -133,7 +131,7 @@ fn render_overview_tab(
                             span class="text-neutral-400" { "Not set" }
                         }
                     }))
-                    @if acl::has_permission(admin_acls, acl::USER_VIEW_EMAIL) && !username_sign_in {
+                    @if acl::has_permission(admin_acls, acl::USER_VIEW_EMAIL) {
                         (detail_row("Email", html! {
                             @if let Some(ref email) = user.email {
                                 (email)
@@ -145,6 +143,13 @@ fn render_overview_tab(
                             }
                         }))
                     }
+                    (detail_row("Phone", html! {
+                        @if user.has_verified_phone {
+                            span class="text-green-700" { "Verified" }
+                        } @else {
+                            span class="text-neutral-400" { "Not verified" }
+                        }
+                    }))
                     @if acl::has_permission(admin_acls, acl::USER_VIEW_DOB) {
                         (detail_row("Date of Birth", html! {
                             (user.date_of_birth.as_deref().unwrap_or("Not set"))
@@ -197,10 +202,10 @@ fn render_overview_tab(
                         }
                     }))
                     @if let Some(ref value) = user.premium_grace_ends_at {
-                        (detail_row("Grace Period Ends", html! { (format_admin_timestamp(value)) }))
+                        (detail_row("Grace Period Ends", html! { (value) }))
                     }
                     (detail_row("Last Active", html! {
-                        (user.last_active_at.as_deref().map_or_else(|| "Never".to_string(), format_admin_timestamp))
+                        (user.last_active_at.as_deref().unwrap_or("Never"))
                     }))
                     @if acl::has_permission(admin_acls, acl::USER_VIEW_IP) {
                         (detail_row("Last IP", html! {
@@ -224,6 +229,9 @@ fn render_overview_tab(
                 }
             }))
             (flags_card(config, user, admin_acls, csrf_token))
+            @if let Some(badges) = badges {
+                (badges_card(config, user, badges, admin_acls, csrf_token))
+            }
             (acls_card(config, user, admin_acls, csrf_token))
             @if show_traits {
                 (traits_card(config, user, admin_acls, csrf_token, limit_config))
@@ -239,7 +247,7 @@ fn render_overview_tab(
                                     div class="py-3 text-sm" {
                                         dt class="font-medium text-neutral-900" {
                                             (entry.field)
-                                            span class="ml-2 font-normal text-xs text-neutral-500" { (format_admin_timestamp(&entry.event_at)) }
+                                            span class="ml-2 font-normal text-xs text-neutral-500" { (entry.event_at) }
                                         }
                                         dd class="mt-1 font-mono text-xs text-neutral-700" {
                                             (entry.old_value.as_deref().unwrap_or("null"))
@@ -269,6 +277,8 @@ fn flags_card(
     csrf_token: &str,
 ) -> Markup {
     let can_update_flags = acl::has_permission(admin_acls, acl::USER_UPDATE_FLAGS);
+    let can_update_suspicious =
+        acl::has_permission(admin_acls, acl::USER_UPDATE_SUSPICIOUS_ACTIVITY);
     html! {
         div class="space-y-6" {
             (u64_flag_form(
@@ -295,6 +305,23 @@ fn flags_card(
                 can_update_flags,
                 Some(acl::USER_UPDATE_FLAGS),
             ))
+            (i32_flag_form(
+                config,
+                &user.id,
+                "Suspicious Activity Flags",
+                "update_suspicious_flags",
+                "suspicious_flags[]",
+                user.suspicious_activity_flags,
+                admin_flags::SUSPICIOUS_ACTIVITY_FLAGS,
+                csrf_token,
+                can_update_suspicious,
+                Some(acl::USER_UPDATE_SUSPICIOUS_ACTIVITY),
+            ))
+            @if user.phone_verification_deferred {
+                p class="text-sm text-amber-700 dark:text-amber-400" {
+                    "Phone verification is deferred: the requirement above is stored but not enforced."
+                }
+            }
         }
     }
 }
@@ -402,6 +429,46 @@ fn flag_form_shell(
                         }
                     }
                 }
+            }
+        },
+    )
+}
+
+fn badges_card(
+    config: &AdminConfig,
+    user: &AdminUser,
+    badges: &ListBadgesResponse,
+    admin_acls: &[String],
+    csrf_token: &str,
+) -> Markup {
+    let can_edit = acl::has_permission(admin_acls, acl::USER_UPDATE_BADGES);
+    let mut user_badges: Vec<_> = badges
+        .badges
+        .iter()
+        .filter(|badge| badge.badge_type == "user")
+        .collect();
+    user_badges.sort_by_key(|badge| badge.position);
+    flag_form_shell(
+        config,
+        &user.id,
+        "Badges",
+        "update_badges",
+        String::new(),
+        csrf_token,
+        can_edit,
+        Some(acl::USER_UPDATE_BADGES),
+        html! {
+            @if user_badges.is_empty() {
+                p class="text-sm text-neutral-500" { "No user badges defined." }
+            }
+            @for badge in user_badges {
+                (flag_checkbox(
+                    "badge_ids[]",
+                    badge.id.clone(),
+                    &badge.name,
+                    user.badge_ids.contains(&badge.id),
+                    can_edit,
+                ))
             }
         },
     )
@@ -549,10 +616,6 @@ fn traits_form(
                         placeholder="beta-tester, experimental"
                         class="w-full rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-brand-primary focus:outline-none focus:ring-2 focus:ring-brand-primary/20" {
                         (custom_traits.join("\n"))
-                    }
-                    p class="text-neutral-500 text-xs" {
-                        "The premium trait follows each member's subscription or gift and cannot be \
-                         assigned here."
                     }
                 }
                 (form_actions(html! {

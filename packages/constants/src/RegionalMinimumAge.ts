@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-const DEFAULT_MINIMUM_AGE = 13;
+export const DEFAULT_MINIMUM_AGE = 13;
 
 const REGIONAL_MINIMUM_AGE: Readonly<Record<string, number>> = {
 	AT: 14,

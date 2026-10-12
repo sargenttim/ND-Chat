@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import {makeSyncedField} from '@app/features/user/state/SyncedField';
 import {
 	GuildMemberLayoutSettingsSchema,
@@ -8,7 +7,7 @@ import {
 } from '@fluxer/schema/src/gen/fluxer/user/preferences/v1/preferences_pb';
 import {makeAutoObservable} from 'mobx';
 
-type GuildMemberViewMode = 'table' | 'grid';
+export type GuildMemberViewMode = 'table' | 'grid';
 
 const MODE_FROM_PROTO: Record<ProtoGuildMemberViewMode, GuildMemberViewMode | null> = {
 	[ProtoGuildMemberViewMode.UNSPECIFIED]: null,
@@ -25,7 +24,7 @@ class GuildMemberLayout {
 
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
-		initializeStore(this, () => this.initPersistence());
+		void this.initPersistence();
 	}
 
 	private async initPersistence(): Promise<void> {
@@ -43,6 +42,10 @@ class GuildMemberLayout {
 
 	getViewMode(): GuildMemberViewMode {
 		return this.memberViewMode;
+	}
+
+	setViewMode(mode: GuildMemberViewMode): void {
+		this.memberViewMode = mode;
 	}
 }
 

@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::utils::plural::count_noun;
 use crate::{
     api::types::GuildInfo,
     config::AdminConfig,
@@ -64,7 +63,7 @@ fn guild_row(config: &AdminConfig, user_id: &str, guild: &GuildInfo) -> Markup {
                     }
                 }
                 span class="text-xs text-neutral-500" {
-                    (count_noun(guild.member_count, "member", "members"))
+                    (guild.member_count) " members"
                 }
             }
         }

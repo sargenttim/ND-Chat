@@ -7,7 +7,7 @@ import {
 } from '@app/features/expressions/commands/ExpressionSourceCommands';
 import {makeAutoObservable} from 'mobx';
 
-type ExpressionSourceState =
+export type ExpressionSourceState =
 	| {status: 'idle'}
 	| {status: 'loading'}
 	| {status: 'available'; guild: ExpressionSourceGuild}

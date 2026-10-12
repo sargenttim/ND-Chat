@@ -6,8 +6,11 @@
 -export([handle_call/3, call/3]).
 -export_type([guild_state/0]).
 
+-ifdef(TEST).
+-export([strip_member_alias/1, restore_member_alias/2]).
+-endif.
+
 -define(INLINE_MEMBER_QUERY_MAX_IDS, 100).
--define(INFERRED_DEADLINE_MARGIN_MS, 1000).
 
 -type guild_state() :: map().
 -type user_id() :: integer().
@@ -33,90 +36,29 @@ handle_call(Msg, From, State) ->
     end.
 
 -spec is_expired(term(), gen_server:from()) -> boolean().
-is_expired(Msg, From) ->
-    case deadline_expired(Msg, From) of
-        unknown -> inferred_deadline_expired(Msg);
-        Expired -> Expired
-    end.
-
--spec deadline_expired(term(), gen_server:from()) -> boolean() | unknown.
-deadline_expired({_Tag, #{deadline_monotonic := Deadline}}, {Caller, _ReplyTag}) when
+is_expired({_Tag, #{deadline_monotonic := Deadline}}, {Caller, _ReplyTag}) when
     is_integer(Deadline)
 ->
     case gateway_clock_offset:offset(node(Caller)) of
-        undefined -> unknown;
+        undefined -> false;
         Offset -> erlang:monotonic_time(millisecond) > Deadline - Offset
     end;
-deadline_expired(_Msg, _From) ->
-    unknown.
-
--spec inferred_deadline_expired(term()) -> boolean().
-inferred_deadline_expired(Msg) when is_tuple(Msg), tuple_size(Msg) > 0 ->
-    case caller_timeout_ms(element(1, Msg)) of
-        undefined -> false;
-        TimeoutMs -> waited_longer_than(TimeoutMs + ?INFERRED_DEADLINE_MARGIN_MS)
-    end;
-inferred_deadline_expired(_Msg) ->
+is_expired(_Msg, _From) ->
     false.
-
--spec waited_longer_than(pos_integer()) -> boolean().
-waited_longer_than(Ms) ->
-    case guild_mailbox_age:min_age_ms() of
-        undefined -> false;
-        Age when Age > Ms -> inferred_deadlines_enabled();
-        _ -> false
-    end.
-
--spec inferred_deadlines_enabled() -> boolean().
-inferred_deadlines_enabled() ->
-    application:get_env(fluxer_gateway, guild_query_inferred_deadlines, true) =/= false.
-
--spec caller_timeout_ms(term()) -> pos_integer() | undefined.
-caller_timeout_ms(get_large_guild_metadata) -> 200;
-caller_timeout_ms(get_viewer_counts) -> 2000;
-caller_timeout_ms(get_channel_member_counts) -> 2000;
-caller_timeout_ms(get_forum_unread_scope) -> 2000;
-caller_timeout_ms(check_permission) -> 5000;
-caller_timeout_ms(get_guild_members_batch) -> 5000;
-caller_timeout_ms(list_guild_members) -> 10000;
-caller_timeout_ms(search_guild_members) -> 10000;
-caller_timeout_ms(Tag) -> rpc_caller_timeout_ms(Tag).
-
--spec rpc_caller_timeout_ms(term()) -> pos_integer() | undefined.
-rpc_caller_timeout_ms(resolve_mention_sources_page) -> 4000;
-rpc_caller_timeout_ms(get_user_permissions) -> 4000;
-rpc_caller_timeout_ms(can_manage_roles) -> 4000;
-rpc_caller_timeout_ms(can_manage_role) -> 4000;
-rpc_caller_timeout_ms(get_assignable_roles) -> 4000;
-rpc_caller_timeout_ms(get_user_max_role_position) -> 4000;
-rpc_caller_timeout_ms(get_guild_data) -> 4000;
-rpc_caller_timeout_ms(get_guild_auth_context) -> 4000;
-rpc_caller_timeout_ms(get_guild_member) -> 4000;
-rpc_caller_timeout_ms(has_member) -> 4000;
-rpc_caller_timeout_ms(get_members_with_role) -> 4000;
-rpc_caller_timeout_ms(check_target_member) -> 4000;
-rpc_caller_timeout_ms(list_guild_members_cursor) -> 4000;
-rpc_caller_timeout_ms(get_viewable_channels) -> 4000;
-rpc_caller_timeout_ms(resolve_channel_mentions) -> 4000;
-rpc_caller_timeout_ms(get_first_viewable_text_channel) -> 4000;
-rpc_caller_timeout_ms(get_category_channel_count) -> 4000;
-rpc_caller_timeout_ms(get_channel_count) -> 4000;
-rpc_caller_timeout_ms(_Tag) -> undefined.
 
 -spec handle_query(term(), gen_server:from(), guild_state()) ->
     {reply, term(), guild_state()}
     | {noreply, guild_state()}.
 handle_query({get_counts}, _From, State) ->
     handle_get_counts(State);
+handle_query({get_user_counts, UserId}, _From, State) when is_integer(UserId) ->
+    handle_get_user_counts(UserId, State);
 handle_query({get_viewer_counts, #{user_id := UserId}}, _From, State) when is_integer(UserId) ->
     handle_get_user_counts(UserId, State);
 handle_query({get_channel_member_counts, Request}, _From, State) when is_map(Request) ->
     handle_get_channel_member_counts(Request, State);
 handle_query({get_large_guild_metadata}, _From, State) ->
     handle_get_large_guild_metadata(State);
-handle_query({get_forum_unread_scope, Request}, _From, State) when is_map(Request) ->
-    Session = request_session_data(Request, State),
-    {reply, guild_request_forum_unreads:scope(Session, Request, State), State};
 handle_query(Msg, From, State) ->
     handle_call_dispatch(Msg, From, State).
 
@@ -188,7 +130,7 @@ channel_member_count_entry(ChannelId, SessionData, State) when
     case
         guild_member_list_connected:session_can_view_channel_members(
             SessionData, ChannelId, State
-        ) andalso not guild_thread_gate:is_thread_id(ChannelId, State)
+        )
     of
         true -> channel_member_count_entry_for_visible_channel(ChannelId, State);
         false -> false
@@ -204,7 +146,7 @@ channel_member_count_entry_for_visible_channel(ChannelId, State) ->
             false;
         ListId ->
             NewState = guild_member_list_channel_engine:ensure(ListId, State),
-            {MemberCount, OnlineCount} = guild_member_list_read:get_counts(ListId, NewState),
+            {MemberCount, OnlineCount} = guild_member_list:get_counts(ListId, NewState),
             {true,
                 #{
                     channel_id => ChannelId,
@@ -242,14 +184,24 @@ handle_async_member_query(Msg, _From, State) ->
     handle_call_sync(Msg, State).
 
 -spec member_query_fun(atom()) -> query_fun() | undefined.
+member_query_fun(get_users_to_mention_by_roles) ->
+    fun guild_members:get_users_to_mention_by_roles/2;
+member_query_fun(get_users_to_mention_by_user_ids) ->
+    fun guild_members:get_users_to_mention_by_user_ids/2;
+member_query_fun(get_all_users_to_mention) ->
+    fun guild_members:get_all_users_to_mention/2;
+member_query_fun(resolve_all_mentions) ->
+    fun guild_members:resolve_all_mentions/2;
+member_query_fun(resolve_mention_sources) ->
+    fun guild_members:resolve_mention_sources/2;
 member_query_fun(resolve_mention_sources_page) ->
-    fun guild_members_mutation:resolve_mention_sources_page/2;
+    fun guild_members:resolve_mention_sources_page/2;
 member_query_fun(resolve_channel_mentions) ->
-    fun guild_members_mutation:resolve_channel_mentions/2;
+    fun guild_members:resolve_channel_mentions/2;
 member_query_fun(get_members_with_role) ->
-    fun guild_members_query:get_members_with_role/2;
+    fun guild_members:get_members_with_role/2;
 member_query_fun(get_viewable_channels) ->
-    fun guild_members_query:get_viewable_channels/2;
+    fun guild_members:get_viewable_channels/2;
 member_query_fun(_Tag) ->
     undefined.
 
@@ -262,6 +214,12 @@ member_query(Tag, From, State, Request, QueryFun) ->
     end.
 
 -spec bounded_member_query(atom(), map()) -> boolean().
+bounded_member_query(get_users_to_mention_by_user_ids, Request) ->
+    few_ids(maps:get(user_ids, Request, undefined));
+bounded_member_query(resolve_all_mentions, Request) ->
+    direct_mentions_only(Request);
+bounded_member_query(resolve_mention_sources, Request) ->
+    direct_mentions_only(Request);
 bounded_member_query(resolve_mention_sources_page, Request) ->
     direct_mentions_only(Request);
 bounded_member_query(resolve_channel_mentions, Request) ->
@@ -334,7 +292,7 @@ check_user_permission(UserId, Permission, ChannelId, State) ->
             true;
         false ->
             Perms = guild_permissions:get_member_permissions(UserId, ChannelId, State),
-            bitset:has(Perms, Permission)
+            permission_bits:has(Perms, Permission)
     end.
 
 -spec handle_get_user_permissions(map(), guild_state()) -> {reply, map(), guild_state()}.
@@ -347,21 +305,21 @@ handle_get_user_permissions(Request, State) ->
 
 -spec handle_call_sync(term(), guild_state()) -> {reply, term(), guild_state()}.
 handle_call_sync({can_manage_roles, Req}, State) ->
-    guild_members_roles:can_manage_roles(request_map(Req), State);
+    guild_members:can_manage_roles(request_map(Req), State);
 handle_call_sync({can_manage_role, Req}, State) ->
-    guild_members_roles:can_manage_role(request_map(Req), State);
+    guild_members:can_manage_role(request_map(Req), State);
 handle_call_sync({get_assignable_roles, Req}, State) ->
-    guild_members_roles:get_assignable_roles(request_map(Req), State);
+    guild_members:get_assignable_roles(request_map(Req), State);
 handle_call_sync({get_user_max_role_position, Req}, State) ->
     handle_max_role_position(request_map(Req), State);
 handle_call_sync({check_target_member, Req}, State) ->
-    guild_members_roles:check_target_member(request_map(Req), State);
+    guild_members:check_target_member(request_map(Req), State);
 handle_call_sync(Msg, State) ->
     handle_call_data(Msg, State).
 
 -spec handle_max_role_position(map(), guild_state()) -> {reply, map(), guild_state()}.
 handle_max_role_position(#{user_id := UserId}, State) ->
-    Position = guild_permissions_check:get_max_role_position(UserId, State),
+    Position = guild_permissions:get_max_role_position(UserId, State),
     {reply, #{position => Position}, State}.
 
 -spec handle_call_data(term(), guild_state()) -> {reply, term(), guild_state()}.
@@ -370,17 +328,19 @@ handle_call_data({get_guild_data, Req}, State) ->
 handle_call_data({get_guild_auth_context, Req}, State) ->
     guild_data:get_auth_context(request_map(Req), State);
 handle_call_data({get_guild_member, Req}, State) ->
-    guild_data_members:get_guild_member(request_map(Req), State);
+    guild_data:get_guild_member(request_map(Req), State);
 handle_call_data({get_guild_members_batch, Req}, State) ->
-    guild_data_members:get_guild_members_batch(request_map(Req), State);
+    guild_data:get_guild_members_batch(request_map(Req), State);
 handle_call_data({has_member, Req}, State) ->
-    guild_data_members:has_member(request_map(Req), State);
+    guild_data:has_member(request_map(Req), State);
 handle_call_data({list_guild_members, Req}, State) ->
-    guild_data_members:list_guild_members(request_map(Req), State);
+    guild_data:list_guild_members(request_map(Req), State);
 handle_call_data({search_guild_members, Req}, State) ->
-    guild_data_members:search_guild_members(request_map(Req), State);
+    guild_data:search_guild_members(request_map(Req), State);
 handle_call_data({list_guild_members_cursor, Req}, State) ->
-    guild_member_list_read:get_members_cursor(request_map(Req), State);
+    guild_member_list:get_members_cursor(request_map(Req), State);
+handle_call_data({get_vanity_url_channel}, State) ->
+    guild_data:get_vanity_url_channel(State);
 handle_call_data({get_first_viewable_text_channel}, State) ->
     guild_data:get_first_viewable_text_channel(State);
 handle_call_data({get_category_channel_count, Req}, State) ->
@@ -521,58 +481,6 @@ monotonic_deadline_ignores_the_legacy_wall_clock_test() ->
         )
     ),
     ?assertNot(is_expired({get_data, #{deadline => 0}}, From)).
-
-expired_forum_unread_scope_is_shed_test() ->
-    From = {self(), make_ref()},
-    State = #{id => 1},
-    Request = #{
-        channel_id => 2,
-        thread_ids => [3],
-        deadline_monotonic => erlang:monotonic_time(millisecond) - 1
-    },
-    ?assertEqual({noreply, State}, handle_call({get_forum_unread_scope, Request}, From, State)).
-
-deadline_less_queries_expire_once_every_known_caller_has_given_up_test() ->
-    Self = self(),
-    Ref = make_ref(),
-    spawn(fun() ->
-        From = {Self, make_ref()},
-        self() ! queued_request,
-        ok = guild_mailbox_age:note(),
-        Fresh = is_expired({get_large_guild_metadata}, From),
-        timer:sleep(1300),
-        Future = erlang:monotonic_time(millisecond) + 5000,
-        Results = #{
-            fresh => Fresh,
-            metadata => is_expired({get_large_guild_metadata}, From),
-            counts => is_expired({get_user_counts, 1}, From),
-            forum_unreads => is_expired({get_forum_unread_scope, #{}}, From),
-            unknown_tag => is_expired({get_sessions}, From),
-            explicit_deadline =>
-                is_expired({get_large_guild_metadata, #{deadline_monotonic => Future}}, From)
-        },
-        ok = application:set_env(fluxer_gateway, guild_query_inferred_deadlines, false),
-        Disabled = is_expired({get_large_guild_metadata}, From),
-        ok = application:unset_env(fluxer_gateway, guild_query_inferred_deadlines),
-        Self ! {Ref, Results#{disabled => Disabled}}
-    end),
-    Results =
-        receive
-            {Ref, R} -> R
-        after 5000 -> error(timeout)
-        end,
-    ?assertEqual(
-        #{
-            fresh => false,
-            metadata => true,
-            counts => false,
-            forum_unreads => false,
-            unknown_tag => false,
-            explicit_deadline => false,
-            disabled => false
-        },
-        Results
-    ).
 
 call_keeps_the_legacy_deadline_and_adds_a_monotonic_deadline_test() ->
     Guild = spawn(fun() ->

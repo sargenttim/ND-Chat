@@ -37,20 +37,20 @@ export const CAPTURE_DEVICES_USE_THE_GAMING_PRESET_DESCRIPTOR = msg({
 		'Note shown beside the stored Screen share preset in the stream settings menu and the video settings tab of a capture device share, explaining why that preset is not used.',
 });
 
-type StreamSettingsAudioControlStateValue =
+export type StreamSettingsAudioControlStateValue =
 	| 'hidden'
 	| 'unsupported'
 	| 'prestartNativePickerOwned'
 	| 'restartRequired'
 	| 'toggle';
-type StreamSettingsAudioControlLabelKey =
+export type StreamSettingsAudioControlLabelKey =
 	| 'captureAppAudio'
 	| 'captureDesktopAudio'
 	| 'captureDeviceAudio'
 	| 'captureSystemAudio';
 type StreamSettingsNativeAudioUnsupportedScope = 'process' | 'system';
 
-interface StreamSettingsNativeAudioSignals {
+export interface StreamSettingsNativeAudioSignals {
 	shareContext: StreamSettingsShareContext;
 	platform?: string | null;
 	nativeAudioAvailability: NativeAudioAvailability | null;
@@ -67,7 +67,7 @@ export interface StreamSettingsAudioControlSignals extends StreamSettingsNativeA
 	windowAudioScope?: WindowShareAudioScope;
 }
 
-interface StreamSettingsAudioControlViewState {
+export interface StreamSettingsAudioControlViewState {
 	value: StreamSettingsAudioControlStateValue;
 	checked: boolean;
 	labelKey: StreamSettingsAudioControlLabelKey;
@@ -130,7 +130,7 @@ function shouldDisablePrestartNativeAudioToggle(signals: StreamSettingsAudioCont
 	);
 }
 
-const streamSettingsAudioControlStateMachine = setup({
+export const streamSettingsAudioControlStateMachine = setup({
 	types: {} as {
 		events: StreamSettingsAudioControlEvent;
 	},
@@ -161,7 +161,7 @@ const streamSettingsAudioControlStateMachine = setup({
 	},
 });
 
-function selectStreamSettingsAudioControlState(
+export function selectStreamSettingsAudioControlState(
 	signals: StreamSettingsAudioControlSignals,
 ): StreamSettingsAudioControlStateValue {
 	const [snapshot] = transition(
@@ -247,7 +247,7 @@ const STREAM_SETTINGS_PREMIUM_RESOLUTIONS: ReadonlyArray<OfferedScreenShareResol
 const STREAM_SETTINGS_FREE_FRAME_RATES: ReadonlyArray<SupportedScreenShareFrameRate> = [15, 30];
 const STREAM_SETTINGS_PREMIUM_FRAME_RATES: ReadonlyArray<SupportedScreenShareFrameRate> = [60];
 
-interface StreamSettingsQualityOption<T> {
+export interface StreamSettingsQualityOption<T> {
 	value: T;
 	premium: boolean;
 	selected: boolean;

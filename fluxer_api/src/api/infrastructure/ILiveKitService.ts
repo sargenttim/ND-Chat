@@ -32,16 +32,6 @@ interface UpdateParticipantParams {
 	canVideo?: boolean;
 }
 
-interface MuteMicrophoneTrackParams {
-	userId: UserID;
-	guildId?: GuildID;
-	channelId: ChannelID;
-	connectionId: string;
-	regionId: string;
-	serverId: string;
-	trackSid: string;
-}
-
 interface UpdateParticipantPermissionsParams {
 	userId: UserID;
 	guildId?: GuildID;
@@ -71,14 +61,14 @@ interface ListParticipantsParams {
 	serverId: string;
 }
 
-interface ListParticipantsSuccess {
+export interface ListParticipantsSuccess {
 	status: 'ok';
 	participants: Array<{
 		identity: string;
 	}>;
 }
 
-interface ListParticipantsError {
+export interface ListParticipantsError {
 	status: 'error';
 	errorCode: string;
 	retryable: boolean;
@@ -96,8 +86,6 @@ export abstract class ILiveKitService {
 	abstract updateParticipant(params: UpdateParticipantParams): Promise<void>;
 
 	abstract updateParticipantPermissions(params: UpdateParticipantPermissionsParams): Promise<void>;
-
-	abstract muteMicrophoneTrack(params: MuteMicrophoneTrackParams): Promise<void>;
 
 	abstract disconnectParticipant(params: DisconnectParticipantParams): Promise<void>;
 

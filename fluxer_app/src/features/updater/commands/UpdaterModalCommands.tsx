@@ -1,19 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {ConfirmModal} from '@app/features/app/components/dialogs/ConfirmModal';
-import {DESKTOP_DOWNLOAD_URL} from '@app/features/app/config/I18nDisplayConstants';
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
-import {
-	AVAILABLE_DESCRIPTOR as AVAILABLE_VERSION_LABEL_DESCRIPTOR,
-	CLOSE_DESCRIPTOR,
-	UNKNOWN_DESCRIPTOR as UNKNOWN_VERSION_DESCRIPTOR,
-} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {DESKTOP_DOWNLOAD_URL, PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
+import {CLOSE_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import type {UpdaterDownloadFormat, UpdaterDownloadOption} from '@app/features/platform/types/Electron';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import {Combobox} from '@app/features/ui/components/form/FormCombobox';
 import {isCanaryDesktop, openExternalUrl} from '@app/features/ui/utils/NativeUtils';
 import styles from '@app/features/updater/commands/UpdaterModalCommands.module.css';
-import type {UpdaterDownloadFormat, UpdaterDownloadOption} from '@app/types/electron.d';
 import {i18n, type MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 import {useMemo, useState} from 'react';
@@ -38,15 +33,6 @@ const DOWNLOAD_INSTALLER_DESCRIPTOR = msg({
 const DOWNLOAD_PACKAGE_DESCRIPTOR = msg({
 	message: 'Download package',
 	comment: 'Button label that downloads a selected Linux desktop update package.',
-});
-const DESKTOP_UPDATE_RESTARTS_APP_DESCRIPTOR = msg({
-	message: '{productName} closes, installs the update and opens again.',
-	comment:
-		'Desktop updater modal body after a manual update check finds an update. Confirming closes the app window and opens the updater. productName is the app name.',
-});
-const UPDATE_NOW_DESCRIPTOR = msg({
-	message: 'Update now',
-	comment: 'Button label that closes the desktop app and opens the updater to install an available update.',
 });
 const LATER_DESCRIPTOR = msg({
 	message: 'Later',
@@ -98,6 +84,23 @@ const OPEN_DESKTOP_DOWNLOADS_DESCRIPTOR = msg({
 	message: 'Open desktop downloads',
 	comment: 'Button label that opens the Fluxer desktop downloads page in a browser.',
 });
+const DESKTOP_UPDATE_READY_DESCRIPTOR = msg({
+	message: 'Desktop update ready',
+	comment: 'Modal title shown when a desktop app update has finished downloading.',
+});
+export const DESKTOP_VERSION_HAS_BEEN_DOWNLOADED_DESCRIPTOR = msg({
+	message: 'Desktop version {version} has been downloaded. Restart {productName} to finish installing.',
+	comment:
+		'Desktop updater modal body. The version placeholder is the downloaded app version; productName is the app name.',
+});
+export const THE_DESKTOP_UPDATE_HAS_BEEN_DOWNLOADED_DESCRIPTOR = msg({
+	message: 'The desktop update has been downloaded. Restart {productName} to finish installing.',
+	comment: 'Desktop updater modal body when the downloaded version is unknown. productName is the app name.',
+});
+export const RESTART_FLUXER_DESCRIPTOR = msg({
+	message: 'Restart {productName}',
+	comment: 'Button label that restarts the app to apply a desktop update. productName is the app name.',
+});
 const UPDATE_CHECK_FAILED_DESCRIPTOR = msg({
 	message: "Couldn't check for updates",
 	comment: 'Modal title shown when a user-initiated update check fails.',
@@ -115,6 +118,15 @@ const DESKTOP_UPDATE_DOWNLOAD_FAILED_BODY_DESCRIPTOR = msg({
 		'The desktop update could not be downloaded. Try again from the update button when your connection is stable.',
 	comment: 'Modal body shown when a desktop update download fails.',
 });
+const DESKTOP_UPDATE_INSTALL_FAILED_DESCRIPTOR = msg({
+	message: "Couldn't start the desktop update",
+	comment: 'Modal title shown when starting installation of a downloaded desktop update fails.',
+});
+const DESKTOP_UPDATE_INSTALL_FAILED_BODY_DESCRIPTOR = msg({
+	message: '{productName} could not restart into the downloaded update. Try again from the update button.',
+	comment:
+		'Modal body shown when starting installation of a downloaded desktop update fails. productName is the app name.',
+});
 const LINUX_PACKAGE_UPDATE_INTRO_DESCRIPTOR = msg({
 	message:
 		'A Linux desktop update is available. Choose the package format for this system and {productName} will save it locally.',
@@ -125,7 +137,14 @@ const INSTALLED_VERSION_LABEL_DESCRIPTOR = msg({
 	message: 'Installed',
 	comment: 'Label for the installed desktop version in the Linux update modal.',
 });
-
+const AVAILABLE_VERSION_LABEL_DESCRIPTOR = msg({
+	message: 'Available',
+	comment: 'Label for the available desktop version in the Linux update modal.',
+});
+const UNKNOWN_VERSION_DESCRIPTOR = msg({
+	message: 'Unknown',
+	comment: 'Fallback version label when the installed desktop version is unknown.',
+});
 const NEW_VERSION_DESCRIPTOR = msg({
 	message: 'New version',
 	comment: 'Fallback version label when the available desktop version is unknown.',
@@ -172,8 +191,8 @@ export function pushUpdateAvailableModal(version: string | null, onDownload: () 
 				title={i18n._(DESKTOP_UPDATE_AVAILABLE_DESCRIPTOR)}
 				description={
 					version
-						? i18n._(DESKTOP_VERSION_IS_READY_TO_DOWNLOAD_DESCRIPTOR, {version, productName: RuntimeConfig.productName})
-						: i18n._(A_NEW_DESKTOP_VERSION_IS_READY_TO_DOWNLOAD_DESCRIPTOR, {productName: RuntimeConfig.productName})
+						? i18n._(DESKTOP_VERSION_IS_READY_TO_DOWNLOAD_DESCRIPTOR, {version, productName: PRODUCT_NAME})
+						: i18n._(A_NEW_DESKTOP_VERSION_IS_READY_TO_DOWNLOAD_DESCRIPTOR, {productName: PRODUCT_NAME})
 				}
 				primaryText={i18n._(DOWNLOAD_INSTALLER_DESCRIPTOR)}
 				secondaryText={i18n._(LATER_DESCRIPTOR)}
@@ -181,24 +200,6 @@ export function pushUpdateAvailableModal(version: string | null, onDownload: () 
 					await onDownload();
 				}}
 				data-flx="updater.updater-modal-commands.push-update-available-modal.confirm-modal"
-			/>
-		)),
-		UPDATE_AVAILABLE_KEY,
-	);
-}
-
-export function pushDesktopUpdateAvailableModal(onUpdate: () => void | Promise<void>): void {
-	ModalCommands.pushWithKey(
-		modal(() => (
-			<ConfirmModal
-				title={i18n._(DESKTOP_UPDATE_AVAILABLE_DESCRIPTOR)}
-				description={i18n._(DESKTOP_UPDATE_RESTARTS_APP_DESCRIPTOR, {productName: RuntimeConfig.productName})}
-				primaryText={i18n._(UPDATE_NOW_DESCRIPTOR)}
-				secondaryText={i18n._(LATER_DESCRIPTOR)}
-				onPrimary={async () => {
-					await onUpdate();
-				}}
-				data-flx="updater.updater-modal-commands.push-desktop-update-available-modal.confirm-modal"
 			/>
 		)),
 		UPDATE_AVAILABLE_KEY,
@@ -234,7 +235,7 @@ function ManualUpdateAvailableModal({currentVersion, version, options, onDownloa
 			description={
 				<div className={styles.manualUpdateBody} data-flx="updater.manual-update.body">
 					<p className={styles.manualUpdateIntro} data-flx="updater.manual-update.intro">
-						{i18n._(LINUX_PACKAGE_UPDATE_INTRO_DESCRIPTOR, {productName: RuntimeConfig.productName})}
+						{i18n._(LINUX_PACKAGE_UPDATE_INTRO_DESCRIPTOR, {productName: PRODUCT_NAME})}
 					</p>
 					<dl className={styles.versionList} data-flx="updater.manual-update.version-list">
 						<dt className={styles.versionLabel} data-flx="updater.manual-update.installed-label">
@@ -317,7 +318,7 @@ export function pushUnsupportedUpdateModal(
 				return (
 					<ConfirmModal
 						title={i18n._(SYSTEM_MANAGED_INSTALL_DESCRIPTOR)}
-						description={i18n._(SYSTEM_MANAGED_UPDATE_BODY_DESCRIPTOR, {productName: RuntimeConfig.productName})}
+						description={i18n._(SYSTEM_MANAGED_UPDATE_BODY_DESCRIPTOR, {productName: PRODUCT_NAME})}
 						primaryText={i18n._(OPEN_SOFTWARE_CENTER_DESCRIPTOR)}
 						secondaryText={i18n._(CLOSE_DESCRIPTOR)}
 						onPrimary={() => {
@@ -340,7 +341,7 @@ export function pushUnsupportedUpdateModal(
 					description={
 						reason === 'unpackaged'
 							? i18n._(DEVELOPMENT_BUILD_UPDATE_BODY_DESCRIPTOR)
-							: i18n._(MANUAL_UPDATE_BODY_DESCRIPTOR, {productName: RuntimeConfig.productName})
+							: i18n._(MANUAL_UPDATE_BODY_DESCRIPTOR, {productName: PRODUCT_NAME})
 					}
 					primaryText={i18n._(OPEN_DESKTOP_DOWNLOADS_DESCRIPTOR)}
 					secondaryText={i18n._(LATER_DESCRIPTOR)}
@@ -352,6 +353,28 @@ export function pushUnsupportedUpdateModal(
 			);
 		}),
 		UNSUPPORTED_KEY,
+	);
+}
+
+export function pushUpdateReadyModal(version: string | null, onInstall: () => void | Promise<void>): void {
+	ModalCommands.pushWithKey(
+		modal(() => (
+			<ConfirmModal
+				title={i18n._(DESKTOP_UPDATE_READY_DESCRIPTOR)}
+				description={
+					version
+						? i18n._(DESKTOP_VERSION_HAS_BEEN_DOWNLOADED_DESCRIPTOR, {version, productName: PRODUCT_NAME})
+						: i18n._(THE_DESKTOP_UPDATE_HAS_BEEN_DOWNLOADED_DESCRIPTOR, {productName: PRODUCT_NAME})
+				}
+				primaryText={i18n._(RESTART_FLUXER_DESCRIPTOR, {productName: PRODUCT_NAME})}
+				secondaryText={i18n._(LATER_DESCRIPTOR)}
+				onPrimary={async () => {
+					await onInstall();
+				}}
+				data-flx="updater.updater-modal-commands.push-update-ready-modal.confirm-modal"
+			/>
+		)),
+		'updater-ready',
 	);
 }
 
@@ -372,7 +395,7 @@ function pushUpdaterErrorModal(getTitle: () => string, getDescription: () => str
 export function pushUpdateCheckFailedModal(): void {
 	pushUpdaterErrorModal(
 		() => i18n._(UPDATE_CHECK_FAILED_DESCRIPTOR),
-		() => i18n._(UPDATE_CHECK_FAILED_BODY_DESCRIPTOR, {productName: RuntimeConfig.productName}),
+		() => i18n._(UPDATE_CHECK_FAILED_BODY_DESCRIPTOR, {productName: PRODUCT_NAME}),
 	);
 }
 
@@ -380,5 +403,12 @@ export function pushDesktopUpdateDownloadFailedModal(): void {
 	pushUpdaterErrorModal(
 		() => i18n._(DESKTOP_UPDATE_DOWNLOAD_FAILED_DESCRIPTOR),
 		() => i18n._(DESKTOP_UPDATE_DOWNLOAD_FAILED_BODY_DESCRIPTOR),
+	);
+}
+
+export function pushDesktopUpdateInstallFailedModal(): void {
+	pushUpdaterErrorModal(
+		() => i18n._(DESKTOP_UPDATE_INSTALL_FAILED_DESCRIPTOR),
+		() => i18n._(DESKTOP_UPDATE_INSTALL_FAILED_BODY_DESCRIPTOR, {productName: PRODUCT_NAME}),
 	);
 }

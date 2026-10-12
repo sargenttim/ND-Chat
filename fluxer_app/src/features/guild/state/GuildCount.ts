@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {ResettableStates} from '@app/features/app/state/ResettableStates';
-import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import GatewayConnection from '@app/features/gateway/transport/GatewayConnection';
 import {makeAutoObservable, observable} from 'mobx';
 
 export interface GuildCounts {
@@ -138,7 +137,7 @@ class GuildCount {
 	private flushPending(): void {
 		if (this.pending.size === 0) return;
 		const guildIds = Array.from(this.pending);
-		const socket = GatewaySessions.foregroundConnection.socket;
+		const socket = GatewayConnection.socket;
 		if (!socket) {
 			this.pending.clear();
 			return;
@@ -147,6 +146,4 @@ class GuildCount {
 	}
 }
 
-const guildCount = new GuildCount();
-ResettableStates.register(guildCount, guildCount.handleSessionInvalidated);
-export default guildCount;
+export default new GuildCount();

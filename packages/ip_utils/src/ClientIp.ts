@@ -1,11 +1,23 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {canonicalizeIpAddress} from '@fluxer/ip_utils/src/IpAddress';
+import type {IpAddressFamily, ParsedIpAddress} from '@fluxer/ip_utils/src/IpAddress';
+import {parseIpAddress} from '@fluxer/ip_utils/src/IpAddress';
 
 interface ClientIpExtractionOptions {
 	trustClientIpHeader?: boolean;
 	clientIpHeaderName?: string;
-	peerAddress?: string | null;
+}
+
+type ClientIpSource = 'client-ip-header';
+
+interface ExtractedClientIp {
+	ip: string;
+	source: ClientIpSource;
+	ipVersion: IpAddressFamily;
+}
+
+interface HeadersLike {
+	[key: string]: string | Array<string> | undefined;
 }
 
 export class MissingClientIpError extends Error {
@@ -13,9 +25,13 @@ export class MissingClientIpError extends Error {
 	readonly status = 403;
 
 	constructor() {
-		super('Client IP is required');
+		super('Client IP header is required');
 		this.name = 'MissingClientIpError';
 	}
+}
+
+interface HeaderReader {
+	get(name: string): string | null;
 }
 
 const DEFAULT_CLIENT_IP_HEADER_NAME = 'x-forwarded-for';
@@ -28,12 +44,69 @@ export function resolveClientIpHeaderName(clientIpHeaderName?: string): string {
 	return normalizeHeaderName(clientIpHeaderName ?? DEFAULT_CLIENT_IP_HEADER_NAME);
 }
 
-export function extractClientIp(req: Request, options?: ClientIpExtractionOptions): string | null {
-	if (!options?.trustClientIpHeader) {
-		return options?.peerAddress ? canonicalizeIpAddress(options.peerAddress) : null;
+function toStringHeaderValue(value: string | Array<string> | null | undefined): string | null {
+	if (Array.isArray(value)) {
+		const first = value[0];
+		return typeof first === 'string' ? first : null;
 	}
-	const headerValue = req.headers.get(resolveClientIpHeaderName(options.clientIpHeaderName));
-	return headerValue === null ? null : canonicalizeIpAddress(headerValue.split(',', 1)[0]);
+	return typeof value === 'string' ? value : null;
+}
+
+function parseClientIpHeaderValue(value: string | null): ParsedIpAddress | null {
+	if (value === null) {
+		return null;
+	}
+	return parseIpAddress(value.split(',', 1)[0]);
+}
+
+function getHeaderValue(headers: HeadersLike, name: string): string | null {
+	const lowerName = name.toLowerCase();
+	const directMatch = toStringHeaderValue(headers[lowerName]);
+	if (directMatch !== null) {
+		return directMatch;
+	}
+	for (const [key, value] of Object.entries(headers)) {
+		if (key.toLowerCase() === lowerName) {
+			return toStringHeaderValue(value);
+		}
+	}
+	return null;
+}
+
+function createNodeHeaderReader(headers: HeadersLike): HeaderReader {
+	return {
+		get: (name: string): string | null => {
+			return getHeaderValue(headers, name);
+		},
+	};
+}
+
+function extractClientIpDetailsFromReader(
+	headerReader: HeaderReader,
+	options?: ClientIpExtractionOptions,
+): ExtractedClientIp | null {
+	if (!options?.trustClientIpHeader) {
+		return null;
+	}
+	const headerName = resolveClientIpHeaderName(options.clientIpHeaderName);
+	const clientIpHeader = parseClientIpHeaderValue(headerReader.get(headerName));
+	if (clientIpHeader) {
+		return {
+			ip: clientIpHeader.normalized,
+			source: 'client-ip-header',
+			ipVersion: clientIpHeader.family,
+		};
+	}
+	return null;
+}
+
+export function extractClientIpDetails(req: Request, options?: ClientIpExtractionOptions): ExtractedClientIp | null {
+	return extractClientIpDetailsFromReader(req.headers, options);
+}
+
+export function extractClientIp(req: Request, options?: ClientIpExtractionOptions): string | null {
+	const extracted = extractClientIpDetails(req, options);
+	return extracted?.ip ?? null;
 }
 
 export function requireClientIp(req: Request, options?: ClientIpExtractionOptions): string {
@@ -42,4 +115,16 @@ export function requireClientIp(req: Request, options?: ClientIpExtractionOption
 		throw new MissingClientIpError();
 	}
 	return ip;
+}
+
+export function extractClientIpDetailsFromHeaders(
+	headers: HeadersLike,
+	options?: ClientIpExtractionOptions,
+): ExtractedClientIp | null {
+	return extractClientIpDetailsFromReader(createNodeHeaderReader(headers), options);
+}
+
+export function extractClientIpFromHeaders(headers: HeadersLike, options?: ClientIpExtractionOptions): string | null {
+	const extracted = extractClientIpDetailsFromHeaders(headers, options);
+	return extracted?.ip ?? null;
 }

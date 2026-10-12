@@ -636,7 +636,7 @@ export const ChannelAttachmentArea = observer(({channelId}: {channelId: string})
 			forceJumpFrameRef.current = null;
 			const messages = Messages.getMessages(channelIdRef.current);
 			if (messages.hasMoreAfter) {
-				ComponentBus.dispatch('FORCE_JUMP_TO_PRESENT', {channelId: channelIdRef.current});
+				ComponentBus.dispatch('FORCE_JUMP_TO_PRESENT');
 			}
 		});
 	}, []);
@@ -723,7 +723,7 @@ export const ChannelAttachmentArea = observer(({channelId}: {channelId: string})
 		</>
 	);
 });
-const ImageThumbnail = observer(({attachment, spoiler}: {attachment: CloudAttachment; spoiler: boolean}) => {
+export const ImageThumbnail = observer(({attachment, spoiler}: {attachment: CloudAttachment; spoiler: boolean}) => {
 	const [hasError, setHasError] = useState(false);
 	const src = attachment.previewURL;
 	if (hasError || !src) return null;
@@ -738,7 +738,7 @@ const ImageThumbnail = observer(({attachment, spoiler}: {attachment: CloudAttach
 		/>
 	);
 });
-const VideoThumbnail = observer(({attachment, spoiler}: {attachment: CloudAttachment; spoiler: boolean}) => {
+export const VideoThumbnail = observer(({attachment, spoiler}: {attachment: CloudAttachment; spoiler: boolean}) => {
 	const [hasError, setHasError] = useState(false);
 	const src = attachment.thumbnailURL;
 	if (hasError || !src) return null;

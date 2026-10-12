@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ApiContext} from '@app/api/ApiContext';
+import {EMAIL_CLEARABLE_SUSPICIOUS_ACTIVITY_FLAGS} from '@app/api/auth/AuthEmail';
 import type {SudoVerificationResult} from '@app/api/auth/services/SudoVerificationService';
-import type {ConnectionRepository} from '@app/api/connection/ConnectionRepository';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IConnectionRepository} from '@app/api/connection/IConnectionRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
 import {GuildMemberSearchIndexService} from '@app/api/guild/services/member/GuildMemberSearchIndexService';
-import type {DiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
+import type {IDiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
 import type {EntityAssetService} from '@app/api/infrastructure/EntityAssetService';
 import type {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAccountDeletionQueueService';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
@@ -14,24 +15,20 @@ import {Logger} from '@app/api/Logger';
 import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
 import type {AuthSession} from '@app/api/models/AuthSession';
 import type {User} from '@app/api/models/User';
-import {enqueueStripeCustomerEmailSync} from '@app/api/stripe/StripeCustomer';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {
-	type PartialUserChangePropagationDeps,
-	propagateUserUpdate,
-} from '@app/api/user/services/PartialUserChangePropagation';
+import type {IUserAccountRepository} from '@app/api/user/repositories/IUserAccountRepository';
+import type {IUserChannelRepository} from '@app/api/user/repositories/IUserChannelRepository';
+import type {IUserRelationshipRepository} from '@app/api/user/repositories/IUserRelationshipRepository';
+import type {IUserSettingsRepository} from '@app/api/user/repositories/IUserSettingsRepository';
 import {UserAccountLifecycleService} from '@app/api/user/services/UserAccountLifecycleService';
 import {UserAccountLookupService} from '@app/api/user/services/UserAccountLookupService';
 import {UserAccountNotesService} from '@app/api/user/services/UserAccountNotesService';
 import {UserAccountProfileService} from '@app/api/user/services/UserAccountProfileService';
-import {
-	type AuthSessionReplacement,
-	UserAccountSecurityService,
-} from '@app/api/user/services/UserAccountSecurityService';
+import {UserAccountSecurityService} from '@app/api/user/services/UserAccountSecurityService';
 import {UserAccountSettingsService} from '@app/api/user/services/UserAccountSettingsService';
 import {UserAccountUpdatePropagator} from '@app/api/user/services/UserAccountUpdatePropagator';
 import type {UserContactChangeLogService} from '@app/api/user/services/UserContactChangeLogService';
 import {createPremiumClearPatch} from '@app/api/user/UserHelpers';
+import {hasPartialUserFieldsChanged} from '@app/api/user/UserMappers';
 import {runAllInOrder} from '@app/api/utils/ConcurrencyUtils';
 import {PremiumFlags} from '@fluxer/constants/src/UserConstants';
 import type {UserUpdateRequest} from '@fluxer/schema/src/domains/user/UserRequestSchemas';
@@ -45,10 +42,11 @@ interface UpdateUserParams {
 	emailVerifiedViaToken?: boolean;
 }
 
-interface UpdateUserResult {
-	user: User;
-	authSessionReplacement: AuthSessionReplacement | null;
-}
+interface UserAccountRepository
+	extends IUserAccountRepository,
+		IUserSettingsRepository,
+		IUserRelationshipRepository,
+		IUserChannelRepository {}
 
 export class UserAccountService {
 	readonly lookupService: UserAccountLookupService;
@@ -58,9 +56,8 @@ export class UserAccountService {
 	readonly notesService: UserAccountNotesService;
 	readonly lifecycleService: UserAccountLifecycleService;
 	readonly updatePropagator: UserAccountUpdatePropagator;
-	private readonly userUpdateDeps: PartialUserChangePropagationDeps;
-	private readonly userAccountRepository: UserRepository;
-	private readonly guildRepository: GuildRepository;
+	private readonly userAccountRepository: UserAccountRepository;
+	private readonly guildRepository: IGuildRepositoryAggregate;
 	private readonly searchIndexService: GuildMemberSearchIndexService;
 
 	constructor(
@@ -68,27 +65,35 @@ export class UserAccountService {
 		userCacheService: UserCacheService,
 		guildService: GuildService,
 		entityAssetService: EntityAssetService,
-		guildRepository: GuildRepository,
-		discriminatorService: DiscriminatorService,
+		guildRepository: IGuildRepositoryAggregate,
+		discriminatorService: IDiscriminatorService,
 		kvDeletionQueue: KVAccountDeletionQueueService,
 		private readonly contactChangeLogService: UserContactChangeLogService,
-		connectionRepository: ConnectionRepository,
+		connectionRepository: IConnectionRepository,
 		readonly limitConfigService: LimitConfigService,
 	) {
 		const {
 			users: userAccountRepository,
 			gateway: gatewayService,
+			media: mediaService,
 			email: emailService,
 			rateLimit: rateLimitService,
 		} = this.apiContext.services;
-		this.userUpdateDeps = {userCacheService, gatewayService, userRepository: userAccountRepository, guildRepository};
 		this.userAccountRepository = userAccountRepository;
 		this.guildRepository = guildRepository;
 		this.searchIndexService = new GuildMemberSearchIndexService();
-		this.updatePropagator = new UserAccountUpdatePropagator({gatewayService});
+		this.updatePropagator = new UserAccountUpdatePropagator({
+			userCacheService,
+			gatewayService,
+			mediaService,
+			userRepository: userAccountRepository,
+			guildRepository,
+		});
 		this.lookupService = new UserAccountLookupService({
 			userAccountRepository,
-
+			userRelationshipRepository: userAccountRepository,
+			userChannelRepository: userAccountRepository,
+			userSettingsRepository: userAccountRepository,
 			guildRepository,
 			guildService,
 			discriminatorService,
@@ -110,7 +115,8 @@ export class UserAccountService {
 		});
 		this.settingsService = new UserAccountSettingsService({
 			userAccountRepository,
-
+			userSettingsRepository: userAccountRepository,
+			userRelationshipRepository: userAccountRepository,
 			updatePropagator: this.updatePropagator,
 			gatewayService,
 			userCacheService,
@@ -119,7 +125,7 @@ export class UserAccountService {
 		});
 		this.notesService = new UserAccountNotesService({
 			userAccountRepository,
-
+			userRelationshipRepository: userAccountRepository,
 			updatePropagator: this.updatePropagator,
 		});
 		this.lifecycleService = new UserAccountLifecycleService({
@@ -127,12 +133,12 @@ export class UserAccountService {
 			userAccountRepository,
 			guildRepository,
 			emailService,
-			userUpdateDeps: this.userUpdateDeps,
+			updatePropagator: this.updatePropagator,
 			kvDeletionQueue,
 		});
 	}
 
-	async update(params: UpdateUserParams): Promise<UpdateUserResult> {
+	async update(params: UpdateUserParams): Promise<User> {
 		const {user, oldAuthSession, data, request, sudoContext, emailVerifiedViaToken = false} = params;
 		const profileResult = await this.profileService.processProfileUpdates({user, data});
 		const securityResult = await this.securityService.processSecurityUpdates({user, data, sudoContext});
@@ -140,6 +146,10 @@ export class UserAccountService {
 			...securityResult.updates,
 			...profileResult.updates,
 		};
+		if (securityResult.updates.flags !== undefined && securityResult.updates.flags !== null) {
+			const profileFlags = profileResult.updates.flags ?? user.flags;
+			updates.flags = profileFlags | (securityResult.updates.flags & ~user.flags);
+		}
 		const securityPremiumFlags = securityResult.updates.premium_flags;
 		if (securityPremiumFlags !== undefined && securityPremiumFlags !== null) {
 			const profilePremiumFlags = profileResult.updates.premium_flags ?? user.premiumFlags;
@@ -148,6 +158,12 @@ export class UserAccountService {
 		const emailChanged = data.email !== undefined;
 		if (emailChanged) {
 			updates.email_verified = !!emailVerifiedViaToken;
+			if (emailVerifiedViaToken && user.suspiciousActivityFlags !== null && user.suspiciousActivityFlags !== 0) {
+				const newFlags = user.suspiciousActivityFlags & ~EMAIL_CLEARABLE_SUSPICIOUS_ACTIVITY_FLAGS;
+				if (newFlags !== user.suspiciousActivityFlags) {
+					updates.suspicious_activity_flags = newFlags;
+				}
+			}
 		}
 		let updatedUser: User;
 		try {
@@ -158,8 +174,6 @@ export class UserAccountService {
 				'User profile update failed with unknown commit status; retaining uploaded assets',
 			);
 			throw error;
-		} finally {
-			await securityResult.metadata.usernameReservation?.release();
 		}
 		const finalizationSteps: Array<() => Promise<unknown>> = [
 			() =>
@@ -169,7 +183,6 @@ export class UserAccountService {
 					reason: 'user_requested',
 					actorUserId: user.id,
 				}),
-			() => enqueueStripeCustomerEmailSync(this.apiContext.services.worker, user, updatedUser),
 			async () => {
 				try {
 					await this.profileService.commitAssetChanges(profileResult);
@@ -177,7 +190,12 @@ export class UserAccountService {
 					Logger.error({error, userId: user.id}, 'Failed to commit asset changes after successful DB update');
 				}
 			},
-			() => propagateUserUpdate(this.userUpdateDeps, user, updatedUser, {continueAfterDispatchFailure: true}),
+			() => this.updatePropagator.dispatchUserUpdate(updatedUser),
+			async () => {
+				if (hasPartialUserFieldsChanged(user, updatedUser)) {
+					await this.updatePropagator.propagatePartialUserChange(updatedUser);
+				}
+			},
 			async () => {
 				const nameChanged =
 					user.username !== updatedUser.username ||
@@ -188,21 +206,14 @@ export class UserAccountService {
 				}
 			},
 		];
-		let authSessionReplacement: AuthSessionReplacement | null = null;
 		if (securityResult.metadata.invalidateAuthSessions) {
 			finalizationSteps.push(
-				async () => {
-					authSessionReplacement = await this.securityService.invalidateAndRecreateSessions({
-						user,
-						oldAuthSession,
-						request,
-					});
-				},
+				() => this.securityService.invalidateAndRecreateSessions({user, oldAuthSession, request}),
 				() => this.userAccountRepository.deleteAllPasswordResetTokens(user.id),
 			);
 		}
 		await runAllInOrder(finalizationSteps, 'Failed to finalize user update');
-		return {user: updatedUser, authSessionReplacement};
+		return updatedUser;
 	}
 
 	private async reindexGuildMembersForUser(updatedUser: User): Promise<void> {
@@ -227,6 +238,9 @@ export class UserAccountService {
 			premium_flags: user.premiumFlags & ~PremiumFlags.ENABLED_OVERRIDE,
 		};
 		const updatedUser = await this.userAccountRepository.patchUpsert(user.id, updates, user.toRow());
-		await propagateUserUpdate(this.userUpdateDeps, user, updatedUser);
+		await this.updatePropagator.dispatchUserUpdate(updatedUser);
+		if (hasPartialUserFieldsChanged(user, updatedUser)) {
+			await this.updatePropagator.propagatePartialUserChange(updatedUser);
+		}
 	}
 }

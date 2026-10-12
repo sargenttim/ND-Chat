@@ -2,7 +2,6 @@
 
 import type {BillingRepository} from '@app/api/billing/repositories/BillingRepository';
 import {Logger} from '@app/api/Logger';
-import {mirrorBestEffort} from '@app/api/stripe/StripeMirror';
 import type {ICacheService} from '@pkgs/cache/src/ICacheService';
 import {seconds} from 'itty-time';
 import type Stripe from 'stripe';
@@ -34,11 +33,11 @@ export async function getCachedStripePriceSummary({
 			async () => {
 				const price = await stripe.prices.retrieve(priceId);
 				if (mirror) {
-					await mirrorBestEffort(
-						() => mirror.prices.upsertFromStripe(price),
-						{priceId},
-						'Mirror upsert failed after Stripe price lookup',
-					);
+					try {
+						await mirror.prices.upsertFromStripe(price);
+					} catch (mirrorErr) {
+						Logger.error({mirrorErr, priceId}, 'Mirror upsert failed after Stripe price lookup');
+					}
 				}
 				return {
 					unitAmountMinor: price.unit_amount ?? null,

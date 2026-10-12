@@ -183,5 +183,6 @@ export const useMasonryGridNavigation = (options: UseMasonryGridNavigationOption
 	}, [handleKeyDown, isEnabled]);
 	return {
 		focusedItemKey,
+		setFocusedItemKey: focusItem,
 	};
 };

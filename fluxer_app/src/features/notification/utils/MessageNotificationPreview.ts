@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {STICKER_DESCRIPTOR, STICKERS_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
-import {formatList} from '@app/features/i18n/utils/IntlCache';
 import {MarkdownContext} from '@app/features/messaging/components/markdown/renderers/RendererTypes';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import {getParserFlagsForContext} from '@app/features/messaging/utils/markdown/MarkdownParserFlags';
@@ -12,13 +11,12 @@ import type {MessageEmbed} from '@fluxer/schema/src/domains/message/EmbedSchemas
 import type {
 	ChannelMention,
 	MessageAttachment,
-	MessageMention,
 	MessageSnapshot,
 	MessageStickerItem,
-	Message as WireMessage,
 } from '@fluxer/schema/src/domains/message/MessageResponseSchemas';
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
+import {formatListWithConfig} from '@pkgs/list_utils/src/ListFormatting';
 
 const MESSAGE_NOTIFICATION_PARSER_FLAGS = getParserFlagsForContext(MarkdownContext.STANDARD_WITHOUT_JUMBO);
 const ATTACHMENT_DESCRIPTOR = msg({
@@ -91,7 +89,7 @@ function buildEmbedNotificationPreview(embeds: ReadonlyArray<MessageEmbed> | nul
 	return '';
 }
 
-function buildStickerNotificationPreview(
+export function buildStickerNotificationPreview(
 	stickers: ReadonlyArray<MessageStickerItem> | null | undefined,
 	i18n: I18n,
 ): string {
@@ -103,7 +101,7 @@ function buildStickerNotificationPreview(
 	if (stickers.length === 1) {
 		return i18n._(STICKER_NOTIFICATION_BODY_DESCRIPTOR, {stickerName: stickerNames[0]});
 	}
-	const formattedStickerNames = formatList(stickerNames, {
+	const formattedStickerNames = formatListWithConfig(stickerNames, {
 		locale: i18n.locale,
 		style: 'long',
 		type: 'conjunction',
@@ -160,41 +158,6 @@ export function buildMessageNotificationBody(message: Message, i18n: I18n): stri
 	);
 	if (contentFallback) return contentFallback;
 	const snapshot = message.messageSnapshots?.[0];
-	if (snapshot) {
-		return buildSnapshotNotificationPreview(snapshot, markdownOptions);
-	}
-	return '';
-}
-
-const USER_MENTION_PATTERN = /<@!?(\d+)>/g;
-
-function inlineUserMentions(content: string, mentions: ReadonlyArray<MessageMention> | undefined): string {
-	if (!content || !mentions?.length) return content;
-	return content.replace(USER_MENTION_PATTERN, (token, userId: string) => {
-		const user = mentions.find((mention) => mention.id === userId);
-		if (!user) return token;
-		return `@${user.member?.nick || user.global_name || user.username}`;
-	});
-}
-
-export function buildWireMessageNotificationBody(message: WireMessage, i18n: I18n): string {
-	const markdownOptions: MarkdownPreviewOptions = {
-		channelId: message.channel_id,
-		mentionChannels: message.mention_channels,
-		i18n,
-	};
-	const userBody = renderMarkdownPreview(inlineUserMentions(message.content, message.mentions), markdownOptions);
-	if (userBody) return userBody;
-	const contentFallback = buildMessageContentFallbackPreview(
-		{
-			attachments: message.attachments,
-			embeds: message.embeds,
-			stickers: message.stickers,
-		},
-		i18n,
-	);
-	if (contentFallback) return contentFallback;
-	const snapshot = message.message_snapshots?.[0];
 	if (snapshot) {
 		return buildSnapshotNotificationPreview(snapshot, markdownOptions);
 	}

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {getAdminAuditAccess} from '@app/api/admin/AdminAuditActions';
-import type {AdminAuditLog} from '@app/api/admin/AdminRepository';
+import type {AdminAuditLog} from '@app/api/admin/IAdminRepository';
 import {createTestAccount, setUserACLs, type TestAccount} from '@app/api/auth/tests/AuthTestUtils';
 import {getAdminRepository} from '@app/api/middleware/ServiceSingletons';
 import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
@@ -39,13 +39,13 @@ interface AdminAuditCoverageCaseBase {
 	auditLogReason?: unknown;
 }
 
-interface AdminAuditAuditedCase extends AdminAuditCoverageCaseBase {
+export interface AdminAuditAuditedCase extends AdminAuditCoverageCaseBase {
 	prepare(
 		context: AdminAuditCoverageContext,
 	): Promise<{request: AdminAuditCoverageRequest; expected: AdminAuditExpectedEntry}>;
 }
 
-interface AdminAuditExemptCase extends AdminAuditCoverageCaseBase {
+export interface AdminAuditExemptCase extends AdminAuditCoverageCaseBase {
 	exempt: true;
 	prepare(context: AdminAuditCoverageContext): Promise<{request: AdminAuditCoverageRequest}>;
 }

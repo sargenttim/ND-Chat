@@ -1,7 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import '@app/app/BootShell.css';
-import {startAppStorage} from '@app/features/platform/state/AppStorageBootstrap';
 import {installBrowserStorageAccessProtection} from '@app/features/platform/state/ProtectedWebStorage';
 import '@fluxer/fonts/css/fluxer-sans.css';
 import '@fluxer/fonts/css/fluxer-mono.css';
@@ -15,28 +13,22 @@ import '@app/features/theme/styles/generated/message-layout.css';
 import '@app/features/theme/styles/preflight.css';
 import {resolveDomainMigrationSide} from '@app/features/app/domain_migration/DomainMigrationCore';
 import {runDomainMigrationPreMount} from '@app/features/app/domain_migration/DomainMigrationPreMount';
-import {installRuntimeConfigEffects} from '@app/features/app/state/RuntimeConfigEffects';
-import {installImageRetention} from '@app/features/messaging/utils/ImageRetention';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {loadLazyModule} from '@app/features/platform/utils/LazyModuleLoader';
-import {installUnhandledRejectionReporter} from '@app/features/platform/utils/UnhandledRejectionReporter';
 import {PASSKEY_BRIDGE_PATH} from '@fluxer/constants/src/PasskeyConstants';
 import {configure} from 'mobx';
 
 const logger = new Logger('index');
 
 installBrowserStorageAccessProtection();
-installUnhandledRejectionReporter();
 
 configure({disableErrorBoundaries: true, enforceActions: 'observed'});
 
 function loadAppBootstrap() {
-	return loadLazyModule(() => import(/* webpackChunkName: "app-bootstrap" */ '@app/app/AppBootstrap'));
+	return loadLazyModule(() => import('@app/app/AppBootstrap'));
 }
 
 async function bootstrap(): Promise<void> {
-	installRuntimeConfigEffects();
-	installImageRetention(document);
 	const passkeyBridgeSide =
 		window.location.pathname === PASSKEY_BRIDGE_PATH ? resolveDomainMigrationSide(window.location.origin) : null;
 	if (passkeyBridgeSide !== null) {
@@ -47,20 +39,8 @@ async function bootstrap(): Promise<void> {
 	if (await runDomainMigrationPreMount()) {
 		return;
 	}
-	const storageBootstrap = await startAppStorage();
 	const {runApp} = await loadAppBootstrap();
-	await runApp(storageBootstrap);
-	confirmDesktopLaunch();
-}
-
-function confirmDesktopLaunch(): void {
-	const confirmLaunch = globalThis.window?.electron?.desktopModules?.confirmLaunch;
-	if (confirmLaunch == null) {
-		return;
-	}
-	confirmLaunch().catch((error: unknown) => {
-		logger.warn('Failed to confirm the desktop launch:', error);
-	});
+	await runApp();
 }
 
 async function showBootstrapError(error: unknown): Promise<void> {

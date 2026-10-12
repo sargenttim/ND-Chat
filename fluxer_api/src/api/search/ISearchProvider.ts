@@ -5,7 +5,6 @@ import type {IGuildMemberSearchService} from '@app/api/search/IGuildMemberSearch
 import type {IGuildSearchService} from '@app/api/search/IGuildSearchService';
 import type {IMessageSearchService} from '@app/api/search/IMessageSearchService';
 import type {IReportSearchService} from '@app/api/search/IReportSearchService';
-import type {IThreadSearchService} from '@app/api/search/IThreadSearchService';
 import type {IUserSearchService} from '@app/api/search/IUserSearchService';
 
 export interface ISearchProvider {
@@ -17,5 +16,4 @@ export interface ISearchProvider {
 	getReportSearchService(): IReportSearchService | null;
 	getAuditLogSearchService(): IAuditLogSearchService | null;
 	getGuildMemberSearchService(): IGuildMemberSearchService | null;
-	getThreadSearchService(): IThreadSearchService | null;
 }

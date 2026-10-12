@@ -24,6 +24,7 @@ import {
 	ATTACHMENT_DESCRIPTOR,
 	ATTACHMENT_THUMBNAILS_DESCRIPTOR,
 	CLOSE_MEDIA_VIEWER_DESCRIPTOR,
+	clamp,
 	getNativeTitlebarHeight,
 	getViewportPadding,
 	type MediaModalProps,
@@ -36,7 +37,6 @@ import {
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import * as MediaViewerCommands from '@app/features/ui/commands/MediaViewerCommands';
 import {Scroller} from '@app/features/ui/components/Scroller';
-import {clamp} from '@app/features/ui/components/slider/SliderMath';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import LayerManager from '@app/features/ui/state/LayerManager';
 import MobileLayout from '@app/features/ui/state/MobileLayout';

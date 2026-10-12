@@ -25,7 +25,7 @@ export interface AnimatedCropRequest {
 	sizeLimitBytes: number;
 }
 
-interface AnimatedCropProgress {
+export interface AnimatedCropProgress {
 	phase: CropProgressPhase;
 	fraction: number;
 }

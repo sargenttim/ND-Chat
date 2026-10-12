@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {
+	createHoverStateSnapshot,
+	type HoverStateEvent,
+	type HoverStateSnapshot,
+	selectIsHovering,
+	transitionHoverStateSnapshot,
+} from '@app/features/app/hooks/HoverStateMachine';
+import {
 	canUseWindowFocusedHoverControls,
 	subscribeWindowHoverControlsChange,
 } from '@app/features/ui/utils/WindowFocusInteractionGuard';
@@ -37,8 +44,8 @@ function subscribeHoverWindowFocus(listener: () => void): () => void {
 }
 
 export const useHover = (delay = 0): HoverHook => {
-	const [isHovering, setHovering] = useState(false);
-	const hoveringRef = useRef(false);
+	const [snapshot, setSnapshot] = useState<HoverStateSnapshot>(createHoverStateSnapshot);
+	const snapshotRef = useRef(snapshot);
 	const previousNode = useRef<HTMLElement | null>(null);
 	const timeoutId = useRef<NodeJS.Timeout | null>(null);
 	const clearHoverTimeout = useCallback(() => {
@@ -46,36 +53,37 @@ export const useHover = (delay = 0): HoverHook => {
 		clearTimeout(timeoutId.current);
 		timeoutId.current = null;
 	}, []);
-	const sendHoverEvent = useCallback((next: boolean) => {
-		if (hoveringRef.current === next) return;
-		hoveringRef.current = next;
-		setHovering(next);
+	const sendHoverEvent = useCallback((event: HoverStateEvent) => {
+		const nextSnapshot = transitionHoverStateSnapshot(snapshotRef.current, event);
+		if (selectIsHovering(nextSnapshot) === selectIsHovering(snapshotRef.current)) return;
+		snapshotRef.current = nextSnapshot;
+		setSnapshot(nextSnapshot);
 	}, []);
 	const handleMouseEnter = useCallback(() => {
 		clearHoverTimeout();
 		if (!canUseWindowFocusedHoverControls()) {
-			sendHoverEvent(false);
+			sendHoverEvent({type: 'hover.leave'});
 			return;
 		}
 		timeoutId.current = setTimeout(() => {
 			if (canUseWindowFocusedHoverControls() && previousNode.current?.matches(':hover')) {
-				sendHoverEvent(true);
+				sendHoverEvent({type: 'hover.enter'});
 			}
 		}, delay);
 	}, [clearHoverTimeout, delay, sendHoverEvent]);
 	const handleMouseLeave = useCallback(() => {
 		clearHoverTimeout();
-		sendHoverEvent(false);
+		sendHoverEvent({type: 'hover.leave'});
 	}, [clearHoverTimeout, sendHoverEvent]);
 	const syncHoverWithWindowFocus = useCallback(() => {
 		clearHoverTimeout();
 		if (!canUseWindowFocusedHoverControls() || !previousNode.current?.matches(':hover')) {
-			sendHoverEvent(false);
+			sendHoverEvent({type: 'hover.leave'});
 			return;
 		}
 		timeoutId.current = setTimeout(() => {
 			if (canUseWindowFocusedHoverControls() && previousNode.current?.matches(':hover')) {
-				sendHoverEvent(true);
+				sendHoverEvent({type: 'hover.enter'});
 			}
 		}, delay);
 	}, [clearHoverTimeout, delay, sendHoverEvent]);
@@ -94,7 +102,7 @@ export const useHover = (delay = 0): HoverHook => {
 				previousNode.current.removeEventListener('mouseleave', handleMouseLeave);
 			}
 			clearHoverTimeout();
-			sendHoverEvent(false);
+			sendHoverEvent({type: 'hover.leave'});
 			previousNode.current = node;
 			if (node) {
 				node.addEventListener('mouseenter', handleMouseEnter);
@@ -104,5 +112,5 @@ export const useHover = (delay = 0): HoverHook => {
 		},
 		[clearHoverTimeout, handleMouseEnter, handleMouseLeave, sendHoverEvent],
 	);
-	return [customRef, isHovering];
+	return [customRef, selectIsHovering(snapshot)];
 };

@@ -2,6 +2,7 @@
 
 import type {IKVPipeline} from '@pkgs/kv_client/src/IKVProvider';
 import {createInvalidResponseError} from '@pkgs/kv_client/src/KVClientError';
+import {createStringEntriesFromPairs} from '@pkgs/kv_client/src/KVCommandArguments';
 import type {ChainableCommander} from 'ioredis';
 
 type PipelineExecResult = [Error | null, unknown];
@@ -26,6 +27,16 @@ export class KVPipeline implements IKVPipeline {
 		this.commander = options.createCommander();
 	}
 
+	get(key: string): this {
+		this.commander.get(key);
+		return this;
+	}
+
+	set(key: string, value: string): this {
+		this.commander.set(key, value);
+		return this;
+	}
+
 	setex(key: string, ttlSeconds: number, value: string): this {
 		this.commander.setex(key, ttlSeconds, value);
 		return this;
@@ -46,8 +57,33 @@ export class KVPipeline implements IKVPipeline {
 		return this;
 	}
 
+	srem(key: string, ...members: Array<string>): this {
+		this.commander.srem(key, ...members);
+		return this;
+	}
+
+	zadd(key: string, score: number, value: string): this {
+		this.commander.zadd(key, score, value);
+		return this;
+	}
+
+	zrem(key: string, ...members: Array<string>): this {
+		this.commander.zrem(key, ...members);
+		return this;
+	}
+
 	hgetall(key: string): this {
 		this.commander.hgetall(key);
+		return this;
+	}
+
+	mset(...args: Array<string>): this {
+		const entries = createStringEntriesFromPairs(args);
+		if (entries.length === 0) {
+			return this;
+		}
+		const pairs = entries.flatMap((entry) => [entry.key, entry.value]);
+		this.commander.mset(...pairs);
 		return this;
 	}
 

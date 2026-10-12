@@ -13,7 +13,7 @@ interface MessageSelectionCopyOptions {
 
 type MessageGetter = (messageId: string) => Message | null | undefined;
 
-function useMessageSelectionCopy<TElement extends HTMLElement>({
+export function useMessageSelectionCopy<TElement extends HTMLElement>({
 	getMessagePlaintext,
 }: MessageSelectionCopyOptions): React.ClipboardEventHandler<TElement> {
 	return useCallback(

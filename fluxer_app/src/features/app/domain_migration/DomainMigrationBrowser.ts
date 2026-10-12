@@ -13,11 +13,8 @@ import {
 	isDomainMigrationOneShotRoute,
 	markDomainMigrationFailed,
 	readDomainMigrationMarker,
-	resolveDomainMigrationSide,
 	writeDomainMigrationIntent,
 } from '@app/features/app/domain_migration/DomainMigrationCore';
-import InstanceSnapshotStore, {resolveDiscoveryApiEndpoint} from '@app/features/app/state/InstanceSnapshotStore';
-import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {
 	AuthSessionStorageKey,
 	parseStoredSessionValue,
@@ -30,46 +27,14 @@ interface NavigatorWithStandalone extends Navigator {
 	standalone?: boolean;
 }
 
-const DOMAIN_MIGRATION_DISCOVERY_TIMEOUT_MS = 5000;
-
 const DISPLAY_MODES: ReadonlyArray<DomainMigrationDisplayMode> = [
 	'window-controls-overlay',
 	'standalone',
 	'minimal-ui',
 ];
 
-function domainMigrationDiscoveryApiEndpoint(): string | null {
-	if (typeof window === 'undefined' || resolveDomainMigrationSide(window.location.origin) === null) {
-		return null;
-	}
-	try {
-		return resolveDiscoveryApiEndpoint(window.location.origin);
-	} catch {
-		return null;
-	}
-}
-
-export async function loadDomainMigrationDiscovery(): Promise<void> {
-	if (domainMigrationDiscoveryApiEndpoint() === null) {
-		return;
-	}
-	await InstanceSnapshotStore.resolve({
-		input: window.location.origin,
-		signal: AbortSignal.timeout(DOMAIN_MIGRATION_DISCOVERY_TIMEOUT_MS),
-	});
-}
-
 export function readDomainMigrationDiscovery(): DomainMigrationDiscoveryResponse | null {
-	const apiEndpoint = domainMigrationDiscoveryApiEndpoint();
-	if (apiEndpoint === null) {
-		return null;
-	}
-	const cached = InstanceSnapshotStore.getForApiEndpoint(apiEndpoint);
-	if (cached !== null) {
-		return cached.domainMigration;
-	}
-	const active = RuntimeConfig.getSnapshotOrNull();
-	return active?.apiEndpoint === apiEndpoint ? active.domainMigration : null;
+	return window.__FLUXER_BOOTSTRAP__?.instance.domain_migration ?? null;
 }
 
 function readDisplayMode(): DomainMigrationDisplayMode {
@@ -96,6 +61,7 @@ export function detectDomainMigrationInstallKind(): DomainMigrationInstallKind {
 		userAgent: navigator.userAgent,
 		userAgentData: navigator.userAgentData ?? null,
 		maxTouchPoints: navigator.maxTouchPoints ?? 0,
+		electron: isElectronEnvironment(),
 	});
 }
 
@@ -103,6 +69,8 @@ export function readDomainMigrationEnvironment(): DomainMigrationEnvironment {
 	return {
 		installKind: detectDomainMigrationInstallKind(),
 		electron: isElectronEnvironment(),
+		electronMigrationVersion: window.electron?.domainMigration?.version ?? null,
+		electronPasskeyRpIds: window.electron?.passkeyRpIds ?? [],
 	};
 }
 
@@ -129,6 +97,17 @@ export function startDomainMigrationFromSource(side: DomainMigrationSide): true 
 	return true;
 }
 
+export async function desktopPasskeysSupported(): Promise<boolean> {
+	if (!isElectronEnvironment()) {
+		return true;
+	}
+	try {
+		return (await window.electron?.passkeyIsSupported?.()) === true;
+	} catch {
+		return false;
+	}
+}
+
 export function readActiveSessionToken(): string | null {
 	try {
 		return parseStoredSessionValue(getProtectedLocalStorage()?.getItem(AuthSessionStorageKey.Token) ?? null);
@@ -142,7 +121,7 @@ export async function hasStoredAccount(): Promise<boolean> {
 		return true;
 	}
 	const {default: accountStorage} = await import('@app/features/auth/state/AccountStorage');
-	const {records: accounts} = await accountStorage.getAllAccounts();
+	const accounts = await accountStorage.getAllAccounts();
 	return accounts.some((account) => Boolean(account.token));
 }
 

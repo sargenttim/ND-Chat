@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {ResettableStates} from '@app/features/app/state/ResettableStates';
 import {http} from '@app/features/platform/transport/RestTransport';
 import type {RestResponse} from '@app/features/platform/types/TransportTypes';
 import {Logger} from '@app/features/platform/utils/AppLogger';
@@ -18,9 +17,9 @@ const logger = new Logger('ExperimentAssignments');
 
 export const EXPERIMENT_ASSIGNMENTS_PATH = '/experiments';
 
-const EXPERIMENT_ASSIGNMENTS_VISIBILITY_REFRESH_MIN_INTERVAL_MS = 30 * MS_PER_SECOND;
-const EXPERIMENT_ASSIGNMENTS_HIDDEN_POLL_INTERVAL_MULTIPLIER = 4;
-const EXPERIMENT_ASSIGNMENTS_MAX_NOT_FOUND_STREAK = 3;
+export const EXPERIMENT_ASSIGNMENTS_VISIBILITY_REFRESH_MIN_INTERVAL_MS = 30 * MS_PER_SECOND;
+export const EXPERIMENT_ASSIGNMENTS_HIDDEN_POLL_INTERVAL_MULTIPLIER = 4;
+export const EXPERIMENT_ASSIGNMENTS_MAX_NOT_FOUND_STREAK = 3;
 
 const MAX_BACKOFF_DOUBLINGS = 2;
 const EXPERIMENT_ASSIGNMENTS_MIN_POLL_DELAY_MS = (EXPERIMENT_MIN_POLL_INTERVAL_SECONDS * MS_PER_SECOND) / 2;
@@ -32,6 +31,7 @@ type UnobservedField =
 	| 'generation'
 	| 'inFlight'
 	| 'lastFetchStartedAt'
+	| 'listeners'
 	| 'listening'
 	| 'notFoundStreak'
 	| 'pollTimerId'
@@ -77,6 +77,7 @@ class ExperimentAssignmentsStore {
 	private pollingDisabled = false;
 	private lastFetchStartedAt = 0;
 	private generation = 0;
+	private listeners = new Set<() => void>();
 
 	constructor() {
 		makeAutoObservable<this, UnobservedField>(
@@ -89,6 +90,7 @@ class ExperimentAssignmentsStore {
 				generation: false,
 				inFlight: false,
 				lastFetchStartedAt: false,
+				listeners: false,
 				listening: false,
 				notFoundStreak: false,
 				pollTimerId: false,
@@ -146,6 +148,13 @@ class ExperimentAssignmentsStore {
 		this.setResponse(INERT_EXPERIMENT_ASSIGNMENTS_RESPONSE);
 	}
 
+	subscribe(listener: () => void): () => void {
+		this.listeners.add(listener);
+		return () => {
+			this.listeners.delete(listener);
+		};
+	}
+
 	private setResponse(next: ExperimentAssignmentsResponse): void {
 		if (this.response === next) {
 			return;
@@ -153,6 +162,17 @@ class ExperimentAssignmentsStore {
 		runInAction(() => {
 			this.response = next;
 		});
+		this.notifyListeners();
+	}
+
+	private notifyListeners(): void {
+		for (const listener of [...this.listeners]) {
+			try {
+				listener();
+			} catch (err) {
+				logger.warn('Experiment assignment listener failed:', err);
+			}
+		}
 	}
 
 	private schedulePoll(): void {
@@ -312,7 +332,5 @@ class ExperimentAssignmentsStore {
 }
 
 export const ExperimentAssignments = new ExperimentAssignmentsStore();
-
-ResettableStates.register(ExperimentAssignments, ExperimentAssignments.reset);
 
 export default ExperimentAssignments;

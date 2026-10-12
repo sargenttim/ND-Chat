@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {trimTrailingSlash} from '@app/api/utils/UrlUtils';
 export interface MeilisearchClientConfig {
 	host: string;
 	apiKey?: string;
@@ -18,16 +17,6 @@ export interface MeilisearchTask {
 	};
 }
 
-export class MeilisearchTaskError extends Error {
-	readonly code: string | undefined;
-
-	constructor(message: string, code: string | undefined) {
-		super(message);
-		this.name = 'MeilisearchTaskError';
-		this.code = code;
-	}
-}
-
 export interface MeilisearchClient {
 	request<TResponse>(method: string, path: string, body?: unknown): Promise<TResponse>;
 	waitForTask(taskUid: number): Promise<void>;
@@ -35,6 +24,10 @@ export interface MeilisearchClient {
 
 const TASK_POLL_INTERVAL_MS = 50;
 const TASK_TIMEOUT_MS = 30_000;
+
+function trimTrailingSlash(url: string): string {
+	return url.replace(/\/+$/u, '');
+}
 
 function isAbortError(error: unknown): boolean {
 	return error instanceof Error && error.name === 'AbortError';
@@ -91,10 +84,7 @@ export class MeilisearchHttpClient implements MeilisearchClient {
 				return;
 			}
 			if (task.status === 'failed' || task.status === 'canceled') {
-				throw new MeilisearchTaskError(
-					task.error?.message ?? `Meilisearch task ${taskUid} ${task.status}`,
-					task.error?.code,
-				);
+				throw new Error(task.error?.message ?? `Meilisearch task ${taskUid} ${task.status}`);
 			}
 			await new Promise((resolve) => setTimeout(resolve, TASK_POLL_INTERVAL_MS));
 		}

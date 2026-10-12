@@ -4,7 +4,7 @@ import {
 	THEME_VARIABLE_NAMES,
 	THEME_VARIABLES,
 	type ThemeVariableDefinition,
-} from '@app/features/theme/variables/ThemeVariableManifest';
+} from '@app/features/user/components/modals/tabs/appearance_tab/theme/ThemeConstants';
 import type {MessageDescriptor} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 
@@ -125,7 +125,7 @@ export function getTokenGroupLabelDescriptor(groupId: string): MessageDescriptor
 	return GROUP_LABEL_DESCRIPTORS[groupId] ?? null;
 }
 
-const TOKEN_VARIABLES_BY_NAME: ReadonlyMap<string, ThemeVariableDefinition> = new Map(
+export const TOKEN_VARIABLES_BY_NAME: ReadonlyMap<string, ThemeVariableDefinition> = new Map(
 	THEME_VARIABLES.map((definition) => [definition.name, definition]),
 );
 
@@ -156,7 +156,7 @@ function buildGroups(): ReadonlyArray<TokenGroupDefinition> {
 export const TOKEN_GROUPS: ReadonlyArray<TokenGroupDefinition> = buildGroups();
 export const DEFAULT_EXPANDED_GROUP_IDS: ReadonlyArray<string> = ['surfaces', 'text', 'brand', 'messages'];
 
-function assertTokenGroupsCoverConstants(): void {
+export function assertTokenGroupsCoverConstants(): void {
 	const grouped = new Set<string>();
 	for (const group of TOKEN_GROUPS) {
 		for (const variable of group.variables) {

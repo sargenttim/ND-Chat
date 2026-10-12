@@ -28,13 +28,13 @@ A Dispatch reports a change or command result through the [Gateway](/gateway/ove
 
 ## Dispatch delivery
 
-[Event filtering](/gateway/event-filtering/) defines delivery by guild availability, channel visibility, permissions, and session settings. Account-scoped Dispatches go through the session-level filters alone. Those are the [thread access](/gateway/threads/#session-flag) filter, the shard filter, and the `ignored_events` list.
+[Event filtering](/gateway/event-filtering/) defines delivery by guild availability, channel visibility, permissions, and session settings. Account-scoped Dispatches go through only the session-level filters, which are the shard filter and the `ignored_events` list.
 
 Most guild-scoped Dispatches have a `guild_id` string. [Guild Create](#guild-create) and [Guild Sync](#guild-sync) identify the guild as `id`, and so does every [Guild Delete](#guild-delete) other than the one the guild itself dispatches when the guild is deleted. [Guild Counts Update](#guild-counts-update) and [Channel Member Counts Update](#channel-member-counts-update) have no top-level `guild_id`, and each entry in their `counts` array has its own.
 
 The originating session is excluded from a Dispatch only for [Message Reaction Add](#message-reaction-add) and [Message Reaction Remove](#message-reaction-remove) in a guild channel, and only when the request supplied a `session_id`. That field is removed from the payload. The same field on a direct message or group direct message reaction is forwarded to every recipient unchanged and excludes nobody. The actor that issues any other mutation receives the resulting Dispatch like every other eligible session.
 
-A Dispatch is buffered for [Resume](/gateway/commands/#resume) replay unless it is [Guild Sync](#guild-sync), [Guild Member List Update](#guild-member-list-update), [Guild Members Chunk](#guild-members-chunk), [Thread List Sync](/gateway/threads/#thread-list-sync), or [Thread Member List Update](/gateway/threads/#thread-member-list-update). Those are delivered live and never retained. A single oversized Dispatch is delivered but not retained, as [Limits and rate limits](/gateway/limits-and-rate-limits/#replay-and-backpressure) describes. [Ready](#ready) and the guild burst that follows it for a bot session are also sent outside the replay buffer. The initial [Call Create](#call-create) events are retained like any other Dispatch and are replayed on Resume.
+A Dispatch is buffered for [Resume](/gateway/commands/#resume) replay unless it is [Guild Sync](#guild-sync), [Guild Member List Update](#guild-member-list-update), or [Guild Members Chunk](#guild-members-chunk). Those are delivered live and never retained. A single oversized Dispatch is delivered but not retained, as [Limits and rate limits](/gateway/limits-and-rate-limits/#replay-and-backpressure) describes. [Ready](#ready) and the guild burst that follows it for a bot session are also sent outside the replay buffer. The initial [Call Create](#call-create) events are retained like any other Dispatch and are replayed on Resume.
 
 ## Dispatch events
 
@@ -80,14 +80,6 @@ A Dispatch is buffered for [Resume](/gateway/commands/#resume) replay unless it 
 | [Webhooks Update](#webhooks-update) | The webhook set of a viewable guild channel changes | Channel visibility |
 | [Invite Create](#invite-create) | An invite is created | Invite audience |
 | [Invite Delete](#invite-delete) | An invite is deleted | Invite audience |
-| [Thread Create](/gateway/threads/#thread-create) | A thread is created or the session joins one | Thread visibility |
-| [Thread Update](/gateway/threads/#thread-update) | A visible thread changes | Thread visibility |
-| [Thread Delete](/gateway/threads/#thread-delete) | A thread is deleted | Thread visibility |
-| [Thread List Sync](/gateway/threads/#thread-list-sync) | The session's active thread set is replaced | Guild connection |
-| [Thread Member Update](/gateway/threads/#thread-member-update) | The session's own thread membership changes | Current user |
-| [Thread Members Update](/gateway/threads/#thread-members-update) | Users join or leave a thread | Thread visibility |
-| [Thread Member List Update](/gateway/threads/#thread-member-list-update) | A subscribed thread member list resyncs | Member list subscription |
-| [Forum Unreads](/gateway/threads/#forum-unreads) | Unread counts for forum posts are returned | Command response |
 | [Guild Member Add](#guild-member-add) | A user becomes a member of a connected guild | Guild connection |
 | [Guild Member Update](#guild-member-update) | A member's guild state or public user representation changes | Guild connection |
 | [Guild Member Remove](#guild-member-remove) | A user stops being a member of a connected guild | Guild connection |
@@ -114,13 +106,14 @@ A Dispatch is buffered for [Resume](/gateway/commands/#resume) replay unless it 
 | [Channel Pins ACK](#channel-pins-ack) | The current user acknowledges a channel's pins | Current user |
 | [Voice State Update](#voice-state-update) | A guild or call participant's voice state changes | Channel visibility |
 | [Voice Server Update](#voice-server-update) | The session receives or replaces its own voice grant | Current session |
-| [Voice Signal](#voice-signal) | Another peer-to-peer voice connection sends this connection a signalling message | Current session |
 | [Entrance Sound Play](#entrance-sound-play) | A participant's entrance sound plays in a voice channel | Voice channel |
 | [Call Create](#call-create) | A private channel call begins or becomes visible | Call recipient |
 | [Call Update](#call-update) | The ringing set, participant roster, or region of a call changes | Call recipient |
 | [Call Delete](#call-delete) | A call ends or becomes unavailable | Call recipient |
 | [Guild Counts Update](#guild-counts-update) | Member and online counts are returned for connected guilds | Command response |
 | [Channel Member Counts Update](#channel-member-counts-update) | Per-channel member and online counts are returned for one guild | Command response |
+| [Badges Update](#badges-update) | The instance's badges or built-in badge icons change | Every session |
+| [User Badges Update](#user-badges-update) | The member's assigned badges were updated | The account's sessions and every session in its guilds |
 
 ## Session and current user
 
@@ -139,14 +132,15 @@ The initial session state. Sent once after a successful [Identify](/gateway/comm
 | presences<sup>3</sup> | array[[presence object](#presence-object)] | Visible presences at connection time |
 | users<sup>4</sup> | array[[partial user](/http-api/users/#partial-user-object) object] | Users referenced by the payload |
 | sessions | array[[session presence object](#session-presence-object)] | The account's other live sessions |
-| read_states<sup>5</sup> | array[[read state](/http-api/read-states/#read-state-object) object] | Per-channel read state |
+| read_states | array[[read state](/http-api/read-states/#read-state-object) object] | Per-channel read state |
 | user_settings | ?[user settings](/http-api/users/#user-settings-object) object | Account-wide settings |
-| user_guild_settings<sup>5</sup> | array[[user guild settings](/http-api/users/settings/#user-guild-settings-object) object] | Per-guild notification settings |
+| user_guild_settings | array[[user guild settings](/http-api/users/settings/#user-guild-settings-object) object] | Per-guild notification settings |
 | notes | map[snowflake, string] | Private notes keyed by user ID |
 | pinned_dms | array[snowflake] | Pinned private channel IDs |
 | favorite_memes | array[[meme](/http-api/memes/#meme-object) object] | Saved memes |
 | webauthn_credentials | array[[WebAuthn credential object](#webauthn-credential-object)] | Registered WebAuthn credentials |
 | rtc_regions | array[[RTC region object](#rtc-region-object)] | Voice regions, ordered nearest first |
+| badges_version | integer | Version of the instance [badges](/http-api/instance/#badges-object) |
 | country_code | string | Country resolved from the connecting address, `US` when the address resolves to none |
 | latitude? | string | Latitude resolved from the connecting address, rendered as a decimal string |
 | longitude? | string | Longitude resolved from the connecting address, rendered as a decimal string |
@@ -162,8 +156,6 @@ The initial session state. Sent once after a successful [Identify](/gateway/comm
 <sup>3</sup> A bot session always receives an empty array here
 
 <sup>4</sup> Collected from the account's relationships, the recipients of its private channels, and the members in `guilds`, deduplicated by account ID. A bot session always receives an empty array here
-
-<sup>5</sup> A session without [thread access](/gateway/threads/#session-flag) receives no read state that has `flags`, no channel override of a forum or media channel, and no `flags` on an override
 
 Ready is sent outside the replay buffer, so a [Resume](/gateway/commands/#resume) never replays it.
 
@@ -191,17 +183,12 @@ The same structure appears in Ready, [Guild Create](#guild-create), and [Guild S
 | joined_at | ?ISO8601 timestamp | When the account joined the guild, null when the account is not a member |
 | unavailable? | boolean | Whether the guild is unavailable |
 | unavailable_hidden? | boolean | Whether an unavailable guild is hidden from the client |
-| threads?<sup>4</sup> | array[[thread](/http-api/threads/#thread-object) object] | The active threads the session receives, as [Guild threads](/gateway/threads/#guild-threads) describes |
 
 <sup>1</sup> The session's own member object plus the member object of every participant named by `voice_states`, and nothing else. A client that needs the rest of the roster asks for it with [Request Guild Members](/gateway/commands/#request-guild-members) or subscribes to a member list through [Lazy Request](/gateway/commands/#lazy-request)
 
 <sup>2</sup> Counts the members that hold a live Gateway session and publish a status other than `offline` or `invisible`. Every recipient receives the same guild-wide figure. [Guild Counts Update](#guild-counts-update) reports a per-viewer count
 
 <sup>3</sup> Guild presences arrive as separate [Presence Update](#presence-update) and [Presence Update Bulk](#presence-update-bulk) Dispatches
-
-<sup>4</sup> Present only for a bot session and for a user session that set [`CHANNEL_THREADS`](/gateway/threads/#session-flag)
-
-A user session without `CHANNEL_THREADS` receives reduced `roles` and `channels`, as [Session flag](/gateway/threads/#session-flag) describes.
 
 An unavailable guild is reduced to `id` and `unavailable: true`, plus `unavailable_hidden: true` when the guild is hidden. It has none of the other fields. Every entry in a bot session's [Ready](#ready) `guilds` array has this form, with `id` and `unavailable: true` alone.
 
@@ -256,14 +243,15 @@ The account's set of live sessions changed. The payload is a bare JSON array of 
 
 ### <span id="auth-session-change"></span>AUTH_SESSION_CHANGE
 
-The account's authentication session was rotated by a password change.
+The account's authentication session was rotated, for example by a password change on another device.
 
 | Field | Type | Description |
 | --- | --- | --- |
 | old_auth_session_id_hash | string | Base64url hash of the authentication session that was replaced |
 | new_auth_session_id_hash | string | Base64url hash of the replacement authentication session |
+| new_token | string | Replacement for the token the client holds |
 
-The event never includes the replacement token. The API closes every gateway session of the replaced authentication session before it sends the event, so those sessions do not receive it. The client that changed the password gets the replacement token and `auth_session_id_hash` in the HTTP response. It MUST use that token for every later HTTP request and for any later [Identify](/gateway/commands/#identify), and MUST replace its own `auth_session_id_hash` from [Ready](#ready) with the one in the response.
+Every session of the account receives the event, including the one that caused the rotation. A client MUST use `new_token` for every later HTTP request and for any later [Resume](/gateway/commands/#resume) or [Identify](/gateway/commands/#identify). A client whose own `auth_session_id_hash` from [Ready](#ready) equals `old_auth_session_id_hash` MUST replace it with `new_auth_session_id_hash`.
 
 ### <span id="rate-limited"></span>RATE_LIMITED
 
@@ -293,7 +281,7 @@ Fluxer republishes the account's presence on every settings update, whether or n
 
 ### <span id="user-guild-settings-update"></span>USER_GUILD_SETTINGS_UPDATE
 
-One guild's notification settings changed. The payload is that guild's complete user guild settings object. A session without [thread access](/gateway/threads/#session-flag) receives it without the channel overrides of forum and media channels and without `flags` on an override.
+One guild's notification settings changed. The payload is that guild's complete user guild settings object.
 
 ### <span id="user-note-update"></span>USER_NOTE_UPDATE
 
@@ -358,8 +346,6 @@ A relationship ended.
 
 The current user saved a message. The payload is the complete [message object](/http-api/messages/#message-object) as that user sees it.
 
-A session without [thread access](/gateway/threads/#session-flag) receives no Saved Message Create for a message in a thread.
-
 ### <span id="saved-message-delete"></span>SAVED_MESSAGE_DELETE
 
 The current user unsaved a message.
@@ -398,7 +384,7 @@ The current user deleted a meme.
 
 A guild became available to the session. The payload is a [guild ready object](#guild-ready-object).
 
-`roles`, `channels`, `emojis`, `stickers`, and `voice_states` are always complete. A client that stores any of them for the guild replaces its stored list with the new array. `members` is a partial list. A client adds or updates those members and keeps every other member it already stores. `threads` is the complete set [Guild threads](/gateway/threads/#guild-threads) describes, and a client replaces its stored threads for the guild with it.
+`roles`, `channels`, `emojis`, `stickers`, and `voice_states` are always complete. A client that stores any of them for the guild replaces its stored list with the new array. `members` is a partial list. A client adds or updates those members and keeps every other member it already stores.
 
 Every session receives Guild Create when a guild becomes available after Ready, for example after joining one or after an unavailable guild recovers. A bot session also receives one for each available guild in the burst that follows Ready.
 
@@ -493,11 +479,9 @@ A client that stores the guild's stickers replaces them with this array. Fluxer 
 
 A channel became visible to the session, whether newly created or newly permitted. The payload is the complete [channel object](/http-api/channels/#channel-object), with `guild_id` present for a guild channel.
 
-A session with thread access that gains view access to a channel with active threads then receives [Thread List Sync](/gateway/threads/#thread-list-sync) for that channel.
-
 ### <span id="channel-update"></span>CHANNEL_UPDATE
 
-A visible channel changed. The payload is the complete [channel object](/http-api/channels/#channel-object). Converting a text channel into an announcement channel, or back, emits it with the new `type`. That conversion also emits [Thread Update](/gateway/threads/#thread-update) for each active public thread of the channel, as [Thread types](/http-api/threads/#thread-types) describes.
+A visible channel changed. The payload is the complete [channel object](/http-api/channels/#channel-object).
 
 ### <span id="channel-update-bulk"></span>CHANNEL_UPDATE_BULK
 
@@ -515,8 +499,6 @@ Each recipient sees only channels they can view. An empty result produces no Dis
 A channel left the session's visibility, whether deleted or newly hidden. The payload is the complete [channel object](/http-api/channels/#channel-object) as it was before the change.
 
 Recipients are the sessions that could see the channel before it was deleted.
-
-Deleting a channel deletes its threads, and Fluxer emits no [Thread Delete](/gateway/threads/#thread-delete) for them. A client removes every thread whose `parent_id` is the channel.
 
 ### <span id="channel-recipient-add"></span>CHANNEL_RECIPIENT_ADD
 
@@ -539,8 +521,6 @@ A user left a group direct message the session belongs to.
 ### <span id="webhooks-update"></span>WEBHOOKS_UPDATE
 
 The webhook set of a guild channel changed. The event has no webhook data, so a client that needs the new set reads it over the HTTP API.
-
-A [follow](/http-api/channels/#follow-announcement-channel) and an unfollow each emit it for the target channel. Moving a webhook emits it for the previous channel and again for the new one. Removing the follows of a deleted or converted announcement channel emits it once for each target channel.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -591,8 +571,6 @@ A user stopped being a member of a guild the session is connected to.
 <sup>1</sup> The object has `id` alone. No other account field is sent, so a client MUST resolve the account from state it already holds
 
 In a guild with more than 250 members, a [passive](/gateway/event-filtering/#active-and-passive-guilds) session receives this event only when the subject is its own user.
-
-Removal from the guild removes every membership in its threads. Fluxer emits a [Thread Members Update](/gateway/threads/#thread-members-update) for each of them, as [Thread member flags](/http-api/thread-members/#thread-member-flags) states.
 
 ### <span id="guild-members-chunk"></span>GUILD_MEMBERS_CHUNK
 
@@ -665,7 +643,7 @@ An update that changes nothing records no entry, as the [audit actions](/http-ap
 
 The `ip` change key is stripped from `changes`, so an entry whose only change was `ip` has no `changes` at all. A client MUST treat an absent `options` or `changes` as an empty set.
 
-Recipients are every session in the guild that holds `VIEW_AUDIT_LOG`, including the acting session. A session without [thread access](/gateway/threads/#session-flag) receives no `THREAD_CREATE`, `THREAD_UPDATE`, or `THREAD_DELETE` entry and no entry about a message in a thread.
+Recipients are every session in the guild that holds `VIEW_AUDIT_LOG`, including the acting session.
 
 ### <span id="guild-ban-add"></span>GUILD_BAN_ADD
 
@@ -753,8 +731,6 @@ A passive session in a guild with more than 250 members receives missed changes 
 
 `channels` contains only the channels whose `last_message_id` changed since the previous update for that session, and only channels that session can view. `voice_states` contains only the voice states whose `version` advanced.
 
-For a session with [thread access](/gateway/threads/#session-flag), `channels` also contains the active threads its user joined.
-
 ## Messages and reactions
 
 ### <span id="message-create"></span>MESSAGE_CREATE
@@ -771,23 +747,13 @@ A visible message was created. The payload is the complete [message object](/htt
 
 <sup>1</sup> The `user` field is removed from it, and the account is in the message's `author`
 
-Each copy of a [published message](/http-api/messages/#crosspost-message) arrives in its following channel as Message Create, with the `IS_CROSSPOST` flag, and so does the `CHANNEL_FOLLOW_ADD` system message of a new follow. A copy mentions nobody.
-
-Message Create alone overrides both the passive filter and the `ignored_events` list, and the two use different tests. A direct mention, a mention of one of the user's roles, an everyone mention, or a here mention overrides the passive filter. A message the session's user wrote overrides the passive filter too. A direct, everyone, or here mention alone overrides the `ignored_events` list.
-
-A Message Create in a thread also needs one of the conditions in [Dispatch events](/gateway/threads/#dispatch-events). [Thread messages](/http-api/threads/#thread-messages) lists the members a message adds to the thread.
+Message Create alone overrides both the passive filter and the `ignored_events` list, and the two use different tests. A direct mention, a mention of one of the user's roles, an everyone mention, or a here mention overrides the passive filter. A direct, everyone, or here mention alone overrides the `ignored_events` list.
 
 ### <span id="message-update"></span>MESSAGE_UPDATE
 
 A visible message changed. The payload is the complete current [message object](/http-api/messages/#message-object), with no `channel_type`, `nicks`, or `mention_here`. In a guild channel it is extended with `guild_id` and with `member`, the author's guild member object with its `user` field removed.
 
 Recipients must hold `READ_MESSAGE_HISTORY` on the channel, or the message must be newer than the guild's message history cutoff.
-
-In a guild with more than 250 members, a [passive](/gateway/event-filtering/#active-and-passive-guilds) session receives this event only for a direct mention of its user, a mention of one of its roles, an everyone mention, or a here mention.
-
-[Publishing](/http-api/messages/#crosspost-message) a message emits it in the announcement channel with the `CROSSPOSTED` flag set. An edit of a published message emits it for each copy once Fluxer has copied the change, and deleting the published message emits it for each copy with the `SOURCE_MESSAGE_DELETED` flag and the content removed.
-
-[Start thread from message](/http-api/threads/#start-thread-from-message) emits it for the source message with `HAS_THREAD` and `thread`, and [Delete thread](/http-api/threads/#delete-thread) emits it with `HAS_THREAD` cleared. A session without [thread access](/gateway/threads/#session-flag) receives neither.
 
 ### <span id="message-delete"></span>MESSAGE_DELETE
 
@@ -802,7 +768,7 @@ One visible message was deleted.
 | guild_id? | snowflake | Guild the channel belongs to |
 | member?<sup>2</sup> | [guild member](/http-api/guild-members/#guild-member-object) object | The author's guild member object, present in a guild channel |
 
-<sup>1</sup> Both fields are omitted when an instance administrator deleted the message through the Admin API, when Fluxer deleted it because content moderation blocked a link preview in it, or when Fluxer removed a published message and its copies together, and `author_id` is also omitted for a message with no author
+<sup>1</sup> Both fields are omitted when an instance administrator deleted the message through the Admin API, when Fluxer deleted it after a CSAM report, or when Fluxer deleted it because content moderation blocked a link preview in it, and `author_id` is also omitted for a message with no author
 
 <sup>2</sup> The `user` field is removed from it, and the whole field is absent when `author_id` is absent or the author is no longer a member
 
@@ -827,11 +793,6 @@ The current user's read state advanced for a channel, usually because another of
 | mention_count | integer | Remaining mention count for the channel |
 | manual? | boolean | Whether the acknowledgement was explicit |
 | version? | string | Read state version as a decimal string |
-| flags?<sup>1</sup> | integer | The [read state flags](/http-api/read-states/#read-state-flags) |
-
-<sup>1</sup> Present only on the entry of a thread, a forum channel, or a media channel
-
-A session without [thread access](/gateway/threads/#session-flag) receives no Message ACK for an entry that has `flags`.
 
 ### <span id="message-reaction-add"></span>MESSAGE_REACTION_ADD
 
@@ -933,7 +894,7 @@ A visible user began typing in a channel.
 | guild_id? | snowflake | Guild the channel belongs to |
 | member? | [guild member](/http-api/guild-members/#guild-member-object) object | The typing user's guild member object, present in a guild channel |
 
-The `typing` override set through [Lazy Request](/gateway/commands/#lazy-request) decides delivery in a guild. With no override, a session receives the event when it is [active](/gateway/event-filtering/#active-and-passive-guilds) in the guild or when the guild has 250 members or fewer, so a passive session in a small guild still receives it. A guild that sets the `TYPING_EVENTS` bit in its [disabled operations](/http-api/guilds/#disabled-guild-operations) produces the event for nobody. Typing in a thread also needs one of the conditions in [Dispatch events](/gateway/threads/#dispatch-events).
+The `typing` override set through [Lazy Request](/gateway/commands/#lazy-request) decides delivery in a guild. With no override, a session receives the event when it is [active](/gateway/event-filtering/#active-and-passive-guilds) in the guild or when the guild has 250 members or fewer, so a passive session in a small guild still receives it. A guild that sets the `TYPING_EVENTS` bit in its [disabled operations](/http-api/guilds/#disabled-guild-operations) produces the event for nobody.
 
 ### <span id="channel-pins-update"></span>CHANNEL_PINS_UPDATE
 
@@ -947,14 +908,12 @@ A channel's most recent pin time changed.
 
 ### <span id="channel-pins-ack"></span>CHANNEL_PINS_ACK
 
-The current user acknowledged a channel's pins. Every session of the account receives it, including the one that issued the acknowledgement, except as stated below.
+The current user acknowledged a channel's pins. Every session of the account receives it, including the one that issued the acknowledgement.
 
 | Field | Type | Description |
 | --- | --- | --- |
 | channel_id | snowflake | Channel whose pins were acknowledged |
 | timestamp | ISO8601 timestamp | Time the acknowledgement recorded for the channel |
-
-A session without [thread access](/gateway/threads/#session-flag) receives no Channel Pins ACK for a thread.
 
 ## Voice and calls
 
@@ -986,7 +945,6 @@ A `channel_id` of null means the participant left.
 | suppress | boolean | Whether the participant is suppressed |
 | viewer_stream_keys | array[string] | Streams this connection is watching |
 | e2ee_capable | boolean | Whether the participant's client supports end-to-end encrypted voice |
-| p2p | boolean | Whether this connection exchanges media peer-to-peer and not through LiveKit |
 | version | integer | Monotonic version of this participant's voice state |
 
 <sup>1</sup> The participant's client reports this value. In a guild voice channel Fluxer sets it to false when the participant lacks `STREAM`
@@ -997,121 +955,22 @@ The broadcast form has no `region_id`, `server_id`, `latitude`, or `longitude`.
 
 The session received or replaced its own voice grant. Delivered to the requesting session alone.
 
-A grant has one of two structures. A LiveKit grant has `token` and `endpoint`. A peer-to-peer grant has `p2p: true` and `ice_servers`, and never has `token`, `endpoint`, or `e2ee_key`.
-
 | Field | Type | Description |
 | --- | --- | --- |
-| token?<sup>1</sup> | string | The LiveKit access token this connection presents |
-| endpoint?<sup>1</sup> | string | The LiveKit signalling URL to connect to, a `ws://` or `wss://` address |
-| p2p?<sup>2</sup> | boolean | Always true when present. The connection exchanges media peer-to-peer |
-| ice_servers?<sup>2</sup> | array[[ICE server object](#ice-server-object)] | The STUN servers the connection uses for its peer connections, empty when the instance names none |
+| token | string | The LiveKit access token this connection presents |
+| endpoint | string | The LiveKit signalling URL to connect to, a `ws://` or `wss://` address |
 | connection_id | string | The voice connection the grant covers |
 | channel_id | snowflake | The channel the grant covers |
-| guild_id?<sup>3</sup> | snowflake | The guild the channel belongs to |
-| e2ee_key?<sup>4</sup> | string | The key material the channel's end-to-end encryption uses |
+| guild_id?<sup>1</sup> | snowflake | The guild the channel belongs to |
+| e2ee_key?<sup>2</sup> | string | The key material the channel's end-to-end encryption uses |
 
-<sup>1</sup> Present on a LiveKit grant
+<sup>1</sup> Present for a guild voice channel and absent for a call, so a client reads the scope from this field
 
-<sup>2</sup> Present on a peer-to-peer grant, which only a session that sent `p2p: true` in its [Voice State Update](/gateway/commands/#voice-state-update) command receives
+<sup>2</sup> Present only when the channel is end-to-end encrypted
 
-<sup>3</sup> Present for a guild voice channel and absent for a call, so a client reads the scope from this field
-
-<sup>4</sup> Present only on a LiveKit grant for an end-to-end encrypted channel
-
-#### ICE server object
-
-| Field | Type | Description |
-| --- | --- | --- |
-| urls | array[string] | The `stun:` URLs of one server |
-
-Fluxer never hands out a TURN server, so a peer-to-peer connection never relays media. Peers that cannot reach each other directly fail to connect, and [Peer-to-peer voice](#peer-to-peer-voice) states what a client does then.
-
-```json
-{
-  "p2p": true,
-  "ice_servers": [
-    {"urls": ["stun:stun.example.com:3478"]}
-  ],
-  "connection_id": "b7f3c2a94e1d4c0f",
-  "channel_id": "1189375284394692610",
-  "guild_id": "1189375284394692608"
-}
-```
-
-Fluxer uses LiveKit for voice media unless the grant is peer-to-peer. There is no second voice websocket and no UDP discovery step. With a LiveKit grant a client opens a LiveKit connection to `endpoint`, presents `token` there, and speaks the LiveKit protocol from that point on. With a peer-to-peer grant a client follows [Peer-to-peer voice](#peer-to-peer-voice). [Voice](/voice/) states the room naming, the participant identity, and the track sources a grant admits.
+Fluxer uses LiveKit for voice media. There is no second voice websocket, no voice opcode set, and no UDP discovery step. A client opens a LiveKit connection to `endpoint`, presents `token` there, and speaks the LiveKit protocol from that point on. [Voice](/voice/) states the room naming, the participant identity, and the track sources a grant admits.
 
 A grant is issued when a connection opens, when it moves to another channel, and when its region changes. Toggling `self_mute`, `self_video`, or `self_stream` produces no new grant. A call region change reissues one grant to each participant of the call.
-
-A LiveKit grant for a `connection_id` that holds a peer-to-peer grant means a participant or a region change converted the channel or call. The client closes its peer connections and connects to LiveKit with the new grant.
-
-#### Peer-to-peer voice
-
-A voice channel or call is peer-to-peer when it has at least one voice state and every voice state in it has `p2p: true`. The participants then form a full mesh of WebRTC peer connections, one for each pair of connections, and no media passes through LiveKit. The mesh roster is the set of voice states of the channel or call.
-
-Fluxer decides each new connection as follows.
-
-| Channel or call | The command sent `p2p: true` | Any other `p2p` value |
-| --- | --- | --- |
-| Peer-to-peer below the participant cap | Peer-to-peer join<sup>1</sup> | Refused with `VOICE_P2P_CONSENT_REQUIRED` |
-| Peer-to-peer at the participant cap | Refused with `VOICE_CHANNEL_FULL` | Refused with `VOICE_P2P_CONSENT_REQUIRED` |
-| Empty, with no join awaiting LiveKit confirmation | Peer-to-peer join, or a LiveKit join when Fluxer declines<sup>2</sup> | LiveKit join |
-| Every other state | LiveKit join | LiveKit join |
-
-<sup>1</sup> Refused with `VOICE_P2P_UNAVAILABLE` when Fluxer declines peer-to-peer for this join
-
-<sup>2</sup> The session then receives a LiveKit grant and the channel or call is not peer-to-peer
-
-Participants are counted as connections in a guild voice channel and as users in a call. The participant cap is `max_participants` of the [peer-to-peer voice configuration](/admin-api/instance/#peer-to-peer-voice-configuration-object), 2 through 4, and every account reads it from its [peer-to-peer voice assignment](/http-api/experiments/#peer-to-peer-voice-assignment-object). A lower cap never removes a participant from a running call. A bot session counts as not having sent `p2p: true`. A connection that moves into a guild voice channel with its own Voice State Update command is decided by the same table.
-
-Each refusal reaches the requesting session as a [Gateway Error](/gateway/opcodes-and-close-codes/#gateway-error) payload, changes no voice state, and leaves the existing participants untouched. A client that receives `VOICE_P2P_CONSENT_REQUIRED` asks its user and, on agreement, sends the join again with `p2p: true`.
-
-Two joins can reach an empty call at the same moment with different `p2p` values. Fluxer admits the first and refuses the other with `VOICE_P2P_CONSENT_REQUIRED`. The refused session receives a [Voice State Update](#voice-state-update) with a null `channel_id` for the connection it had been granted.
-
-The voice state of a peer-to-peer join is published at once, with no LiveKit confirmation step. Peers exchange session descriptions and ICE candidates with the [Voice Signal](/gateway/commands/#voice-signal) command, which arrives as [Voice Signal](#voice-signal).
-
-Fluxer never converts a peer-to-peer channel or call to LiveKit by itself. Only two actions convert one.
-
-- A participant sends a Voice State Update command for its own connection with an explicit `p2p: false`.
-- The voice region changes. [Modify call region](/http-api/calls/#modify-call-region) converts a call whenever it supplies `region`, even with the current value. [Modify channel](/http-api/channels/#modify-channel) converts a guild voice channel when it stores a different `rtc_region`.
-
-A conversion sets `p2p` to false on every voice state of the channel or call, publishes each as a [Voice State Update](#voice-state-update), and sends each connected session a LiveKit grant for its existing `connection_id`. The conversion is one way. The channel or call can be peer-to-peer again only after it has emptied.
-
-A guild voice channel whose `rtc_p2p` is true stays peer-to-peer. Neither action converts it, and a change to `rtc_p2p` takes effect for the next call, after the channel has emptied. Fluxer does not ask for agreement before the first join of such a channel. A client whose [peer-to-peer voice assignment](/http-api/experiments/#peer-to-peer-voice-assignment-object) is enabled asks its user and sends `p2p: true` on agreement. Any other first join starts a LiveKit call.
-
-A failed peer connection converts nothing. The affected client reports the problem to its user, who can leave or send the explicit `p2p: false`. Each client reports how its peer connections settled with [Report connection outcomes](/http-api/peer-to-peer-voice/#report-connection-outcomes).
-
-A moderator cannot move a member into a peer-to-peer channel. [Modify guild member](/http-api/guild-members/#modify-guild-member) returns 400 `USER_NOT_IN_VOICE` and the member stays in its channel. A member moved out of a peer-to-peer channel receives a LiveKit grant for the target channel.
-
-Server mute and server deafen remain voice state flags in a peer-to-peer mesh, and each peer applies them to the media it sends and plays. A peer closes its peer connection to a connection whose voice state leaves the channel.
-
-### <span id="voice-signal"></span>VOICE_SIGNAL
-
-Another connection of a [peer-to-peer](#peer-to-peer-voice) voice channel or call sent this session a signalling message with the [Voice Signal](/gateway/commands/#voice-signal) command. Delivered to the session that owns the target connection alone.
-
-| Field | Type | Description |
-| --- | --- | --- |
-| guild_id?<sup>1</sup> | snowflake | The guild the channel belongs to |
-| channel_id | snowflake | The voice channel or call channel |
-| from | string | The `connection_id` of the sending voice state |
-| user_id | snowflake | The user who owns the sending connection |
-| data | object | The signalling message exactly as the sender supplied it |
-
-<sup>1</sup> Present for a guild voice channel and absent for a call
-
-```json
-{
-  "guild_id": "1189375284394692608",
-  "channel_id": "1189375284394692610",
-  "from": "9a41d07c5be2f318",
-  "user_id": "1189375284394692700",
-  "data": {
-    "type": "answer",
-    "sdp": "v=0..."
-  }
-}
-```
-
-Fluxer authorises every signal against the current voice states, so `from` always names a connection with `p2p: true` in `channel_id`. A client discards a signal whose `from` it no longer has in its roster.
 
 ### <span id="entrance-sound-play"></span>ENTRANCE_SOUND_PLAY
 
@@ -1219,3 +1078,26 @@ A channel the session cannot view, and a channel on which it lacks `VIEW_CHANNEL
 Every resource object named on this page has the representation defined by the [HTTP API](/http-api/). A Dispatch payload with a resource object has the same fields, with the guild-scoped events adding `guild_id` and the message and reaction events adding `member`.
 
 These reductions are specific to the Gateway and appear nowhere in the HTTP API. [Ready](#ready) strips `user` from each relationship and from each guild member and moves those accounts into its `users` array. The `member` added to a message event has its own `user` removed, and the account is in the message's `author`. A client MUST resolve those accounts from the surrounding payload.
+
+## Instance
+
+### <span id="badges-update"></span>BADGES_UPDATE
+
+The instance's [badges](/http-api/instance/#badges-object) have changed.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| version | integer | The new version of the badge configuration |
+| badges? | array[[badge](/http-api/instance/#badge-object) object] | Badges that were created or updated, if any |
+| deleted_badge_ids? | array[snowflake] | IDs of badges that were deleted, if any |
+| builtin_icons? | [built-in badge icons](/http-api/instance/#built-in-badge-icons-object) object | The built-in badge icons that changed, if any |
+
+
+### <span id="user-badges-update"></span>USER_BADGES_UPDATE
+
+A member's assigned badges have changed.
+
+| Field | Type | Description |
+| --- | --- | --- |
+| user_id | snowflake | The ID of the account |
+| badges | array[snowflake] | IDs of the badges now assigned to the member |

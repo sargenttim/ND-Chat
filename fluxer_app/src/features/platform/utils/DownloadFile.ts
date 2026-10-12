@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-export function downloadBlob(blob: Blob, fileName: string): void {
+export function downloadTextFile(text: string, fileName: string, mimeType = 'text/plain;charset=utf-8'): void {
+	const blob = new Blob([text], {type: mimeType});
 	const url = URL.createObjectURL(blob);
 	const anchor = document.createElement('a');
 	anchor.href = url;
@@ -10,8 +11,4 @@ export function downloadBlob(blob: Blob, fileName: string): void {
 	anchor.click();
 	anchor.remove();
 	URL.revokeObjectURL(url);
-}
-
-export function downloadTextFile(text: string, fileName: string, mimeType = 'text/plain;charset=utf-8'): void {
-	downloadBlob(new Blob([text], {type: mimeType}), fileName);
 }

@@ -10,8 +10,6 @@
 ]).
 
 -define(MAX_FORMAT_MEMBERS, 50).
--define(MAX_ROLE_MENTION_THREAD_ADDS, 250).
--define(MAX_THREAD_MEMBERS, 1000).
 -define(CONCURRENCY_LIMIT_KEY, guild_push_concurrency_limit).
 -define(DEFAULT_PUSH_CONCURRENCY, 2).
 -define(MAX_PUSH_CONCURRENCY, 8).
@@ -46,7 +44,6 @@
 -type grace_sessions() :: #{user_id() => [{binary(), pid()}]}.
 -type grace_hold() :: {grace_sessions(), integer()} | none.
 -type held_push() :: {[user_id()], grace_hold(), term(), pid() | undefined}.
--type member_source() :: {ets, ets:tid()} | {map, map()}.
 -export_type([event/0, event_data/0, guild_state/0, guild_id/0]).
 
 -spec maybe_send_push_notifications(event(), event_data(), guild_id(), guild_state()) -> ok.
@@ -282,9 +279,7 @@ compact_push_data(Data) ->
             <<"channels">>,
             <<"channel_index">>,
             overwrite_perms_cache,
-            members_ets,
-            thread_gate,
-            thread_store
+            members_ets
         ],
         Data
     ).
@@ -428,124 +423,13 @@ scan_and_send_compact_push(MessageData, GuildId, ChannelId, State) ->
     Context = compact_scan_context(MessageData, ChannelId, State),
     MembersTab = eqwalizer:dynamic_cast(maps:get(members_ets, State)),
     case scan_push_members(MembersTab, Context, State) of
-        {ok, #{eligible_user_ids := [], held_user_ids := []} = Scan} ->
-            send_compact_forum_thread_created(
-                MessageData, GuildId, ChannelId, MembersTab, Scan, State
-            );
+        {ok, #{eligible_user_ids := [], held_user_ids := []}} ->
+            ok;
         {ok, Scan} ->
-            ok = send_compact_scanned_push(MessageData, GuildId, Scan, State),
-            send_compact_forum_thread_created(
-                MessageData, GuildId, ChannelId, MembersTab, Scan, State
-            );
+            send_compact_scanned_push(MessageData, GuildId, Scan, State);
         {error, table_unavailable} ->
             scan_table_unavailable(GuildId)
     end.
-
--spec send_compact_forum_thread_created(
-    event_data(), guild_id(), integer(), ets:tid(), map(), guild_state()
-) -> ok.
-send_compact_forum_thread_created(MessageData, GuildId, ChannelId, MembersTab, Scan, State) ->
-    send_forum_thread_created(
-        MessageData,
-        GuildId,
-        ChannelId,
-        {ets, MembersTab},
-        fun() -> compact_format_data(maps:get(data, State), maps:get(format_members, Scan)) end,
-        maps:get(session_eligibility, State, #{}),
-        maps:get(grace_hold, State, none),
-        State
-    ).
-
--spec send_forum_thread_created(
-    event_data(),
-    guild_id(),
-    integer(),
-    member_source(),
-    fun(() -> map()),
-    map(),
-    grace_hold(),
-    guild_state()
-) -> ok.
-send_forum_thread_created(
-    MessageData, GuildId, ChannelId, Source, FormatData, SessionEligibility, Hold, State
-) ->
-    case guild_thread_push:forum_starter(MessageData, ChannelId, maps:get(data, State, #{})) of
-        undefined ->
-            ok;
-        {ForumId, ThreadMembers} ->
-            Skip = maps:merge(
-                maps:put(message_author_id(MessageData), true, ThreadMembers),
-                direct_mention_id_set(MessageData)
-            ),
-            MentionRoles = mention_role_id_set(maps:get(<<"mention_roles">>, MessageData, [])),
-            Recipient = guild_thread_gate:recipient_active(ChannelId, State),
-            HeldSessions = held_sessions(Hold),
-            CanView = fun guild_permissions_check:can_view_channel/4,
-            Recipients = fold_members(
-                fun(UserId, Member, Acc) ->
-                    Route =
-                        case maps:is_key(UserId, Skip) of
-                            true -> skip;
-                            false -> forum_push_route(UserId, SessionEligibility, HeldSessions)
-                        end,
-                    case
-                        Route =/= skip andalso
-                            not member_has_mentioned_role(Member, MentionRoles) andalso
-                            not guild_members_common:is_member_bot(Member) andalso
-                            Recipient(UserId) andalso
-                            CanView(UserId, ForumId, Member, State)
-                    of
-                        true -> [{Route, UserId, extract_role_ids(Member)} | Acc];
-                        false -> Acc
-                    end
-                end,
-                [],
-                Source
-            ),
-            send_forum_thread_created_push(
-                MessageData, GuildId, Recipients, SessionEligibility, Hold, FormatData(), State
-            )
-    end.
-
--spec forum_push_route(user_id(), map(), grace_sessions()) ->
-    eligible_user_ids | held_user_ids | skip.
-forum_push_route(UserId, SessionEligibility, HeldSessions) ->
-    case maps:get(UserId, SessionEligibility, true) of
-        true -> eligible_user_ids;
-        false -> grace_member_route(maps:is_key(UserId, HeldSessions))
-    end.
-
--spec send_forum_thread_created_push(
-    event_data(),
-    guild_id(),
-    [{eligible_user_ids | held_user_ids, user_id(), [integer()]}],
-    map(),
-    grace_hold(),
-    map(),
-    guild_state()
-) -> ok.
-send_forum_thread_created_push(
-    _MessageData, _GuildId, [], _SessionEligibility, _Hold, _Data, _State
-) ->
-    ok;
-send_forum_thread_created_push(
-    MessageData, GuildId, Recipients, SessionEligibility, Hold, Data, State
-) ->
-    send_push_to_eligible_users(
-        guild_thread_push:mark_forum_thread_created(MessageData),
-        GuildId,
-        [UserId || {eligible_user_ids, UserId, _RoleIds} <- Recipients],
-        maps:from_list([{UserId, RoleIds} || {_, UserId, RoleIds} <- Recipients]),
-        SessionEligibility,
-        Data,
-        large_guild_meta(State),
-        {
-            [UserId || {held_user_ids, UserId, _RoleIds} <- Recipients],
-            Hold,
-            maps:get(member_presence, State, undefined),
-            maps:get(guild_pid, State, undefined)
-        }
-    ).
 
 -spec scan_table_unavailable(guild_id()) -> ok.
 scan_table_unavailable(GuildId) ->
@@ -563,11 +447,8 @@ compact_scan_context(MessageData, ChannelId, State) ->
         mention_everyone => maps:get(<<"mention_everyone">>, MessageData, false) =:= true,
         direct_mentions => direct_mention_id_set(MessageData),
         mention_roles => mention_role_id_set(MentionRoles),
-        author_id => message_author_id(MessageData),
         format_members => format_member_id_set(MessageData),
         channel_id => ChannelId,
-        thread_recipient => guild_thread_gate:recipient_active(ChannelId, State),
-        thread_scope => guild_thread_push:scope(ChannelId, State),
         session_eligibility => maps:get(session_eligibility, State),
         grace_sessions => held_sessions(maps:get(grace_hold, State, none))
     }.
@@ -576,9 +457,7 @@ compact_scan_context(MessageData, ChannelId, State) ->
     {ok, map()} | {error, table_unavailable}.
 scan_push_members(MembersTab, Context, State) ->
     try
-        Context1 = with_thread_role_adds(MembersTab, Context, State),
-        {ok,
-            fold_push_members(scan_user_ids(MembersTab, Context1), MembersTab, Context1, State)}
+        {ok, fold_push_members(member_id_snapshot(MembersTab), MembersTab, Context, State)}
     catch
         error:badarg -> {error, table_unavailable}
     end.
@@ -591,17 +470,6 @@ initial_scan_acc() ->
         user_roles => #{},
         format_members => #{}
     }.
-
--spec scan_user_ids(ets:tid(), map()) -> [user_id()].
-scan_user_ids(_MembersTab, #{thread_scope := #{members := Members}} = Context) ->
-    lists:usort(
-        maps:keys(Members) ++
-            maps:keys(maps:get(direct_mentions, Context)) ++
-            maps:keys(maps:get(format_members, Context)) ++
-            maps:keys(maps:get(role_adds, Context))
-    );
-scan_user_ids(MembersTab, _Context) ->
-    member_id_snapshot(MembersTab).
 
 -spec member_id_snapshot(ets:tid()) -> [user_id()].
 member_id_snapshot(MembersTab) ->
@@ -637,172 +505,17 @@ scan_push_member(_Row, _Context, _State, Acc) ->
 -spec scanned_member_route(user_id(), map(), map(), guild_state()) ->
     eligible_user_ids | held_user_ids | skip.
 scanned_member_route(UserId, Member, Context, State) ->
-    case
-        thread_push_candidate(
-            UserId, Member, maps:get(thread_scope, Context, undefined), Context
-        )
-    of
-        true -> member_route(UserId, Member, Context, State);
-        false -> skip
-    end.
-
--spec thread_push_candidate(user_id(), map(), guild_thread_push:scope(), map()) -> boolean().
-thread_push_candidate(_UserId, _Member, undefined, _Mentions) ->
-    true;
-thread_push_candidate(UserId, _Member, #{members := Members}, Mentions) ->
-    maps:is_key(UserId, Members) orelse
-        maps:is_key(UserId, maps:get(direct_mentions, Mentions)) orelse
-        maps:is_key(UserId, maps:get(role_adds, Mentions)).
-
--spec with_thread_role_adds(ets:tid(), map(), guild_state()) -> map().
-with_thread_role_adds(MembersTab, #{thread_scope := Scope} = Context, State) when
-    Scope =/= undefined
-->
-    Context#{
-        role_adds => thread_role_adds(
-            Scope,
-            Context,
-            {ets, MembersTab},
-            thread_role_visible(maps:get(channel_id, Context), State)
-        )
-    };
-with_thread_role_adds(_MembersTab, Context, _State) ->
-    Context.
-
--spec fold_members(fun((user_id(), map(), Acc) -> Acc), Acc, member_source()) -> Acc.
-fold_members(Fun, Acc0, {ets, MembersTab}) ->
-    ets:foldl(
-        fun
-            ({UserId, Member}, Acc) when is_integer(UserId), is_map(Member) ->
-                Fun(UserId, Member, Acc);
-            (_Row, Acc) ->
-                Acc
-        end,
-        Acc0,
-        MembersTab
-    );
-fold_members(Fun, Acc0, {map, Members}) ->
-    maps:fold(
-        fun
-            (UserId, Member, Acc) when is_integer(UserId), is_map(Member) ->
-                Fun(UserId, Member, Acc);
-            (_UserId, _Member, Acc) ->
-                Acc
-        end,
-        Acc0,
-        Members
-    ).
-
--spec lookup_member(user_id(), member_source()) -> map() | undefined.
-lookup_member(UserId, {ets, MembersTab}) ->
-    case ets:lookup(MembersTab, UserId) of
-        [{_, Member}] when is_map(Member) -> Member;
-        _ -> undefined
-    end;
-lookup_member(UserId, {map, Members}) ->
-    case maps:get(UserId, Members, undefined) of
-        Member when is_map(Member) -> Member;
-        _ -> undefined
-    end.
-
--spec thread_role_visible(integer(), guild_state()) -> fun((user_id(), map()) -> boolean()).
-thread_role_visible(ChannelId, State) ->
-    Recipient = guild_thread_gate:recipient_active(ChannelId, State),
-    fun(UserId, Member) ->
-        Recipient(UserId) andalso
-            guild_permissions_check:can_view_channel(UserId, ChannelId, Member, State)
-    end.
-
--spec thread_role_adds(
-    map(), map(), member_source(), fun((user_id(), map()) -> boolean())
-) -> #{user_id() => true}.
-thread_role_adds(#{thread := Thread, members := Members}, Mentions, Source, Visible) ->
-    MentionRoles = maps:get(mention_roles, Mentions),
-    case map_size(MentionRoles) > 0 andalso thread_accepts_role_adds(Thread) of
-        false ->
-            #{};
-        true ->
-            Direct = maps:get(direct_mentions, Mentions),
-            AuthorId = maps:get(author_id, Mentions),
-            Candidates = fold_members(
-                fun(UserId, Member, Acc) ->
-                    case
-                        UserId =/= AuthorId andalso
-                            not maps:is_key(UserId, Members) andalso
-                            not maps:is_key(UserId, Direct) andalso
-                            member_has_mentioned_role(Member, MentionRoles) andalso
-                            not guild_members_common:is_member_bot(Member)
-                    of
-                        true -> [UserId | Acc];
-                        false -> Acc
-                    end
-                end,
-                [],
-                Source
-            ),
-            Room = max(0, ?MAX_THREAD_MEMBERS - map_size(Members)),
-            take_role_adds(
-                lists:sort(Candidates),
-                Source,
-                Visible,
-                min(?MAX_ROLE_MENTION_THREAD_ADDS, Room),
-                #{}
-            )
-    end.
-
--spec thread_accepts_role_adds(map()) -> boolean().
-thread_accepts_role_adds(#{<<"type">> := 12}) -> false;
-thread_accepts_role_adds(#{<<"thread_metadata">> := #{<<"archived">> := true}}) -> false;
-thread_accepts_role_adds(_Thread) -> true.
-
--spec take_role_adds(
-    [user_id()],
-    member_source(),
-    fun((user_id(), map()) -> boolean()),
-    non_neg_integer(),
-    map()
-) -> #{user_id() => true}.
-take_role_adds([], _Source, _Visible, _Left, Acc) ->
-    Acc;
-take_role_adds(_UserIds, _Source, _Visible, 0, Acc) ->
-    Acc;
-take_role_adds([UserId | Rest], Source, Visible, Left, Acc) ->
-    case lookup_member(UserId, Source) of
-        Member when is_map(Member) ->
-            case Visible(UserId, Member) of
-                true -> take_role_adds(Rest, Source, Visible, Left - 1, Acc#{UserId => true});
-                false -> take_role_adds(Rest, Source, Visible, Left, Acc)
-            end;
-        undefined ->
-            take_role_adds(Rest, Source, Visible, Left, Acc)
-    end.
-
--spec message_author_id(event_data()) -> user_id() | undefined.
-message_author_id(MessageData) ->
-    case maps:get(<<"author">>, MessageData, undefined) of
-        #{<<"id">> := Id} -> snowflake_id:parse_optional(Id);
-        _ -> undefined
-    end.
-
--spec member_route(user_id(), map(), map(), guild_state()) ->
-    eligible_user_ids | held_user_ids | skip.
-member_route(UserId, Member, Context, State) ->
     case member_push_route(UserId, Member, Context) of
         skip ->
             skip;
         Key ->
-            ThreadRecipient = maps:get(thread_recipient, Context, fun all_recipients/1),
             visible_member_route(
                 Key,
-                guild_permissions_check:can_view_channel(
+                guild_permissions:can_view_channel(
                     UserId, maps:get(channel_id, Context), Member, State
-                ) andalso ThreadRecipient(UserId)
+                )
             )
     end.
-
--spec all_recipients(user_id()) -> true.
-all_recipients(_UserId) ->
-    true.
 
 -spec member_push_route(user_id(), map(), map()) ->
     eligible_user_ids | held_user_ids | skip.
@@ -947,7 +660,7 @@ collect_and_send_push_notifications(MessageData, GuildId, State) ->
 -spec send_push_notifications(event_data(), guild_id(), guild_state()) -> ok.
 send_push_notifications(MessageData, GuildId, State) ->
     Data = maps:get(data, State),
-    Members = guild_data_index_members:member_map(Data),
+    Members = guild_data_index:member_map(Data),
     Sessions = maps:get(sessions, State, #{}),
     {SessionEligibility, Hold} = build_push_session_eligibility(Sessions, State),
     CandidateUserIds = push_candidate_user_ids(Members, SessionEligibility, MessageData),
@@ -956,7 +669,7 @@ send_push_notifications(MessageData, GuildId, State) ->
         undefined ->
             ok;
         ChannelId ->
-            ok = send_to_eligible(
+            send_to_eligible(
                 MessageData,
                 GuildId,
                 Members,
@@ -965,16 +678,6 @@ send_push_notifications(MessageData, GuildId, State) ->
                 SessionEligibility,
                 Hold,
                 Data,
-                State
-            ),
-            send_forum_thread_created(
-                MessageData,
-                GuildId,
-                ChannelId,
-                {map, Members},
-                fun() -> Data end,
-                SessionEligibility,
-                Hold,
                 State
             )
     end.
@@ -1001,15 +704,11 @@ send_to_eligible(
     Data,
     State
 ) ->
-    ThreadCandidates = thread_candidate_filter(ChannelId, Members, MessageData, State),
     EligibleUserIds = find_eligible_users_for_push(
-        Members, ThreadCandidates(CandidateUserIds), ChannelId, State
+        Members, CandidateUserIds, ChannelId, State
     ),
     HeldUserIds = find_eligible_users_for_push(
-        Members,
-        ThreadCandidates(held_candidate_user_ids(Hold, CandidateUserIds)),
-        ChannelId,
-        State
+        Members, held_candidate_user_ids(Hold, CandidateUserIds), ChannelId, State
     ),
     case {EligibleUserIds, HeldUserIds} of
         {[], []} ->
@@ -1031,39 +730,6 @@ send_to_eligible(
                     maps:get(guild_pid, State, undefined)
                 }
             )
-    end.
-
--spec thread_candidate_filter(integer(), map(), event_data(), guild_state()) ->
-    fun(([user_id()]) -> [user_id()]).
-thread_candidate_filter(ChannelId, Members, MessageData, State) ->
-    case guild_thread_push:scope(ChannelId, State) of
-        undefined ->
-            fun(UserIds) -> UserIds end;
-        Scope ->
-            Mentions0 = #{
-                direct_mentions => direct_mention_id_set(MessageData),
-                mention_roles => mention_role_id_set(
-                    maps:get(<<"mention_roles">>, MessageData, [])
-                ),
-                author_id => message_author_id(MessageData)
-            },
-            Mentions = Mentions0#{
-                role_adds => thread_role_adds(
-                    Scope,
-                    Mentions0,
-                    {map, Members},
-                    thread_role_visible(ChannelId, State)
-                )
-            },
-            fun(UserIds) ->
-                [
-                    UserId
-                 || UserId <- UserIds,
-                    thread_push_candidate(
-                        UserId, maps:get(UserId, Members, #{}), Scope, Mentions
-                    )
-                ]
-            end
     end.
 
 -spec held_candidate_user_ids(grace_hold(), [user_id()]) -> [user_id()].
@@ -1209,11 +875,8 @@ member_roles_include_mentioned([Role | Rest], MentionRoleSet) ->
 
 -spec find_eligible_users_for_push(map(), [user_id()], integer(), guild_state()) -> [user_id()].
 find_eligible_users_for_push(Members, CandidateUserIds, ChannelId, State) ->
-    ThreadRecipient = guild_thread_gate:recipient_active(ChannelId, State),
     lists:filtermap(
-        fun(UserId) ->
-            ThreadRecipient(UserId) andalso is_push_eligible(UserId, Members, ChannelId, State)
-        end,
+        fun(UserId) -> is_push_eligible(UserId, Members, ChannelId, State) end,
         CandidateUserIds
     ).
 
@@ -1230,7 +893,7 @@ is_push_eligible(UserId, Members, ChannelId, State) ->
     user_id(), integer(), map(), guild_state()
 ) -> {true, user_id()} | false.
 view_to_filtermap(UserId, ChannelId, Member, State) ->
-    case guild_permissions_check:can_view_channel(UserId, ChannelId, Member, State) of
+    case guild_permissions:can_view_channel(UserId, ChannelId, Member, State) of
         true -> {true, UserId};
         false -> false
     end.
@@ -1382,12 +1045,10 @@ send_push_to_eligible_users(
             ok;
         AuthorId ->
             ChannelIdBin = maps:get(<<"channel_id">>, MessageData),
-            {PushMessageData, ChannelName} = push_message_data(
-                MessageData, ChannelIdBin, EligibleUserIds ++ element(1, Held), Data
-            ),
+            ChannelName = find_channel_name(ChannelIdBin, Data),
             RoleNames = build_role_names_map(Data),
             Params = push_params(
-                PushMessageData,
+                MessageData,
                 GuildId,
                 UserRolesMap,
                 ConnectedUsers,
@@ -1400,21 +1061,6 @@ send_push_to_eligible_users(
             ok = send_push_now(EligibleUserIds, Params),
             hold_push_through_grace(Held, Params)
     end.
-
--spec push_message_data(event_data(), term(), [user_id()], map()) -> {event_data(), binary()}.
-push_message_data(MessageData, ChannelIdBin, UserIds, Data) ->
-    ChannelId = guild_dispatch_decorate:parse_snowflake(<<"channel_id">>, ChannelIdBin),
-    case thread_push_message_data(MessageData, ChannelId, UserIds, Data) of
-        undefined -> {MessageData, find_channel_name(ChannelIdBin, Data)};
-        ThreadPush -> ThreadPush
-    end.
-
--spec thread_push_message_data(event_data(), integer() | undefined, [user_id()], map()) ->
-    {event_data(), binary()} | undefined.
-thread_push_message_data(_MessageData, undefined, _UserIds, _Data) ->
-    undefined;
-thread_push_message_data(MessageData, ChannelId, UserIds, Data) ->
-    guild_thread_push:push_message_data(MessageData, ChannelId, UserIds, Data).
 
 -spec push_params(
     event_data(),
@@ -1629,7 +1275,7 @@ find_channel_name(ChannelIdBin, Data) ->
 
 -spec lookup_channel_name(integer(), map()) -> binary().
 lookup_channel_name(ChannelId, Data) ->
-    Channels = guild_data_index_channels:channel_index(Data),
+    Channels = guild_data_index:channel_index(Data),
     case maps:get(ChannelId, Channels, undefined) of
         undefined -> <<"unknown">>;
         Channel -> maps:get(<<"name">>, Channel, <<"unknown">>)
@@ -1640,7 +1286,7 @@ build_role_names_map(Data) ->
     maps:fold(
         fun add_role_name/3,
         #{},
-        guild_data_index_roles:role_index(Data)
+        guild_data_index:role_index(Data)
     ).
 
 -spec add_role_name(term(), term(), #{integer() => binary()}) -> #{integer() => binary()}.
@@ -1829,7 +1475,7 @@ released_push_holds_treat_a_dead_guild_as_nothing_released_test() ->
     end,
     ?assertEqual([], released_push_holds(GuildPid, [{1, <<"s1">>}])).
 
-push_states_include_the_guild_pid_for_the_grace_recheck_test() ->
+push_states_carry_the_guild_pid_for_the_grace_recheck_test() ->
     ?assertEqual({self(), self()}, push_state_guild_pids()).
 
 push_states_skip_the_grace_recheck_while_presence_eligibility_is_off_test() ->
@@ -1866,6 +1512,10 @@ grace_recipients_skip_a_user_still_online_on_a_held_session_test() ->
 grace_recipients_push_a_user_whose_live_session_went_offline_test() ->
     Presences = #{1 => #{<<"status">> => <<"offline">>}},
     ?assertEqual([1], grace_recipients([1], [1], Presences, [])).
+
+grace_recipients_skip_a_user_with_one_ended_and_one_live_online_session_test() ->
+    Presences = #{1 => #{<<"status">> => <<"online">>}},
+    ?assertEqual([], grace_recipients([1], [1], Presences, [])).
 
 grace_recipients_mix_users_test() ->
     Presences = #{
@@ -2002,6 +1652,124 @@ push_candidate_user_ids_deduplicates_mentions_test() ->
     CandidateUserIds = push_candidate_user_ids(Members, SessionEligibility, MessageData),
     ?assertEqual([1], CandidateUserIds).
 
+build_user_roles_map_uses_member_map_test() ->
+    Members = #{
+        1 => #{<<"roles">> => [<<"10">>, <<"11">>]},
+        2 => #{<<"roles">> => [<<"20">>]}
+    },
+    Result = build_user_roles_map(Members, [2, 1]),
+    ?assertEqual([10, 11], lists:sort(maps:get(1, Result))),
+    ?assertEqual([20], maps:get(2, Result)).
+
+find_channel_name_found_test() ->
+    Data = #{
+        <<"channels">> => [
+            #{<<"id">> => <<"100">>, <<"name">> => <<"general">>},
+            #{<<"id">> => <<"101">>, <<"name">> => <<"random">>}
+        ]
+    },
+    ?assertEqual(<<"general">>, find_channel_name(<<"100">>, Data)).
+
+find_channel_name_not_found_test() ->
+    Data = #{<<"channels">> => []},
+    ?assertEqual(<<"unknown">>, find_channel_name(<<"100">>, Data)).
+
+find_channel_name_uses_index_test() ->
+    Data = #{
+        <<"channels">> => [
+            #{<<"id">> => <<"100">>, <<"name">> => <<"general">>}
+        ],
+        <<"channel_index">> => #{100 => #{<<"id">> => <<"100">>, <<"name">> => <<"general">>}}
+    },
+    ?assertEqual(<<"general">>, find_channel_name(<<"100">>, Data)).
+
+send_push_to_eligible_users_uses_full_data_for_channel_name_test() ->
+    Self = self(),
+    ok = meck:new(push, [passthrough, no_link]),
+    try
+        ok = meck:expect(push, handle_message_create, fun(Params) ->
+            Self ! {push_params, Params},
+            ok
+        end),
+        MessageData = #{
+            <<"channel_id">> => <<"100">>,
+            <<"author">> => #{<<"id">> => <<"42">>}
+        },
+        Data = #{
+            <<"guild">> => #{
+                <<"name">> => <<"Test Guild">>,
+                <<"default_message_notifications">> => 0
+            },
+            <<"channels">> => [
+                #{<<"id">> => <<"100">>, <<"name">> => <<"general">>}
+            ],
+            <<"channel_index">> => #{
+                100 => #{<<"id">> => <<"100">>, <<"name">> => <<"general">>}
+            },
+            <<"roles">> => [
+                #{<<"id">> => <<"200">>, <<"name">> => <<"Alerts">>}
+            ],
+            <<"role_index">> => #{
+                200 => #{<<"id">> => <<"200">>, <<"name">> => <<"Alerts">>}
+            }
+        },
+        ?assertEqual(
+            ok,
+            send_push_to_eligible_users(
+                MessageData, 10, [1], #{1 => []}, #{}, Data, undefined, {[], none, undefined}
+            )
+        ),
+        receive
+            {push_params, Params} ->
+                ?assertEqual(<<"general">>, maps:get(channel_name, Params)),
+                ?assertEqual(<<"Test Guild">>, maps:get(guild_name, Params)),
+                ?assertEqual(#{200 => <<"Alerts">>}, maps:get(role_names, Params)),
+                ?assertEqual(undefined, maps:get(guild_member_count, Params)),
+                ?assertEqual(undefined, maps:get(guild_features, Params))
+        after 1000 ->
+            ?assert(false)
+        end,
+        ?assert(meck:validate(push))
+    after
+        meck:unload(push)
+    end.
+
+find_channel_name_invalid_id_test() ->
+    Data = #{<<"channels">> => []},
+    ?assertEqual(<<"unknown">>, find_channel_name(<<"invalid">>, Data)).
+
+build_role_names_map_uses_role_index_test() ->
+    Data = #{
+        <<"roles">> => [
+            #{<<"id">> => <<"100">>, <<"name">> => <<"Fallback">>}
+        ],
+        <<"role_index">> => #{
+            100 => #{<<"id">> => <<"100">>, <<"name">> => <<"Mods">>},
+            200 => #{<<"id">> => <<"200">>, <<"name">> => <<>>},
+            bad => #{<<"id">> => <<"300">>, <<"name">> => <<"Bad">>}
+        }
+    },
+    ?assertEqual(#{100 => <<"Mods">>}, build_role_names_map(Data)).
+
+extract_role_ids_test() ->
+    Member = #{<<"roles">> => [<<"10">>, <<"20">>, <<"invalid">>]},
+    Result = lists:sort(extract_role_ids(Member)),
+    ?assertEqual([10, 20], Result).
+
+extract_role_ids_empty_test() ->
+    Member = #{<<"roles">> => []},
+    ?assertEqual([], extract_role_ids(Member)).
+
+extract_role_ids_missing_key_test() ->
+    Member = #{},
+    ?assertEqual([], extract_role_ids(Member)).
+
+meta_accessors_default_to_undefined_test() ->
+    ?assertEqual(undefined, meta_member_count(undefined)),
+    ?assertEqual(undefined, meta_features(undefined)),
+    ?assertEqual(5, meta_member_count(#{member_count => 5, features => []})),
+    ?assertEqual([], meta_features(#{member_count => 5, features => []})).
+
 compact_push_state_drops_members_and_keeps_member_count_test() ->
     Tab = ets:new(test_members, [set, public]),
     try
@@ -2030,7 +1798,7 @@ compact_push_state_drops_members_and_keeps_member_count_test() ->
         ets:delete(Tab)
     end.
 
-legacy_push_state_includes_member_count_test() ->
+legacy_push_state_carries_member_count_test() ->
     UpdatedState = #{id => 7, data => #{}, sessions => #{}, member_count => 1234},
     Legacy = legacy_push_state(7, UpdatedState),
     ?assertEqual(1234, maps:get(member_count, Legacy)),
@@ -2083,6 +1851,13 @@ collect_format_mention_ids_is_bounded_test() ->
     Result = collect_format_mention_ids(Mentions, ?MAX_FORMAT_MEMBERS, #{}),
     ?assertEqual(?MAX_FORMAT_MEMBERS, map_size(Result)).
 
+format_member_id_set_includes_author_test() ->
+    MessageData = #{
+        <<"author">> => #{<<"id">> => <<"99">>},
+        <<"mentions">> => [#{<<"id">> => <<"1">>}, #{<<"id">> => <<"1">>}]
+    },
+    ?assertEqual(#{1 => true, 99 => true}, format_member_id_set(MessageData)).
+
 spawn_push_without_members_table_falls_back_to_legacy_push_test() ->
     reset_push_worker_state(),
     try
@@ -2094,7 +1869,7 @@ spawn_push_without_members_table_falls_back_to_legacy_push_test() ->
         reset_push_worker_state()
     end.
 
-compact_push_includes_large_guild_metadata_test() ->
+compact_push_carries_large_guild_metadata_test() ->
     Self = self(),
     Tab = ets:new(test_members, [set, public]),
     ok = meck:new(push, [passthrough, no_link]),
@@ -2128,119 +1903,6 @@ compact_push_includes_large_guild_metadata_test() ->
         meck:unload(push),
         ets:delete(Tab)
     end.
-
-thread_scope_context() ->
-    #{
-        thread_scope => #{thread => #{<<"id">> => 500}, members => #{1 => #{}}},
-        direct_mentions => #{2 => true},
-        mention_roles => #{},
-        role_adds => #{},
-        author_id => 99,
-        format_members => #{4 => true}
-    }.
-
-thread_scan_visits_members_mentions_and_format_ids_only_test() ->
-    Tab = ets:new(test_members, [set, public]),
-    try
-        true = ets:insert(Tab, [{Id, #{}} || Id <- [1, 2, 3, 4, 5]]),
-        Context = thread_scope_context(),
-        ?assertEqual([1, 2, 4], scan_user_ids(Tab, Context)),
-        ?assertEqual([1, 2, 3, 4], scan_user_ids(Tab, Context#{role_adds => #{3 => true}})),
-        ?assertEqual(
-            [1, 2, 3, 4, 5], lists:sort(scan_user_ids(Tab, Context#{thread_scope => undefined}))
-        )
-    after
-        ets:delete(Tab)
-    end.
-
-thread_push_candidates_are_members_and_mentioned_users_test() ->
-    Context = thread_scope_context(),
-    Scope = maps:get(thread_scope, Context),
-    RoleMember = #{<<"roles">> => [<<"9">>]},
-    ?assert(thread_push_candidate(1, #{}, Scope, Context)),
-    ?assert(thread_push_candidate(2, #{}, Scope, Context)),
-    ?assertNot(thread_push_candidate(3, #{}, Scope, Context)),
-    ?assertNot(thread_push_candidate(3, RoleMember, Scope, Context)),
-    ?assertNot(
-        thread_push_candidate(3, RoleMember, Scope, Context#{mention_roles => #{9 => true}})
-    ),
-    ?assert(thread_push_candidate(3, RoleMember, Scope, Context#{role_adds => #{3 => true}})),
-    ?assert(thread_push_candidate(3, #{}, undefined, Context)).
-
-thread_role_adds_cap_at_first_visible_role_holders_test() ->
-    Scope = #{thread => #{<<"id">> => 500, <<"type">> => 11}, members => #{1 => #{}}},
-    Context = (thread_scope_context())#{mention_roles => #{9 => true}},
-    RoleMember = #{<<"roles">> => [<<"9">>]},
-    Bot = RoleMember#{<<"user">> => #{<<"bot">> => true}},
-    Extra = [{Id, RoleMember} || Id <- lists:seq(1000, 1000 + ?MAX_ROLE_MENTION_THREAD_ADDS)],
-    Rows = maps:from_list(
-        lists:reverse(Extra) ++
-            [
-                {1, RoleMember},
-                {2, RoleMember},
-                {5, RoleMember},
-                {6, #{}},
-                {7, Bot},
-                {8, RoleMember},
-                {99, RoleMember}
-            ]
-    ),
-    Visible = fun(UserId, _Member) -> UserId =/= 8 end,
-    Adds = thread_role_adds(Scope, Context, {map, Rows}, Visible),
-    ?assertEqual(?MAX_ROLE_MENTION_THREAD_ADDS, map_size(Adds)),
-    ?assert(maps:is_key(5, Adds)),
-    ?assert(maps:is_key(1000, Adds)),
-    ?assertNot(maps:is_key(1000 + ?MAX_ROLE_MENTION_THREAD_ADDS - 1, Adds)),
-    ?assertNot(maps:is_key(1000 + ?MAX_ROLE_MENTION_THREAD_ADDS, Adds)),
-    [
-        ?assertNot(maps:is_key(Id, Adds))
-     || Id <- [1, 2, 6, 7, 8, 99]
-    ],
-    ?assertNot(
-        thread_push_candidate(1000 + ?MAX_ROLE_MENTION_THREAD_ADDS, RoleMember, Scope, Context#{
-            role_adds => Adds
-        })
-    ),
-    ?assert(thread_push_candidate(5, RoleMember, Scope, Context#{role_adds => Adds})).
-
-thread_role_adds_cap_at_thread_member_room_test() ->
-    Existing = maps:from_list([{Id, #{}} || Id <- lists:seq(1, ?MAX_THREAD_MEMBERS - 5)]),
-    Scope = #{thread => #{<<"id">> => 500, <<"type">> => 11}, members => Existing},
-    Context = (thread_scope_context())#{mention_roles => #{9 => true}},
-    RoleMember = #{<<"roles">> => [<<"9">>]},
-    Rows = maps:from_list([{Id, RoleMember} || Id <- lists:seq(5000, 5099)]),
-    Visible = fun(_UserId, _Member) -> true end,
-    Adds = thread_role_adds(Scope, Context, {map, Rows}, Visible),
-    ?assertEqual(lists:seq(5000, 5004), lists:sort(maps:keys(Adds))),
-    Full = maps:from_list([{Id, #{}} || Id <- lists:seq(1, ?MAX_THREAD_MEMBERS)]),
-    ?assertEqual(
-        #{}, thread_role_adds(Scope#{members => Full}, Context, {map, Rows}, Visible)
-    ).
-
-thread_role_adds_skip_private_and_archived_threads_test() ->
-    Context = (thread_scope_context())#{mention_roles => #{9 => true}},
-    Rows = {map, #{5 => #{<<"roles">> => [<<"9">>]}}},
-    Visible = fun(_UserId, _Member) -> true end,
-    Scope = fun(Thread) -> #{thread => Thread, members => #{}} end,
-    ?assertEqual(
-        #{5 => true}, thread_role_adds(Scope(#{<<"type">> => 11}), Context, Rows, Visible)
-    ),
-    ?assertEqual(#{}, thread_role_adds(Scope(#{<<"type">> => 12}), Context, Rows, Visible)),
-    ?assertEqual(
-        #{},
-        thread_role_adds(
-            Scope(#{<<"type">> => 11, <<"thread_metadata">> => #{<<"archived">> => true}}),
-            Context,
-            Rows,
-            Visible
-        )
-    ),
-    ?assertEqual(
-        #{},
-        thread_role_adds(
-            Scope(#{<<"type">> => 11}), Context#{mention_roles => #{}}, Rows, Visible
-        )
-    ).
 
 compact_format_data_restricts_member_map_test() ->
     Data = #{
@@ -2323,6 +1985,117 @@ stale_push_worker_slot_is_reclaimed_and_counted_test() ->
         ?assertNot(lists:member(Stale, worker_pids(get(push_inflight_workers))))
     after
         stop_push_worker(Stale),
+        reset_push_worker_state()
+    end.
+
+push_drop_is_readable_from_named_ets_table_test() ->
+    reset_push_worker_state(),
+    ok = application:set_env(fluxer_gateway, ?CONCURRENCY_LIMIT_KEY, 1),
+    ok = application:set_env(fluxer_gateway, ?QUEUE_LIMIT_KEY, 0),
+    Blocker = blocking_push_worker(),
+    put(push_inflight_workers, [{1, Blocker, erlang:monotonic_time(millisecond)}]),
+    Before = read_push_counter(dropped_at_limit),
+    try
+        ?assertEqual(ok, maybe_spawn_push(#{}, 7, legacy_test_state())),
+        ?assertEqual(Before + 1, read_push_counter(dropped_at_limit)),
+        ?assertMatch([{dropped_at_limit, _}], ets:lookup(?PUSH_COUNTERS, dropped_at_limit)),
+        ?assertEqual(
+            lists:sort(?PUSH_COUNTER_KEYS),
+            lists:sort([Key || {Key, _} <- ets:tab2list(?PUSH_COUNTERS)])
+        )
+    after
+        stop_push_worker(Blocker),
+        reset_push_worker_state()
+    end.
+
+started_push_worker_is_counted_test() ->
+    reset_push_worker_state(),
+    Before = read_push_counter(worker_started),
+    try
+        ?assertEqual(ok, maybe_spawn_push(#{}, 7, legacy_test_state())),
+        ?assertEqual(Before + 1, read_push_counter(worker_started)),
+        ?assert(is_pid(get(push_inflight))),
+        ?assertEqual(1, length(get(push_inflight_workers)))
+    after
+        reset_push_worker_state()
+    end.
+
+worker_completion_is_counted_test() ->
+    reset_push_worker_state(),
+    Before = read_push_counter(worker_completed),
+    BeforeFailed = read_push_counter(worker_failed),
+    try
+        ?assertEqual(ok, run_counted_push_worker(fun() -> ok end)),
+        ?assertEqual(Before + 1, read_push_counter(worker_completed)),
+        ?assertEqual(BeforeFailed, read_push_counter(worker_failed))
+    after
+        reset_push_worker_state()
+    end.
+
+worker_crash_is_counted_as_failure_not_completion_test() ->
+    reset_push_worker_state(),
+    Before = read_push_counter(worker_failed),
+    BeforeCompleted = read_push_counter(worker_completed),
+    try
+        ?assertEqual(ok, run_counted_push_worker(fun() -> error(boom) end)),
+        ?assertEqual(Before + 1, read_push_counter(worker_failed)),
+        ?assertEqual(BeforeCompleted, read_push_counter(worker_completed))
+    after
+        reset_push_worker_state()
+    end.
+
+spawned_worker_reports_started_and_completed_test() ->
+    reset_push_worker_state(),
+    Self = self(),
+    Started = read_push_counter(worker_started),
+    Completed = read_push_counter(worker_completed),
+    try
+        ?assertEqual(
+            ok,
+            spawn_push_worker(
+                fun() ->
+                    Self ! {ran, self()},
+                    ok
+                end,
+                7,
+                undefined
+            )
+        ),
+        Pid = get(push_inflight),
+        receive
+            {ran, Pid} -> ok
+        after 1000 -> ?assert(false)
+        end,
+        wait_for_counter(worker_completed, Completed + 1),
+        ?assertEqual(Started + 1, read_push_counter(worker_started)),
+        ?assertEqual(Completed + 1, read_push_counter(worker_completed)),
+        Messages = element(2, process_info(self(), messages)),
+        ?assertEqual([], [M || {'DOWN', _, process, P, _} = M <- Messages, P =:= Pid])
+    after
+        reset_push_worker_state()
+    end.
+
+missing_members_table_is_counted_test() ->
+    reset_push_worker_state(),
+    Before = read_push_counter(members_table_missing),
+    try
+        ?assertEqual(ok, maybe_spawn_push(#{}, 7, legacy_test_state())),
+        ?assertEqual(Before + 1, read_push_counter(members_table_missing))
+    after
+        reset_push_worker_state()
+    end.
+
+scan_table_unavailable_is_counted_test() ->
+    reset_push_worker_state(),
+    Tab = ets:new(test_members, [set, public]),
+    State = compact_scan_state(Tab),
+    true = ets:delete(Tab),
+    Before = read_push_counter(scan_table_unavailable),
+    try
+        MessageData = #{<<"channel_id">> => <<"10">>},
+        ?assertEqual(ok, send_compact_push_notifications(MessageData, 7, State)),
+        ?assertEqual(Before + 1, read_push_counter(scan_table_unavailable))
+    after
         reset_push_worker_state()
     end.
 
@@ -2441,6 +2214,20 @@ legacy_test_state() ->
 worker_pids(Workers) ->
     [Pid || {_Gen, Pid, _StartedMs} <- Workers].
 
+wait_for_counter(Key, Target) ->
+    wait_for_counter(Key, Target, 200).
+
+wait_for_counter(Key, Target, 0) ->
+    ?assertEqual(Target, read_push_counter(Key));
+wait_for_counter(Key, Target, Retries) ->
+    case read_push_counter(Key) >= Target of
+        true ->
+            ok;
+        false ->
+            timer:sleep(5),
+            wait_for_counter(Key, Target, Retries - 1)
+    end.
+
 remote_test_pid() ->
     binary_to_term(<<131, 88, 119, 12, "fake@nowhere", 1:32, 0:32, 1:32>>).
 
@@ -2471,168 +2258,6 @@ reset_push_worker_state() ->
     erase(push_inflight),
     erase(push_inflight_workers),
     ok = application:unset_env(fluxer_gateway, ?CONCURRENCY_LIMIT_KEY).
-
-forum_thread_created_state(Tab, Store) ->
-    Forum = #{<<"id">> => <<"300">>, <<"name">> => <<"ideas">>, <<"type">> => 15},
-    Base = compact_test_data(Tab),
-    #{
-        id => 7,
-        data => compact_push_data(Base#{
-            <<"channels">> => [Forum],
-            <<"channel_index">> => #{300 => Forum},
-            thread_gate => #{active => true, version => 1},
-            thread_store => Store
-        }),
-        virtual_channel_access => maps:from_list([
-            {UserId, sets:from_list([300])}
-         || UserId <- [1, 2, 3, 4, 6, 42]
-        ]),
-        members_ets => Tab,
-        session_eligibility => #{3 => false},
-        member_count => 10
-    }.
-
-collect_push_params(Acc) ->
-    receive
-        {push_params, Params} -> collect_push_params([Params | Acc])
-    after 100 -> lists:reverse(Acc)
-    end.
-
-forum_thread_created_pushes_forum_watchers_outside_the_thread_test() ->
-    Self = self(),
-    Tab = ets:new(test_members, [set, public]),
-    Store = guild_thread_store:new(),
-    Previous = persistent_term:get(channel_threads_config, undefined),
-    {ok, Config} = channel_threads_config:validate_config(#{
-        <<"enabled">> => true, <<"user_basis_points">> => 10000
-    }),
-    persistent_term:put(channel_threads_config, Config),
-    ok = meck:new(push, [passthrough, no_link]),
-    try
-        ok = meck:expect(push, handle_message_create, fun(Params) ->
-            Self ! {push_params, Params},
-            ok
-        end),
-        Bot = #{<<"roles">> => [], <<"user">> => #{<<"bot">> => true}},
-        true = ets:insert(
-            Tab, [{Id, #{<<"roles">> => []}} || Id <- [1, 2, 3, 4, 5, 42]] ++ [{6, Bot}]
-        ),
-        guild_thread_store:load(
-            Store,
-            [
-                #{
-                    <<"id">> => 700,
-                    <<"parent_id">> => 300,
-                    <<"type">> => 11,
-                    <<"name">> => <<"post">>
-                }
-            ],
-            [#{<<"id">> => <<"700">>, <<"user_id">> => <<"1">>, <<"flags">> => 0}]
-        ),
-        State = forum_thread_created_state(Tab, Store),
-        Starter = #{
-            <<"id">> => <<"700">>,
-            <<"channel_id">> => <<"700">>,
-            <<"author">> => #{<<"id">> => <<"42">>},
-            <<"mentions">> => [#{<<"id">> => <<"4">>}]
-        },
-        ok = scan_and_send_compact_push(Starter, 7, 700, State),
-        Forum = [
-            Params
-         || #{message_data := #{<<"__thread_push">> := #{<<"forum_thread_created">> := true}}} =
-                Params <- collect_push_params([])
-        ],
-        ?assertMatch([#{user_ids := [2], channel_name := <<"post">>}], Forum),
-        [#{message_data := ForumMessage}] = Forum,
-        ?assertNot(maps:is_key(<<"__forum_thread_created">>, ForumMessage)),
-        ?assertMatch(
-            #{<<"parent_id">> := 300, <<"parent_name">> := <<"ideas">>},
-            maps:get(<<"__thread_push">>, ForumMessage)
-        ),
-        Reply = Starter#{<<"id">> => <<"701">>},
-        ok = scan_and_send_compact_push(Reply, 7, 700, State),
-        ?assertEqual(
-            [],
-            [
-                P
-             || #{
-                    message_data := #{
-                        <<"__thread_push">> := #{<<"forum_thread_created">> := true}
-                    }
-                } =
-                    P <- collect_push_params([])
-            ]
-        )
-    after
-        meck:unload(push),
-        restore_threads_config(Previous),
-        guild_thread_store:destroy(Store),
-        ets:delete(Tab)
-    end.
-
-forum_thread_created_holds_suppressed_members_through_grace_test() ->
-    Self = self(),
-    Tab = ets:new(test_members, [set, public]),
-    Store = guild_thread_store:new(),
-    Previous = persistent_term:get(channel_threads_config, undefined),
-    {ok, Config} = channel_threads_config:validate_config(#{
-        <<"enabled">> => true, <<"user_basis_points">> => 10000
-    }),
-    persistent_term:put(channel_threads_config, Config),
-    ok = meck:new(push, [passthrough, no_link]),
-    try
-        ok = meck:expect(push, handle_message_create, fun(Params) ->
-            Self ! {push_params, Params},
-            ok
-        end),
-        true = ets:insert(Tab, [{Id, #{<<"roles">> => []}} || Id <- [2, 3, 4, 42]]),
-        guild_thread_store:load(
-            Store,
-            [
-                #{
-                    <<"id">> => 700,
-                    <<"parent_id">> => 300,
-                    <<"type">> => 11,
-                    <<"name">> => <<"post">>
-                }
-            ],
-            []
-        ),
-        {Ended, EndedRef} = spawn_monitor(fun() -> ok end),
-        receive
-            {'DOWN', EndedRef, process, Ended, _} -> ok
-        end,
-        Base = forum_thread_created_state(Tab, Store),
-        State = Base#{
-            session_eligibility => #{3 => false, 4 => false},
-            grace_hold => {#{3 => [{<<"s3">>, Ended}]}, erlang:monotonic_time(millisecond) + 20}
-        },
-        Starter = #{
-            <<"id">> => <<"700">>,
-            <<"channel_id">> => <<"700">>,
-            <<"author">> => #{<<"id">> => <<"42">>}
-        },
-        ok = scan_and_send_compact_push(Starter, 7, 700, State),
-        Forum = [
-            UserIds
-         || #{
-                user_ids := UserIds,
-                message_data := #{<<"__thread_push">> := #{<<"forum_thread_created">> := true}}
-            } <- collect_push_params([])
-        ],
-        ?assertEqual([[2], [3]], Forum)
-    after
-        meck:unload(push),
-        restore_threads_config(Previous),
-        guild_thread_store:destroy(Store),
-        ets:delete(Tab)
-    end.
-
-restore_threads_config(undefined) ->
-    _ = persistent_term:erase(channel_threads_config),
-    ok;
-restore_threads_config(Previous) ->
-    persistent_term:put(channel_threads_config, Previous).
 
 compact_test_data(Tab) ->
     #{

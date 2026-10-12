@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {ApiContext} from '@app/api/ApiContext';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {IChannelRepository} from '@app/api/channel/IChannelRepository';
 import type {ChannelService} from '@app/api/channel/services/ChannelService';
-import type {ConnectionRepository} from '@app/api/connection/ConnectionRepository';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IConnectionRepository} from '@app/api/connection/IConnectionRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
-import type {DiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
+import type {IDiscriminatorService} from '@app/api/infrastructure/DiscriminatorService';
 import type {EntityAssetService} from '@app/api/infrastructure/EntityAssetService';
 import type {KVAccountDeletionQueueService} from '@app/api/infrastructure/KVAccountDeletionQueueService';
 import type {KVBulkMessageDeletionQueueService} from '@app/api/infrastructure/KVBulkMessageDeletionQueueService';
@@ -29,16 +29,16 @@ export class UserService {
 		apiContext: ApiContext,
 		userCacheService: UserCacheService,
 		channelService: ChannelService,
-		channelRepository: ChannelRepository,
+		channelRepository: IChannelRepository,
 		guildService: GuildService,
 		entityAssetService: EntityAssetService,
-		discriminatorService: DiscriminatorService,
-		guildRepository: GuildRepository,
+		discriminatorService: IDiscriminatorService,
+		guildRepository: IGuildRepositoryAggregate,
 		userPermissionUtils: UserPermissionUtils,
 		kvDeletionQueue: KVAccountDeletionQueueService,
 		bulkMessageDeletionQueue: KVBulkMessageDeletionQueueService,
 		contactChangeLogService: UserContactChangeLogService,
-		connectionRepository: ConnectionRepository,
+		connectionRepository: IConnectionRepository,
 		limitConfigService: LimitConfigService,
 	) {
 		this.accountService = new UserAccountService(
@@ -63,6 +63,7 @@ export class UserService {
 		);
 		this.contentService = new UserContentService(
 			apiContext,
+			userCacheService,
 			channelService,
 			channelRepository,
 			bulkMessageDeletionQueue,

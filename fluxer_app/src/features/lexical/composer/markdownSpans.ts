@@ -53,12 +53,12 @@ export const DEFAULT_COMPOSER_MARKDOWN_FLAGS =
 	ParserFlags.ALLOW_TABLES |
 	ParserFlags.ALLOW_ALERTS;
 
-interface MarkdownRecoveredRange {
+export interface MarkdownRecoveredRange {
 	start: number;
 	end: number;
 }
 
-interface MarkdownHighlightResult {
+export interface MarkdownHighlightResult {
 	spans: Array<MarkdownSpan>;
 	recovered: Array<MarkdownRecoveredRange>;
 }
@@ -84,7 +84,7 @@ export function computeMarkdownHighlightSpans(
 	return computeMarkdownHighlightResult(source, parserFlags).spans;
 }
 
-function computeMarkdownHighlightResult(
+export function computeMarkdownHighlightResult(
 	source: string,
 	parserFlags = DEFAULT_COMPOSER_MARKDOWN_FLAGS,
 ): MarkdownHighlightResult {
@@ -1124,11 +1124,11 @@ function isUnpairedSurrogateAt(text: string, index: number): boolean {
 	return false;
 }
 
-function foldUnpairedSurrogates(text: string): string {
+export function foldUnpairedSurrogates(text: string): string {
 	return text.replace(UNPAIRED_SURROGATE_RE, REPLACEMENT_CHARACTER);
 }
 
-function equalsParserText(sourceText: string, parserText: string): boolean {
+export function equalsParserText(sourceText: string, parserText: string): boolean {
 	return sourceText === parserText || foldUnpairedSurrogates(sourceText) === parserText;
 }
 

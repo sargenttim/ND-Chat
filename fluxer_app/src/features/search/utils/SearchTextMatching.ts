@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {escapeRegex} from '@app/features/messaging/utils/RegexUtils';
-
+const SEARCH_PATTERN_SPECIAL_CHARACTERS = /[-[\]/{}()*+?.\\^$|]/g;
 const COMBINING_MARKS = /[\u{300}-\u{36f}]/gu;
 const QUERY_WORD_SEPARATORS = /[, ]+/;
 
@@ -14,6 +13,10 @@ interface SearchTerm {
 
 let loadedUnicodeConfusables: ReadonlyMap<string, string> | null = null;
 let pendingUnicodeConfusables: Promise<ReadonlyMap<string, string>> | null = null;
+
+export function escapeSearchPattern(text: string): string {
+	return text.replace(SEARCH_PATTERN_SPECIAL_CHARACTERS, '\\$&');
+}
 
 export function stripCombiningMarks(text: string): string {
 	return text.normalize('NFD').replace(COMBINING_MARKS, '').normalize('NFC');
@@ -42,7 +45,7 @@ export function scoreSearchTerm(value: string, term: SearchTerm, fuzzy = true): 
 	if (term.prefixPattern.test(value)) return value.toLocaleLowerCase() === term.loweredText ? 10 : 7;
 	if (term.substringPattern.test(value)) return 5;
 	const words = term.loweredText.split(QUERY_WORD_SEPARATORS);
-	if (words.every((word) => new RegExp(escapeRegex(word), 'i').test(value))) return 3;
+	if (words.every((word) => new RegExp(escapeSearchPattern(word), 'i').test(value))) return 3;
 	if (fuzzy && fuzzySearch(term.loweredText, value)) return 1;
 	return 0;
 }
@@ -75,7 +78,7 @@ function buildSearchTerm(loweredText: string, pattern: string, spansWholeQuery: 
 }
 
 export function createSearchTerm(loweredText: string): SearchTerm {
-	return buildSearchTerm(loweredText, escapeRegex(loweredText), false);
+	return buildSearchTerm(loweredText, escapeSearchPattern(loweredText), false);
 }
 
 export function buildChannelSearchTerms(query: string): ReadonlyArray<SearchTerm> {
@@ -85,7 +88,7 @@ export function buildChannelSearchTerms(query: string): ReadonlyArray<SearchTerm
 		.map((token) => createSearchTerm(token.toLocaleLowerCase()));
 	if (query.includes(' ')) {
 		const loweredText = query.toLocaleLowerCase();
-		terms.unshift(buildSearchTerm(loweredText, escapeRegex(loweredText).replace(' ', '( |-)'), true));
+		terms.unshift(buildSearchTerm(loweredText, escapeSearchPattern(loweredText).replace(' ', '( |-)'), true));
 	}
 	return terms;
 }

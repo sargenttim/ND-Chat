@@ -43,6 +43,15 @@ class Dimension {
 		});
 	}
 
+	scrollProgressRatio(channelId: string): number {
+		const dimensions = this.channelDimensions.get(channelId);
+		if (dimensions != null) {
+			const {scrollTop, scrollHeight} = dimensions;
+			return scrollTop / scrollHeight;
+		}
+		return 1;
+	}
+
 	channelDimensionsFor(channelId: string): ChannelDimensions | undefined {
 		return this.channelDimensions.get(channelId);
 	}
@@ -122,6 +131,14 @@ class Dimension {
 
 	forgetChannelDimensions(channelId: string): void {
 		this.channelDimensions.delete(channelId);
+	}
+
+	scrollGuildListTo(guildId: string, scrollTo: number): void {
+		this.updateGuildDimensions(guildId, undefined, scrollTo);
+	}
+
+	clearGuildListScrollTo(guildId: string): void {
+		this.updateGuildDimensions(guildId, undefined, null);
 	}
 
 	handleCallCreate(channelId: string): void {

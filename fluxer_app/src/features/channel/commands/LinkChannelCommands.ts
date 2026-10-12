@@ -5,7 +5,6 @@ import GuildMatureContentAgree from '@app/features/guild/state/GuildMatureConten
 import * as InviteCommands from '@app/features/invite/commands/InviteCommands';
 import * as InviteUtils from '@app/features/invite/utils/InviteUtils';
 import {openExternalUrlWithWarning} from '@app/features/messaging/utils/ExternalLinkUtils';
-import {currentInstanceTarget} from '@app/features/platform/transport/InstanceHTTP';
 import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
 
 interface OpenLinkChannelOptions {
@@ -16,7 +15,7 @@ function openLinkChannelDestination(channel: Channel): void {
 	if (!channel.url) return;
 	const inviteCode = InviteUtils.findInvite(channel.url);
 	if (inviteCode) {
-		void InviteCommands.openAcceptModal(inviteCode, currentInstanceTarget());
+		void InviteCommands.openAcceptModal(inviteCode);
 		return;
 	}
 	openExternalUrlWithWarning(channel.url);

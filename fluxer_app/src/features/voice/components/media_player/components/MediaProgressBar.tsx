@@ -18,9 +18,9 @@ import {clsx} from 'clsx';
 import type React from 'react';
 import {useCallback, useEffect, useLayoutEffect, useRef, useState} from 'react';
 
-const PLAYHEAD_CSS_PROPERTY = '--media-progress-value';
+export const PLAYHEAD_CSS_PROPERTY = '--media-progress-value';
 
-interface MediaElementRef {
+export interface MediaElementRef {
 	readonly current: HTMLMediaElement | null;
 }
 

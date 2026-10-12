@@ -92,7 +92,7 @@ function diffModes(previous: ScreenSharePiPMode, next: ScreenSharePiPMode): Arra
 	return [];
 }
 
-const screenSharePiPStateMachine = setup({
+export const screenSharePiPStateMachine = setup({
 	types: {} as {
 		context: ScreenSharePiPContext;
 		events: ScreenSharePiPEvent;

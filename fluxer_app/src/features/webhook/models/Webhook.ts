@@ -3,13 +3,8 @@
 import {webhookUrl} from '@app/features/messaging/utils/MessagingUrlUtils';
 import type {User} from '@app/features/user/models/User';
 import Users from '@app/features/user/state/Users';
-import {WebhookTypes} from '@fluxer/constants/src/ChannelConstants';
 import type {UserPartial} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
-import type {
-	WebhookSourceChannel,
-	WebhookSourceGuild,
-	Webhook as WireWebhook,
-} from '@fluxer/schema/src/domains/webhook/WebhookSchemas';
+import type {Webhook as WireWebhook} from '@fluxer/schema/src/domains/webhook/WebhookSchemas';
 import * as SnowflakeUtils from '@fluxer/snowflake/src/SnowflakeUtils';
 
 export class Webhook {
@@ -18,10 +13,7 @@ export class Webhook {
 	readonly channelId: string;
 	readonly name: string;
 	readonly avatar: string | null;
-	readonly type: number;
-	readonly token: string | null;
-	readonly sourceGuild: WebhookSourceGuild | null;
-	readonly sourceChannel: WebhookSourceChannel | null;
+	readonly token: string;
 	readonly creatorId: string;
 	readonly createdAt: Date;
 	private readonly creatorSnapshot: UserPartial;
@@ -32,24 +24,14 @@ export class Webhook {
 		this.channelId = webhook.channel_id;
 		this.name = webhook.name;
 		this.avatar = webhook.avatar ?? null;
-		this.type = webhook.type ?? WebhookTypes.INCOMING;
-		this.token = webhook.token ?? null;
-		this.sourceGuild = webhook.source_guild ?? null;
-		this.sourceChannel = webhook.source_channel ?? null;
+		this.token = webhook.token;
 		this.creatorId = webhook.user.id;
 		this.createdAt = new Date(SnowflakeUtils.extractTimestamp(webhook.id));
 		this.creatorSnapshot = webhook.user;
 		Users.cacheUsers([webhook.user]);
 	}
 
-	get isChannelFollower(): boolean {
-		return this.type === WebhookTypes.CHANNEL_FOLLOWER;
-	}
-
-	get webhookUrl(): string | null {
-		if (this.token == null) {
-			return null;
-		}
+	get webhookUrl(): string {
 		return webhookUrl(this.id, this.token);
 	}
 
@@ -61,23 +43,28 @@ export class Webhook {
 		return this.name;
 	}
 
-	toJSON(): WireWebhook {
-		const creator = this.creator;
-		return this.toWire(creator ? creator.toJSON() : this.creatorSnapshot);
+	withUpdates(updates: Partial<WireWebhook>): Webhook {
+		return new Webhook({
+			id: updates.id ?? this.id,
+			guild_id: updates.guild_id ?? this.guildId,
+			channel_id: updates.channel_id ?? this.channelId,
+			user: updates.user ?? this.creatorSnapshot,
+			name: updates.name ?? this.name,
+			avatar: updates.avatar ?? this.avatar,
+			token: updates.token ?? this.token,
+		});
 	}
 
-	private toWire(user: UserPartial): WireWebhook {
+	toJSON(): WireWebhook {
+		const creator = this.creator;
 		return {
 			id: this.id,
 			guild_id: this.guildId,
 			channel_id: this.channelId,
-			user,
+			user: creator ? creator.toJSON() : this.creatorSnapshot,
 			name: this.name,
 			avatar: this.avatar,
-			type: this.type,
-			...(this.token != null ? {token: this.token} : {}),
-			...(this.sourceGuild ? {source_guild: this.sourceGuild} : {}),
-			...(this.sourceChannel ? {source_channel: this.sourceChannel} : {}),
+			token: this.token,
 		};
 	}
 }

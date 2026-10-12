@@ -3,7 +3,6 @@
 import type {Channel} from '@app/features/channel/models/Channel';
 import * as ChannelUtils from '@app/features/channel/utils/ChannelUtils';
 import {
-	ANNOUNCEMENT_CHANNEL_DESCRIPTOR,
 	PERSONAL_NOTES_DESCRIPTOR,
 	TEXT_CHANNEL_DESCRIPTOR,
 	VOICE_CHANNEL_DESCRIPTOR,
@@ -69,9 +68,6 @@ export const useChannelHeaderData = (channel?: Channel): ChannelHeaderData => {
 		}
 		if (channel.type === ChannelTypes.GUILD_TEXT) {
 			return i18n._(TEXT_CHANNEL_DESCRIPTOR);
-		}
-		if (channel.type === ChannelTypes.GUILD_ANNOUNCEMENT) {
-			return i18n._(ANNOUNCEMENT_CHANNEL_DESCRIPTOR);
 		}
 		if (channel.type === ChannelTypes.GUILD_VOICE) {
 			return i18n._(VOICE_CHANNEL_DESCRIPTOR);

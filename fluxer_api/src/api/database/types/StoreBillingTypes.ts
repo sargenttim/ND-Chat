@@ -9,6 +9,8 @@ import type {
 	StoreSlot,
 } from '@app/api/store_billing/StoreBillingTypes';
 
+type Nullish<T> = T | null;
+
 export interface StorePurchaseRow {
 	store_key: string;
 	id: bigint;
@@ -18,33 +20,33 @@ export interface StorePurchaseRow {
 	environment: StoreEnvironment;
 	app_id: string;
 	product_id: string;
-	base_plan_id: string | null;
+	base_plan_id: Nullish<string>;
 	store_reference: string;
-	latest_transaction_id: string | null;
-	app_transaction_id: string | null;
-	user_id: UserID | null;
-	bound_at: Date | null;
-	released_at: Date | null;
-	account_token: string | null;
-	ownership_type: string | null;
+	latest_transaction_id: Nullish<string>;
+	app_transaction_id: Nullish<string>;
+	user_id: Nullish<UserID>;
+	bound_at: Nullish<Date>;
+	released_at: Nullish<Date>;
+	account_token: Nullish<string>;
+	ownership_type: Nullish<string>;
 	state: StorePurchaseState;
-	store_state: string | null;
+	store_state: Nullish<string>;
 	entitled: boolean;
-	expires_at: Date | null;
-	grace_ends_at: Date | null;
-	auto_renew: boolean | null;
-	auto_renew_product_id: string | null;
-	started_at: Date | null;
-	purchased_at: Date | null;
-	revoked_at: Date | null;
-	revocation_reason: string | null;
-	linked_store_key: string | null;
-	superseded_by_store_key: string | null;
+	expires_at: Nullish<Date>;
+	grace_ends_at: Nullish<Date>;
+	auto_renew: Nullish<boolean>;
+	auto_renew_product_id: Nullish<string>;
+	started_at: Nullish<Date>;
+	purchased_at: Nullish<Date>;
+	revoked_at: Nullish<Date>;
+	revocation_reason: Nullish<string>;
+	linked_store_key: Nullish<string>;
+	superseded_by_store_key: Nullish<string>;
 	acknowledged: boolean;
-	gift_code: string | null;
-	region: string | null;
-	last_event_at: Date | null;
-	synced_at: Date | null;
+	gift_code: Nullish<string>;
+	region: Nullish<string>;
+	last_event_at: Nullish<Date>;
+	synced_at: Nullish<Date>;
 	created_at: Date;
 	updated_at: Date;
 	version: number;

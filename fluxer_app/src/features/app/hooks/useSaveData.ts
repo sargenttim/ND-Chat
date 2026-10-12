@@ -28,7 +28,7 @@ function publishSaveData(): void {
 	for (const listener of saveDataListeners) listener(next);
 }
 
-function subscribeSaveData(listener: (value: boolean) => void): () => void {
+export function subscribeSaveData(listener: (value: boolean) => void): () => void {
 	saveDataListeners.add(listener);
 	if (detachConnectionListener === null) {
 		const connection = getConnection();

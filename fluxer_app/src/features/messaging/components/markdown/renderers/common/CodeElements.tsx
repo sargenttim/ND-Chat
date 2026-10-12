@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {
+	_preloadArboriumForTests,
 	isSupportedHighlightLanguage,
 	useArboriumHighlightedHtml,
 } from '@app/features/code_highlighting/utils/ArboriumHighlighting';
@@ -56,6 +57,10 @@ function loadKatex(): Promise<KatexModule> {
 		})();
 	}
 	return katexPromise;
+}
+
+export async function _preloadForTests(): Promise<void> {
+	await Promise.all([_preloadArboriumForTests(), loadKatex()]);
 }
 
 function useLazyChunkLoad(load: () => Promise<unknown>, isLoaded: boolean, shouldLoad: boolean): void {

@@ -10,7 +10,7 @@ import {asPinnableVoiceTrackSource, VoiceTrackSource} from '@app/features/voice/
 import LocalVoiceState from '@app/features/voice/state/LocalVoiceState';
 
 type VoiceEngineV2AppMediaSource = 'camera' | 'screen_share';
-type VoiceEngineV2AppMediaStateReason =
+export type VoiceEngineV2AppMediaStateReason =
 	| 'user'
 	| 'server'
 	| 'track_event'
@@ -19,7 +19,7 @@ type VoiceEngineV2AppMediaStateReason =
 	| 'cleanup'
 	| 'logout';
 
-interface VoiceEngineV2AppMediaStateUpdateOptions {
+export interface VoiceEngineV2AppMediaStateUpdateOptions {
 	sendUpdate: boolean;
 	forceSync?: boolean;
 }

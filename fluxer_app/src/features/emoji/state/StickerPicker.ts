@@ -14,7 +14,6 @@ import {
 import type {GuildSticker} from '@app/features/expressions/models/GuildSticker';
 import {Logger} from '@app/features/platform/utils/AppLogger';
 import {ComponentBus} from '@app/features/platform/utils/ComponentBus';
-import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
 import {makeSyncedField} from '@app/features/user/state/SyncedField';
 import {StickerPickerStateSchema} from '@fluxer/schema/src/gen/fluxer/user/preferences/v1/pickers_pb';
 import {makeAutoObservable} from 'mobx';
@@ -35,7 +34,7 @@ class StickerPicker {
 
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
-		initializeStore(this, () => this.initPersistence());
+		void this.initPersistence();
 	}
 
 	private async initPersistence(): Promise<void> {
@@ -66,8 +65,7 @@ class StickerPicker {
 		});
 	}
 
-	trackStickerUsage(sticker: StickerKeyInput): void {
-		const stickerKey = this.getStickerKey(sticker);
+	trackStickerUsage(stickerKey: string): void {
 		const now = Date.now();
 		this.stickerUsage[stickerKey] = bumpUsageEntry(this.stickerUsage[stickerKey], now);
 		if (Object.keys(this.stickerUsage).length > MAX_TRACKED_USAGE_KEYS) {
@@ -75,8 +73,7 @@ class StickerPicker {
 		}
 	}
 
-	toggleFavorite(sticker: StickerKeyInput): void {
-		const stickerKey = this.getStickerKey(sticker);
+	toggleFavorite(stickerKey: string): void {
 		if (this.favoriteStickers.includes(stickerKey)) {
 			const index = this.favoriteStickers.indexOf(stickerKey);
 			if (index > -1) {

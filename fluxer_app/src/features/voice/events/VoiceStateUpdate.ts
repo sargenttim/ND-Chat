@@ -17,7 +17,7 @@ import type {GuildMemberData} from '@fluxer/schema/src/domains/guild/GuildMember
 
 const logger = new Logger('VoiceStateUpdate');
 
-const JOIN_CHIME_DUPLICATE_WINDOW_MS = 2000;
+export const JOIN_CHIME_DUPLICATE_WINDOW_MS = 2000;
 const RECENT_JOIN_CHIME_MAX_ENTRIES = 64;
 
 interface VoiceStateUpdatePayload {
@@ -47,6 +47,10 @@ interface RecentJoinChime {
 }
 
 const recentJoinChimesByConnectionId = new Map<string, RecentJoinChime>();
+
+export function resetRecentJoinChimesForTests(): void {
+	recentJoinChimesByConnectionId.clear();
+}
 
 function summarizeJoinChimePayload(data: VoiceStateUpdatePayload): JoinChimePayloadSummary {
 	return {

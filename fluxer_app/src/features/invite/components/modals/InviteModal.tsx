@@ -1,16 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {showDmActionErrorModal} from '@app/features/app/components/alerts/DmActionErrorModal';
 import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
 import * as Modal from '@app/features/app/components/dialogs/Modal';
 import {CopyLinkSection} from '@app/features/app/components/dialogs/shared/CopyLinkSection';
-import {
-	RecipientList,
-	useRecipientItems,
-	useSendLinkToRecipients,
-} from '@app/features/app/components/dialogs/shared/RecipientList';
+import type {RecipientItem} from '@app/features/app/components/dialogs/shared/RecipientList';
+import {RecipientList, useRecipientItems} from '@app/features/app/components/dialogs/shared/RecipientList';
 import selectorStyles from '@app/features/app/components/dialogs/shared/SelectorModalStyles.module.css';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import * as PrivateChannelCommands from '@app/features/channel/commands/PrivateChannelCommands';
 import type {Channel} from '@app/features/channel/models/Channel';
 import Channels from '@app/features/channel/state/Channels';
 import * as ChannelUtils from '@app/features/channel/utils/ChannelUtils';
@@ -33,7 +30,8 @@ import {
 import * as InviteCommands from '@app/features/invite/commands/InviteCommands';
 import styles from '@app/features/invite/components/modals/InviteModal.module.css';
 import * as InviteUtils from '@app/features/invite/utils/InviteUtils';
-import {failureCode} from '@app/features/platform/utils/ResponseInspection';
+import * as MessageCommands from '@app/features/messaging/commands/MessageCommands';
+import {Logger} from '@app/features/platform/utils/AppLogger';
 import StreamerMode from '@app/features/streamer_mode/state/StreamerMode';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Button} from '@app/features/ui/button/Button';
@@ -47,6 +45,7 @@ import {useCopyLinkHandler} from '@app/lib/copy-link';
 import {GuildFeatures} from '@fluxer/constants/src/GuildConstants';
 import {MAX_INVITE_AGE_SECONDS, MAX_INVITE_USES} from '@fluxer/constants/src/LimitConstants';
 import type {Invite} from '@fluxer/schema/src/domains/invite/InviteSchemas';
+import * as SnowflakeUtils from '@fluxer/snowflake/src/SnowflakeUtils';
 import {msg} from '@lingui/core/macro';
 import {Trans, useLingui} from '@lingui/react/macro';
 import {MagnifyingGlassIcon, WarningCircleIcon, WarningIcon} from '@phosphor-icons/react';
@@ -166,6 +165,7 @@ const YOUR_INVITE_LINK_EXPIRES_IN_DAYS_DESCRIPTOR = msg({
 	message: '{days, plural, one {Your invite link expires in # day.} other {Your invite link expires in # days.}}',
 	comment: 'Text under a generated invite link. {days} is how long the link stays valid, in whole days.',
 });
+const logger = new Logger('InviteModal');
 
 type InviteModalView = 'recipients' | 'advanced';
 
@@ -208,7 +208,8 @@ const InviteModalContent = observer(function InviteModalContent({
 	const [invite, setInvite] = useState<Invite | null>(null);
 	const [loading, setLoading] = useState(!isUsingVanityUrl);
 	const [showAdvanced, setShowAdvanced] = useState(false);
-
+	const [sentInvites, setSentInvites] = useState(new Map<string, boolean>());
+	const [sendingTo, setSendingTo] = useState(new Set<string>());
 	const [maxAge, setMaxAge] = useState('604800');
 	const [maxUses, setMaxUses] = useState('0');
 	const [temporary, setTemporary] = useState(false);
@@ -283,24 +284,38 @@ const InviteModalContent = observer(function InviteModalContent({
 	const hideInviteLinks = StreamerMode.shouldHideInviteLinks;
 	const displayedInviteUrl = hideInviteLinks && inviteUrl ? i18n._(LINK_HIDDEN_WHILE_SHARING_DESCRIPTOR) : inviteUrl;
 	const handleCopy = useCopyLinkHandler(inviteUrl, true);
-	const {
-		sendingTo,
-		sentTo: sentInvites,
-		send: handleSendInvite,
-	} = useSendLinkToRecipients(
-		() => inviteUrl,
-		(error: unknown) => {
-			if (failureCode(error)) {
-				showDmActionErrorModal(error);
-				return;
+	const handleSendInvite = async (item: RecipientItem) => {
+		const userId = item.type === 'group_dm' ? item.id : item.user.id;
+		setSendingTo((prev) => new Set(prev).add(userId));
+		let targetChannelId: string;
+		if (item.channelId) {
+			targetChannelId = item.channelId;
+		} else {
+			targetChannelId = await PrivateChannelCommands.ensureDMChannel(item.user.id);
+		}
+		try {
+			const result = await MessageCommands.send(targetChannelId, {
+				content: inviteUrl,
+				nonce: SnowflakeUtils.fromTimestamp(Date.now()),
+			});
+			if (result) {
+				setSentInvites((prev) => new Map(prev).set(userId, true));
 			}
+		} catch (error) {
+			logger.error('Failed to send invite:', error);
 			showGenericErrorModal({
 				title: () => i18n._(SOMETHING_WENT_WRONG_DESCRIPTOR),
 				message: () => i18n._(FAILED_TO_SEND_INVITE_DESCRIPTOR),
 				dataFlx: 'invite.invite-modal.send-invite-error-modal',
 			});
-		},
-	);
+		} finally {
+			setSendingTo((prev) => {
+				const next = new Set(prev);
+				next.delete(userId);
+				return next;
+			});
+		}
+	};
 	const handleGenerateNew = () => {
 		loadInvite({
 			maxAge: parseInt(maxAge, 10),
@@ -326,12 +341,7 @@ const InviteModalContent = observer(function InviteModalContent({
 		return i18n._(YOUR_INVITE_LINK_EXPIRES_IN_SECONDS_DESCRIPTOR, {seconds});
 	};
 	return (
-		<Modal.Root
-			size="small"
-			centered
-			className={selectorStyles.selectorRoot}
-			data-flx="invite.invite-modal.modal-root--2"
-		>
+		<Modal.Root size="small" centered data-flx="invite.invite-modal.modal-root--2">
 			<Modal.Header
 				title={!showAdvanced ? title : i18n._(INVITE_LINK_SETTINGS_DESCRIPTOR)}
 				data-flx="invite.invite-modal.modal-header--2"

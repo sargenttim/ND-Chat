@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import * as AuthMfa from '@app/api/auth/AuthMfa';
-import {createSudoModeRequiredError, userHasMfa, userHasSudoCapability} from '@app/api/auth/services/SudoMethods';
+import * as AuthPassword from '@app/api/auth/AuthPassword';
+import {deriveSudoMethods, userHasMfa, userHasSudoCapability} from '@app/api/auth/services/SudoMethods';
 import {getSudoModeService} from '@app/api/auth/services/SudoModeService';
 import {SUDO_MODE_HEADER} from '@app/api/middleware/SudoModeMiddleware';
 import type {User} from '@app/api/models/User';
 import type {HonoEnv} from '@app/api/types/HonoEnv';
-import {verifyPassword} from '@app/api/utils/PasswordUtils';
 import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
+import {SudoModeRequiredError} from '@fluxer/errors/src/domains/auth/SudoModeRequiredError';
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import type {AuthenticationResponseJSON} from '@simplewebauthn/server';
 import type {Context} from 'hono';
@@ -55,8 +56,8 @@ async function verifySudoMode(
 	const apiContext = ctx.get('apiContext');
 	const credentials = await apiContext.services.users.listWebAuthnCredentials(user.id);
 	const hasPasskeyCredentials = credentials.length > 0;
+	const hasMfa = userHasMfa(user);
 	const hasSudoCapability = userHasSudoCapability(user, hasPasskeyCredentials);
-	const hasUsableMfa = userHasMfa(user) && hasSudoCapability;
 	const issueSudoToken = options.issueSudoToken ?? hasSudoCapability;
 	if (hasSudoCapability && ctx.get('sudoModeValid')) {
 		const sudoToken = ctx.get('sudoModeToken') ?? ctx.req.header(SUDO_MODE_HEADER) ?? undefined;
@@ -81,14 +82,14 @@ async function verifySudoMode(
 		const sudoToken = issueSudoToken ? await sudoModeService.generateSudoToken(user.id) : undefined;
 		return {verified: true, sudoToken, method: 'mfa'};
 	}
-	if (hasNoVerifiableCredential(user, hasUsableMfa, hasPasskeyCredentials)) {
+	if (hasNoVerifiableCredential(user, hasMfa, hasPasskeyCredentials)) {
 		return {verified: true, method: 'password'};
 	}
-	if (body.password && !hasUsableMfa) {
+	if (body.password && !hasMfa) {
 		if (!user.passwordHash) {
 			throw InputValidationError.fromCode('password', ValidationErrorCodes.PASSWORD_NOT_SET);
 		}
-		const passwordValid = await verifyPassword({
+		const passwordValid = await AuthPassword.verifyPassword(apiContext, {
 			password: body.password,
 			passwordHash: user.passwordHash,
 		});
@@ -97,7 +98,8 @@ async function verifySudoMode(
 		}
 		return {verified: true, method: 'password'};
 	}
-	throw await createSudoModeRequiredError(apiContext, user, hasPasskeyCredentials);
+	const hasBackupCodes = await AuthMfa.hasUnconsumedBackupCodes(apiContext, user.id);
+	throw new SudoModeRequiredError(hasSudoCapability, deriveSudoMethods(user, hasPasskeyCredentials, hasBackupCodes));
 }
 
 function setSudoTokenHeader(

@@ -7,6 +7,7 @@ pub struct NavItem {
     pub path: &'static str,
     pub active_key: &'static str,
     pub required_acls: &'static [&'static str],
+    pub hosted_only: bool,
 }
 
 pub struct NavSection {
@@ -16,7 +17,10 @@ pub struct NavSection {
 
 macro_rules! item {
     ($t:expr, $p:expr, $k:expr, [ $($a:expr),+ $(,)? ]) => {
-        NavItem { title: $t, path: $p, active_key: $k, required_acls: &[$($a),+] }
+        NavItem { title: $t, path: $p, active_key: $k, required_acls: &[$($a),+], hosted_only: false }
+    };
+    ($t:expr, $p:expr, $k:expr, [ $($a:expr),+ $(,)? ], hosted) => {
+        NavItem { title: $t, path: $p, active_key: $k, required_acls: &[$($a),+], hosted_only: true }
     };
 }
 
@@ -50,6 +54,7 @@ pub const NAV_SECTIONS: &[NavSection] = &[
                 "bulk-actions",
                 [
                     acl::BULK_UPDATE_USER_FLAGS,
+                    acl::BULK_UPDATE_SUSPICIOUS_ACTIVITY,
                     acl::BULK_UPDATE_GUILD_FEATURES,
                     acl::BULK_ADD_GUILD_MEMBERS,
                     acl::BULK_DELETE_USERS,
@@ -231,6 +236,7 @@ pub const NAV_SECTIONS: &[NavSection] = &[
                     acl::INSTANCE_LIMIT_CONFIG_UPDATE
                 ]
             ),
+            item!("Badges", "/badges", "badges", [acl::BADGE_LIST]),
             item!(
                 "Admin API Keys",
                 "/admin-api-keys",
@@ -249,3 +255,27 @@ pub const NAV_SECTIONS: &[NavSection] = &[
         )],
     },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bulk_actions_nav_covers_every_acl_the_page_renders_a_section_for() {
+        let item = NAV_SECTIONS
+            .iter()
+            .flat_map(|section| section.items)
+            .find(|item| item.active_key == "bulk-actions")
+            .expect("bulk actions nav item");
+        for required in [
+            acl::BULK_UPDATE_USER_FLAGS,
+            acl::BULK_UPDATE_SUSPICIOUS_ACTIVITY,
+            acl::BULK_UPDATE_GUILD_FEATURES,
+            acl::BULK_ADD_GUILD_MEMBERS,
+            acl::BULK_DELETE_USERS,
+            acl::BULK_DELETE_USER_MESSAGES,
+        ] {
+            assert!(item.required_acls.contains(&required), "{required}");
+        }
+    }
+}

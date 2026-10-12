@@ -5,10 +5,9 @@ import {OVERRIDDEN_CHIP_STYLE} from '@app/features/user/components/modals/tabs/k
 import {Trans} from '@lingui/react/macro';
 import type React from 'react';
 
-export const DefaultShortcutChipList: React.FC<{chips: Array<string>; overridden?: boolean; disabled?: boolean}> = ({
+export const DefaultShortcutChipList: React.FC<{chips: Array<string>; overridden?: boolean}> = ({
 	chips,
 	overridden,
-	disabled,
 }) => (
 	<div className={styles.defaultChips} data-flx="user.keybinds-tab.default-shortcut-chip-list.default-chips">
 		{chips.length === 0 ? (
@@ -23,7 +22,7 @@ export const DefaultShortcutChipList: React.FC<{chips: Array<string>; overridden
 				<span
 					key={`${idx}-${chip}`}
 					className={styles.defaultChip}
-					style={overridden || disabled ? OVERRIDDEN_CHIP_STYLE : undefined}
+					style={overridden ? OVERRIDDEN_CHIP_STYLE : undefined}
 					data-flx="user.keybinds-tab.default-shortcut-chip-list.default-chip"
 				>
 					{chip}
@@ -36,13 +35,6 @@ export const DefaultShortcutChipList: React.FC<{chips: Array<string>; overridden
 				data-flx="user.keybinds-tab.default-shortcut-chip-list.default-chips-empty--2"
 			>
 				<Trans>Overridden</Trans>
-			</span>
-		) : disabled ? (
-			<span
-				className={styles.defaultChipsEmpty}
-				data-flx="user.keybinds-tab.default-shortcut-chip-list.default-chips-empty--3"
-			>
-				<Trans comment="Status next to a built-in shortcut the user turned off in the keybinds tab.">Disabled</Trans>
 			</span>
 		) : null}
 	</div>

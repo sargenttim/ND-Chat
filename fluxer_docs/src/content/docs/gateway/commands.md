@@ -15,14 +15,12 @@ Except for [Heartbeat](#heartbeat), [Identify](#identify), and [Resume](#resume)
 | 1 | Heartbeat | Opcode `11` Heartbeat ACK |
 | 2 | Identify | [Ready](/gateway/events/#ready), a close frame, or no response when Fluxer discards a rate-limited Identify or holds it to retry the session start |
 | 3 | Presence Update | No direct response |
-| 4 | Voice State Update | [Voice State Update](/gateway/events/#voice-state-update) and [Voice Server Update](/gateway/events/#voice-server-update) when state changes, or [Gateway Error](/gateway/opcodes-and-close-codes/#gateway-error) for a reported refusal |
+| 4 | Voice State Update | [Voice State Update](/gateway/events/#voice-state-update) and [Voice Server Update](/gateway/events/#voice-server-update) when state changes |
 | 6 | Resume | Replayed Dispatches followed by [Resumed](/gateway/events/#resumed), Invalid Session, or a close frame |
-| 13 | Voice Signal | [Voice Signal](/gateway/events/#voice-signal) for the target connection's session, or no response |
 | 8 | Request Guild Members | One or more [Guild Members Chunk](/gateway/events/#guild-members-chunk) events |
-| 14 | Lazy Request | [Guild Sync](/gateway/events/#guild-sync), [Guild Member List Update](/gateway/events/#guild-member-list-update), [Thread List Sync](/gateway/threads/#thread-list-sync), and [Thread Member List Update](/gateway/threads/#thread-member-list-update) |
+| 14 | Lazy Request | [Guild Sync](/gateway/events/#guild-sync) and [Guild Member List Update](/gateway/events/#guild-member-list-update) |
 | 15 | Request Guild Counts | [Guild Counts Update](/gateway/events/#guild-counts-update) |
 | 16 | Request Channel Member Counts | [Channel Member Counts Update](/gateway/events/#channel-member-counts-update) |
-| 28 | [Request Forum Unreads](/gateway/threads/#request-forum-unreads) | [Forum Unreads](/gateway/threads/#forum-unreads) |
 
 ## Payload handling
 
@@ -30,7 +28,7 @@ A frame that fails the size, decompression, or decoding checks closes the connec
 
 Fluxer charges every command that gets past those checks against the [source IP, session, and connection payload budgets](/gateway/limits-and-rate-limits/#connection-and-command-rate-limits) before it handles the opcode. Each session has its own session budget, so two sessions of one account never share one, and Fluxer skips that budget while the connection is unauthenticated.
 
-An opcode outside the registry closes with `4001` and reason `Unknown opcode` once a session is attached, and with `4003` while the connection is unauthenticated. A payload that has `op` but no `d` also closes with `4001`, except for Identify, which closes with `4005`. [Request Forum Unreads](/gateway/threads/#request-forum-unreads) closes with `4001` for a `d` that is not an object and for a user session without `CHANNEL_THREADS`.
+An opcode outside the registry closes with `4001` and reason `Unknown opcode` once a session is attached, and with `4003` while the connection is unauthenticated. A payload that has `op` but no `d` also closes with `4001`, except for Identify, which closes with `4005`.
 
 A Boolean command field is set only by `true`, and by the string `"true"` where noted. Every other value resolves to false, except in the Lazy Request [guild subscription object](#guild-subscription-object), which states its own rule.
 
@@ -126,9 +124,8 @@ A token the backend rejects closes with `4004` and reason `Invalid token`. A non
 | Value | Name | Description |
 | --- | --- | --- |
 | 1 &lt;&lt; 1 | DEBOUNCE_MESSAGE_REACTIONS | Merge runs of reaction additions into [Message Reaction Add Many](/gateway/events/#message-reaction-add-many) |
-| 1 &lt;&lt; 2 | [CHANNEL_THREADS](/gateway/threads/#session-flag) | The client can parse thread, forum, and media channels |
 
-Bit `0` and every bit above `2` are undefined. An undefined bit is accepted and ignored without closing the connection.
+Bit `0` and every bit above `1` are undefined. An undefined bit is accepted and ignored without closing the connection.
 
 `DEBOUNCE_MESSAGE_REACTIONS` applies to a reaction in a direct message or group direct message. A reaction in a guild channel is never merged and arrives as its own [Message Reaction Add](/gateway/events/#message-reaction-add).
 
@@ -245,7 +242,7 @@ Fluxer accepts a non-string `status`. Null and a Boolean publish the session as 
 
 `offline` is normalised to `invisible`, so a Presence Update cannot publish a session as offline while it is connected.
 
-`custom_status` is replaced only when the key is present. Omitting the key keeps the current custom status, `null` clears it, and a value that is neither an object nor null is ignored. An object the backend rejects, such as an `emoji_id` that names no emoji, an `expires_at` in the past, or any object from a [limited account](/http-api/users/#account-limitation), leaves the current custom status in place. The connection stays open.
+`custom_status` is replaced only when the key is present. Omitting the key keeps the current custom status, `null` clears it, and a value that is neither an object nor null is ignored. An object the backend rejects, such as an `emoji_id` that names no emoji or an `expires_at` in the past, leaves the current custom status in place. The connection stays open.
 
 The published presence has a [custom status](#custom-status-object) object and no activities.
 
@@ -268,7 +265,6 @@ Opcode `4` joins, moves, updates, or leaves the voice membership associated with
 | viewer_stream_keys?<sup>3</sup> | ?array[string] | The stream keys this connection is watching, where an omitted key keeps the current list and null clears it |
 | latitude? | number or string | The client latitude, used to pick a voice region |
 | longitude? | number or string | The client longitude, used to pick a voice region |
-| p2p?<sup>5</sup> | boolean | Whether the client agrees to peer-to-peer media for a new connection, or leaves the mesh on an existing one |
 
 <sup>1</sup> A `channel_id` with no `connection_id` opens a new connection, and a `channel_id` with one updates or moves that connection. An update that leaves one guild, meaning a non-null `guild_id` with `channel_id: null`, requires a `connection_id`, and one that omits it is refused with `VOICE_MISSING_CONNECTION_ID`
 
@@ -277,8 +273,6 @@ Opcode `4` joins, moves, updates, or leaves the voice membership associated with
 <sup>3</sup> Every entry is a stream key whose scope, guild, and channel match this update. An entry that fails that check, or a value that is not an array, refuses the update with `VOICE_INVALID_STATE`, and an entry naming a connection that does not exist refuses it with `VOICE_CONNECTION_NOT_FOUND`
 
 <sup>4</sup> Only `true` and the string `"true"` set it, and Fluxer publishes `false` when the member lacks `STREAM` in the channel. The screenshare track uses this same connection, so setting the flag issues no grant and sends no [Voice Server Update](/gateway/events/#voice-server-update)
-
-<sup>5</sup> Only the JSON Boolean `true` agrees and only the JSON Boolean `false` switches. On a new connection `true` states that the client supports peer-to-peer media and accepts it for this join. A bot session never agrees, whatever it sends. On an existing connection an explicit `false` converts the whole channel or call to LiveKit, and an omitted key or `true` changes nothing. [Peer-to-peer voice](/gateway/events/#peer-to-peer-voice) states when a join is peer-to-peer and when it is refused
 
 ```json
 {
@@ -302,45 +296,9 @@ Every field is optional. A non-null `guild_id` or `channel_id` is a canonical de
 
 The command has no `session_id` field. Fluxer identifies the voice membership by the Gateway session that sends the command.
 
-Joining or replacing a grant produces [Voice Server Update](/gateway/events/#voice-server-update) with the token and endpoint for the media connection, or with the ICE servers of a peer-to-peer grant, and [Voice State Update](/gateway/events/#voice-state-update) for every session that can see the channel.
-
-A refusal with `VOICE_P2P_CONSENT_REQUIRED`, `VOICE_P2P_UNAVAILABLE`, or `VOICE_CHANNEL_FULL` reaches the requesting session as a [Gateway Error](/gateway/opcodes-and-close-codes/#gateway-error) payload. Every other refusal sends nothing.
+Joining or replacing a grant produces [Voice Server Update](/gateway/events/#voice-server-update) with the token and endpoint for the media connection, and [Voice State Update](/gateway/events/#voice-state-update) for every session that can see the channel.
 
 The first two updates in a rolling one-second window take effect immediately. Later updates can be delayed or replaced by newer updates for the same `guild_id` and `connection_id`. See [command rate limits](/gateway/limits-and-rate-limits/#connection-and-command-rate-limits) for the timing and capacity bounds.
-
-## Voice Signal
-
-Opcode `13` sends one signalling message to one other connection of a [peer-to-peer](/gateway/events/#peer-to-peer-voice) voice channel or call.
-
-| Field | Type | Description |
-| --- | --- | --- |
-| guild_id? | ?snowflake | The guild containing the voice channel, where null or an omitted key selects the DM and group DM call context |
-| channel_id | snowflake | The voice channel or call channel both connections are in |
-| to | string | The `connection_id` of the voice state the signal is for |
-| data | object | The signalling message, which Fluxer relays unread |
-
-```json
-{
-  "op": 13,
-  "d": {
-    "guild_id": "1189375284394692608",
-    "channel_id": "1189375284394692610",
-    "to": "b7f3c2a94e1d4c0f",
-    "data": {
-      "type": "offer",
-      "sdp": "v=0..."
-    }
-  }
-}
-```
-
-Fluxer relays the signal when the sending session owns a voice state with `p2p: true` in that channel and `to` names another voice state with `p2p: true` in the same channel. The target connection's session alone receives [Voice Signal](/gateway/events/#voice-signal).
-
-Every other signal is dropped with no event and no close. That covers a channel or call that is not peer-to-peer, a `to` that names no connection there, a `to` that names the sender's own connection, a `data` that is not an object, and a session with no voice state in the channel.
-
-`data` is opaque to Fluxer. Clients agree on its contents among themselves, typically a session description or an ICE candidate. The whole frame stays within the [inbound payload bound](/gateway/overview/#framing).
-
-A client sends this command only after it has received a [Voice Server Update](/gateway/events/#voice-server-update) with `p2p: true` for the connection. [Command rate limits](/gateway/limits-and-rate-limits/#connection-and-command-rate-limits) states the Voice Signal budget.
 
 ## Request Guild Members
 
@@ -400,11 +358,11 @@ A bot requesting the complete list is limited to one accepted request per guild 
 
 Results arrive as [Guild Members Chunk](/gateway/events/#guild-members-chunk) in pages of at most 1,000 members, each with `chunk_index` and `chunk_count`. Those chunks are delivered live and are never retained for Resume replay.
 
-Only one member request runs at a time on one WebSocket. While one runs, a newer request replaces any earlier pending request and starts when the active one finishes. [Bounded requests](#bounded-requests) covers the four-slot limit this command shares with the other bounded commands.
+Only one member request runs at a time on one WebSocket. While one runs, a newer request replaces any earlier pending request and starts when the active one finishes. [Bounded requests](#bounded-requests) covers the four-slot limit this command shares with the other three.
 
 ## Lazy Request
 
-Opcode `14` sets the per-guild subscriptions that decide member list, typing, synchronisation, and [thread](/gateway/threads/#lazy-request-thread-options) traffic for the session.
+Opcode `14` sets the per-guild subscriptions that decide member list, typing, and synchronisation traffic for the session.
 
 | Field | Type | Description |
 | --- | --- | --- |
@@ -447,15 +405,15 @@ Opcode `14` sets the per-guild subscriptions that decide member list, typing, sy
 
 <sup>2</sup> Subscriptions may be combined over a 100 ms window. Ranges sent during that window are merged for the same channel, and an empty range list clears its pending ranges
 
-Fluxer applies each option only when its key is present, in the order `active`, `sync`, `member_list_channels`, `members`, `typing`. The [thread options](/gateway/threads/#lazy-request-thread-options) `threads` and `thread_member_lists` follow `typing`.
+Fluxer applies each option only when its key is present, in the order `active`, `sync`, `member_list_channels`, `members`, `typing`.
 
-Marking a guild active changes how much traffic it produces, and [Event filtering](/gateway/event-filtering/) specifies the difference. A transition from passive to active, and a transition from active to passive, both imply a sync even when `sync` is absent. Every sync request, implied or explicit, is dropped when the guild is already marked synced for that session. Going passive clears that mark, so the next sync request produces a fresh Guild Sync. Going passive also clears the [`threads`](/gateway/threads/#lazy-request-thread-options) subscription.
+Marking a guild active changes how much traffic it produces, and [Event filtering](/gateway/event-filtering/) specifies the difference. A transition from passive to active, and a transition from active to passive, both imply a sync even when `sync` is absent. Every sync request, implied or explicit, is dropped when the guild is already marked synced for that session. Going passive clears that mark, so the next sync request produces a fresh Guild Sync.
 
 `member_list_channels` maps a channel ID to a list of `[start, end]` ranges. A range needs `start` at least 0, `end` at least `start`, `end` at most 100,000, and `end - start` at most 99. Ranges that fail those bounds are dropped, and each channel keeps at most the first 10 that pass. A channel key that is not a Snowflake is skipped.
 
-`VIEW_CHANNEL` and `VIEW_CHANNEL_MEMBERS` together control the member list subscription, and both are evaluated for each channel separately. A channel the session cannot view, or can view without holding `VIEW_CHANNEL_MEMBERS` there, receives no [Guild Member List Update](/gateway/events/#guild-member-list-update) while its siblings subscribe normally. A thread ID in `member_list_channels` subscribes to nothing. A thread member list uses [`thread_member_lists`](/gateway/threads/#lazy-request-thread-options).
+`VIEW_CHANNEL` and `VIEW_CHANNEL_MEMBERS` together control the member list subscription, and both are evaluated for each channel separately. A channel the session cannot view, or can view without holding `VIEW_CHANNEL_MEMBERS` there, receives no [Guild Member List Update](/gateway/events/#guild-member-list-update) while its siblings subscribe normally.
 
-Subscribing a channel to at least one range drops the session's other member list subscriptions in that guild. One session holds at most one guild member list per guild. Thread member lists are counted separately.
+Subscribing a channel to at least one range drops the session's other member list subscriptions in that guild, so one session holds at most one member list per guild.
 
 `members` entries that are not Snowflakes are dropped, and the first 1,000 that pass are kept. A member the session shares no viewable channel with is dropped as well.
 
@@ -514,6 +472,6 @@ Results arrive in one [Channel Member Counts Update](/gateway/events/#channel-me
 
 ## Bounded requests
 
-One WebSocket processes at most four bounded requests at once across [Request Guild Members](#request-guild-members), [Lazy Request](#lazy-request), [Request Guild Counts](#request-guild-counts), [Request Channel Member Counts](#request-channel-member-counts), and [Request Forum Unreads](/gateway/threads/#request-forum-unreads). A command that arrives when all four slots are taken is dropped, without a close and without a result. Request Forum Unreads from a user session without `CHANNEL_THREADS` still closes with `4001`, as [Gateway threads](/gateway/threads/#request-forum-unreads) describes. Each request has a 10,000 ms deadline, after which it produces no further events.
+One WebSocket processes at most four bounded requests at once across [Request Guild Members](#request-guild-members), [Lazy Request](#lazy-request), [Request Guild Counts](#request-guild-counts), and [Request Channel Member Counts](#request-channel-member-counts). A command that arrives when all four slots are taken is dropped, without a close and without a result. Each request has a 10,000 ms deadline, after which it produces no further events.
 
 Request Guild Members also keeps one replaceable pending request while another member request is active, whether or not a slot is free. See [Bounded commands](/gateway/limits-and-rate-limits/#bounded-commands).

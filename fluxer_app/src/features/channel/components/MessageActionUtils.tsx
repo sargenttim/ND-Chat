@@ -16,7 +16,6 @@ import * as MessageCommands from '@app/features/messaging/commands/MessageComman
 import * as ReactionCommands from '@app/features/messaging/commands/ReactionCommands';
 import * as SavedMessageCommands from '@app/features/messaging/commands/SavedMessageCommands';
 import {ForwardModal, type ForwardModalSuccess} from '@app/features/messaging/components/modals/ForwardModal';
-import {MessageCrosspostConfirmModal} from '@app/features/messaging/components/modals/MessageCrosspostConfirmModal';
 import type {Message} from '@app/features/messaging/models/MessagingMessage';
 import MessageEdit from '@app/features/messaging/state/MessageEdit';
 import MessageReply from '@app/features/messaging/state/MessageReply';
@@ -30,19 +29,14 @@ import Permission from '@app/features/permissions/state/Permission';
 import {ComponentBus} from '@app/features/platform/utils/ComponentBus';
 import * as ReadStateCommands from '@app/features/read_state/commands/ReadStateCommands';
 import Relationships from '@app/features/relationship/state/Relationships';
-import ChannelThreads from '@app/features/threads/state/ChannelThreads';
-import ThreadGuilds from '@app/features/threads/state/ThreadGuilds';
-import {canCreateThreadIn, canWriteInThread} from '@app/features/threads/utils/ThreadActionRules';
 import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
 import {modal} from '@app/features/ui/commands/ModalCommands';
 import * as TextCopyCommands from '@app/features/ui/commands/TextCopyCommands';
 import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
 import MobileLayout from '@app/features/ui/state/MobileLayout';
 import Users from '@app/features/user/state/Users';
-import {blockIfAccountLimited} from '@app/features/user/utils/AccountLimitUtils';
 import TtsUtils from '@app/features/voice/utils/VoiceTtsUtils';
 import {
-	ChannelTypes,
 	isMessageTypeDeletable,
 	MessageFlags,
 	MessageStates,
@@ -50,7 +44,6 @@ import {
 	Permissions,
 } from '@fluxer/constants/src/ChannelConstants';
 import {GuildOperations} from '@fluxer/constants/src/GuildConstants';
-import {TEXT_THREAD_PARENT_CHANNEL_TYPES} from '@fluxer/constants/src/ThreadConstants';
 import type {I18n} from '@lingui/core';
 import {msg} from '@lingui/core/macro';
 
@@ -121,9 +114,6 @@ export function canReportMessage(message: Message): boolean {
 	if (message.author.system) {
 		return false;
 	}
-	if (message.isCrosspostSourceDeleted) {
-		return false;
-	}
 	return message.type === MessageTypes.DEFAULT || message.type === MessageTypes.REPLY;
 }
 
@@ -133,6 +123,10 @@ export function canDeleteAttachmentUtil(message: Message | undefined): boolean {
 	const guild = channel?.guildId ? Guilds.getGuild(channel.guildId) : null;
 	const sendMessageDisabled = guild ? (guild.disabledOperations & GuildOperations.SEND_MESSAGE) !== 0 : false;
 	return !sendMessageDisabled;
+}
+
+export function requestOpenReactionPicker(messageId: string): void {
+	ComponentBus.dispatch('EMOJI_PICKER_OPEN', {messageId});
 }
 
 function messageElementSelector(messageId: string): string {
@@ -173,16 +167,8 @@ export interface MessagePermissions {
 	canDeleteAttachment: boolean;
 	canPinMessage: boolean;
 	canForwardMessage: boolean;
-	canCrosspostMessage: boolean;
 	canSuppressEmbeds: boolean;
 	shouldRenderSuppressEmbeds: boolean;
-	canCreateThread: boolean;
-}
-
-function canCreateThreadFromMessage(message: Message, channel: Channel): boolean {
-	if (!ThreadGuilds.isActive(channel.guildId) || !TEXT_THREAD_PARENT_CHANNEL_TYPES.has(channel.type)) return false;
-	if (message.state !== MessageStates.SENT || !message.isUserMessage() || message.isClientSystemMessage()) return false;
-	return !ChannelThreads.hasThread(message.id) && canCreateThreadIn(channel, 'from_message');
 }
 
 function canForwardMessageFromChannel(message: Message, channel: Channel, isDM: boolean): boolean {
@@ -240,18 +226,6 @@ function getMessagePermissionsForChannel(message: Message, channel: Channel): Me
 		(isDM ? true : Permission.can(Permissions.PIN_MESSAGES, {channelId: message.channelId}));
 	const canForwardMessage =
 		!interactionsBlocked && !sendMessageDisabled && canForwardMessageFromChannel(message, channel, isDM);
-	const canCrosspostMessage =
-		!interactionsBlocked &&
-		!sendMessageDisabled &&
-		!isDM &&
-		channel.type === ChannelTypes.GUILD_ANNOUNCEMENT &&
-		message.type === MessageTypes.DEFAULT &&
-		message.state === MessageStates.SENT &&
-		!message.messageSnapshots?.length &&
-		!message.isCrosspostCopy &&
-		passesVerification &&
-		Permission.can(Permissions.SEND_MESSAGES, {channelId: message.channelId}) &&
-		(message.isCurrentUserAuthor() || Permission.can(Permissions.MANAGE_MESSAGES, {channelId: message.channelId}));
 	const canSuppressEmbeds =
 		!interactionsBlocked &&
 		!sendMessageDisabled &&
@@ -259,21 +233,18 @@ function getMessagePermissionsForChannel(message: Message, channel: Channel): Me
 		(message.isCurrentUserAuthor() || (!isDM && canDeleteMessage));
 	const shouldRenderSuppressEmbeds =
 		message.isUserMessage() && canSuppressEmbeds && (isEmbedsSuppressed(message) || message.embeds.length > 0);
-	const isThread = channel.isThread();
 	return {
 		channel,
 		isDM,
 		canSendMessages,
-		canAddReactions: canAddReactions && (!isThread || canWriteInThread(channel, 'react')),
-		canEditMessage: canEditMessage && (!isThread || canWriteInThread(channel, 'edit')),
+		canAddReactions,
+		canEditMessage,
 		canDeleteMessage,
 		canDeleteAttachment,
-		canPinMessage: canPinMessage && (!isThread || canWriteInThread(channel, 'pin')),
+		canPinMessage,
 		canForwardMessage,
-		canCrosspostMessage,
 		canSuppressEmbeds,
 		shouldRenderSuppressEmbeds,
-		canCreateThread: canCreateThreadFromMessage(message, channel),
 	};
 }
 
@@ -295,6 +266,12 @@ export function getMessagePermissions(message: Message, sourceChannel?: Channel 
 export function useMessagePermissions(message: Message, sourceChannel?: Channel | null): MessagePermissions | null {
 	const context = useMaybeMessageViewContext();
 	const channel = sourceChannel ?? context?.channel;
+	if (context?.previewPermissions) {
+		return {
+			channel: channel ?? context.channel,
+			...context.previewPermissions,
+		};
+	}
 	if (channel) {
 		return getMessagePermissionsForChannel(message, channel);
 	}
@@ -320,7 +297,6 @@ export interface MessageActionHandlers {
 	handleRetryMessage: () => void;
 	handleFailedMessageDelete: () => void;
 	handleForward: () => void;
-	handleCrosspostMessage: (event?: React.MouseEvent | React.KeyboardEvent) => void;
 	handleRemoveAllReactions: () => void;
 	handleMarkAsUnread: () => void;
 }
@@ -406,14 +382,6 @@ export function createMessageActionHandlers(
 		}
 		requestMessageForward(message, sourceChannel);
 	};
-	const handleCrosspostMessage = (event?: React.MouseEvent | React.KeyboardEvent) => {
-		const crosspostMessage = () => requestMessageCrosspost(message, i18n, {shiftKey: Boolean(event?.shiftKey)});
-		if (onClose) {
-			ModalCommands.runAfterBottomSheetClose(onClose, crosspostMessage);
-			return;
-		}
-		crosspostMessage();
-	};
 	const handleRemoveAllReactions = () => {
 		if (onClose) {
 			ModalCommands.runAfterBottomSheetClose(onClose, () => requestRemoveAllReactions(message, i18n));
@@ -438,7 +406,6 @@ export function createMessageActionHandlers(
 		handleRetryMessage,
 		handleFailedMessageDelete,
 		handleForward,
-		handleCrosspostMessage,
 		handleRemoveAllReactions,
 		handleMarkAsUnread,
 	};
@@ -504,25 +471,7 @@ export function requestMessagePin(message: Message, i18n: I18n, options: {shiftK
 	);
 }
 
-export function requestMessageCrosspost(message: Message, i18n: I18n, options: {shiftKey?: boolean} = {}): void {
-	if (message.isCrossposted) {
-		return;
-	}
-	if (options.shiftKey) {
-		void MessageCommands.crosspost(i18n, message.channelId, message.id);
-		return;
-	}
-	ModalCommands.push(
-		modal(() => (
-			<MessageCrosspostConfirmModal
-				message={message}
-				data-flx="channel.message-action-utils.request-message-crosspost.message-crosspost-confirm-modal"
-			/>
-		)),
-	);
-}
-
-function requestRemoveAllReactions(message: Message, i18n: I18n): void {
+export function requestRemoveAllReactions(message: Message, i18n: I18n): void {
 	ModalCommands.push(
 		modal(() => (
 			<ConfirmModal
@@ -639,7 +588,6 @@ export function requestMessageForward(
 	if (!currentUser) {
 		return;
 	}
-	if (blockIfAccountLimited()) return;
 	ModalCommands.push(
 		modal(() => (
 			<ForwardModal

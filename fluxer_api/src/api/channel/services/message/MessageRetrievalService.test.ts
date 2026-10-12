@@ -3,16 +3,15 @@
 import type {AttachmentDecayService} from '@app/api/attachment/AttachmentDecayService';
 import type {ChannelID, MessageID} from '@app/api/BrandedTypes';
 import {createChannelID, createMessageID, createUserID} from '@app/api/BrandedTypes';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {IChannelRepositoryAggregate} from '@app/api/channel/repositories/IChannelRepositoryAggregate';
 import type {AuthenticatedChannel} from '@app/api/channel/services/AuthenticatedChannel';
 import type {MessageChannelAuthService} from '@app/api/channel/services/message/MessageChannelAuthService';
 import type {MessageProcessingService} from '@app/api/channel/services/message/MessageProcessingService';
 import {MessageRetrievalService} from '@app/api/channel/services/message/MessageRetrievalService';
 import type {MessageSearchService} from '@app/api/channel/services/message/MessageSearchService';
-import {SYSTEM_THREAD_VIEWER} from '@app/api/experiment/ChannelThreadsGate';
 import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import {Message} from '@app/api/models/Message';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {MessageTypes} from '@fluxer/constants/src/ChannelConstants';
 import {createSnowflakeFromTimestamp} from '@fluxer/snowflake/src/Snowflake';
 import {describe, expect, it} from 'vitest';
@@ -83,7 +82,7 @@ function createRetrievalService({
 		messages: {
 			getMessage: async (_channelId: ChannelID, messageId: MessageID) => storedById.get(messageId.toString()) ?? null,
 		},
-	} as unknown as ChannelRepository;
+	} as unknown as IChannelRepositoryAggregate;
 	const channelAuthService = {
 		getChannelAuthenticated: async ({channelId}: {channelId: ChannelID}) => {
 			authenticationCalls.push(channelId.toString());
@@ -102,7 +101,7 @@ function createRetrievalService({
 		channelAuthService,
 		processingService,
 		{} as unknown as MessageSearchService,
-		{} as unknown as UserRepository,
+		{} as unknown as IUserRepository,
 		attachmentDecayService,
 	);
 	return {service, permissionChecks, authenticationCalls};
@@ -122,7 +121,6 @@ describe('MessageRetrievalService.getMessagesByIds', () => {
 		});
 
 		const result = await service.getMessagesByIds({
-			viewer: SYSTEM_THREAD_VIEWER,
 			userId: VIEWER_ID,
 			channelId: CHANNEL_ID,
 			messageIds: messages.map((message) => message.id),
@@ -143,7 +141,6 @@ describe('MessageRetrievalService.getMessagesByIds', () => {
 		});
 
 		const result = await service.getMessagesByIds({
-			viewer: SYSTEM_THREAD_VIEWER,
 			userId: VIEWER_ID,
 			channelId: CHANNEL_ID,
 			messageIds: [beforeCutoff.id, afterCutoff.id],
@@ -163,7 +160,6 @@ describe('MessageRetrievalService.getMessagesByIds', () => {
 		});
 
 		const result = await service.getMessagesByIds({
-			viewer: SYSTEM_THREAD_VIEWER,
 			userId: VIEWER_ID,
 			channelId: CHANNEL_ID,
 			messageIds: [message.id],
@@ -181,7 +177,6 @@ describe('MessageRetrievalService.getMessagesByIds', () => {
 		});
 
 		const result = await service.getMessagesByIds({
-			viewer: SYSTEM_THREAD_VIEWER,
 			userId: VIEWER_ID,
 			channelId: CHANNEL_ID,
 			messageIds: [message.id],
@@ -201,7 +196,6 @@ describe('MessageRetrievalService.getMessagesByIds', () => {
 		});
 
 		const result = await service.getMessagesByIds({
-			viewer: SYSTEM_THREAD_VIEWER,
 			userId: VIEWER_ID,
 			channelId: CHANNEL_ID,
 			messageIds: [present.id, deleted.id],

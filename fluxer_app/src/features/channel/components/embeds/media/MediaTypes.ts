@@ -12,3 +12,14 @@ export interface BaseMediaProps {
 	contentHash?: string | null;
 	onDelete?: (bypassConfirm?: boolean) => void;
 }
+
+export interface MediaContext {
+	channelId?: string;
+	messageId?: string;
+	attachmentId?: string;
+	embedIndex?: number;
+	nsfw?: boolean;
+	message?: Message;
+	contentHash?: string | null;
+	onDelete?: (bypassConfirm?: boolean) => void;
+}

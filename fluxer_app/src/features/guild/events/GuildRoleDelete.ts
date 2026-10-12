@@ -8,7 +8,7 @@ import GuildMembers from '@app/features/member/state/GuildMembers';
 import MemberSidebar from '@app/features/member/state/MemberSidebar';
 import Permission from '@app/features/permissions/state/Permission';
 
-export interface GuildRoleDeletePayload {
+interface GuildRoleDeletePayload {
 	guild_id: string;
 	role_id: string;
 }

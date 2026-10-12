@@ -15,9 +15,9 @@ export interface LocalVoiceConnectionState {
 	shouldUnmuteOnUndeafen: boolean;
 }
 
-type LocalVoiceStateSeed = Partial<LocalVoiceConnectionState>;
+export type LocalVoiceStateSeed = Partial<LocalVoiceConnectionState>;
 
-interface LocalVoicePersistedDefaults {
+export interface LocalVoicePersistedDefaults {
 	selfMute: boolean;
 	selfDeaf: boolean;
 	hasUserSetMute: boolean;
@@ -462,7 +462,7 @@ function resetPreferences(context: LocalVoiceStateContext): LocalVoiceStateConte
 	};
 }
 
-const localVoiceStateMachine = setup({
+export const localVoiceStateMachine = setup({
 	types: {} as {
 		context: LocalVoiceStateContext;
 		events: LocalVoiceStateEvent;
@@ -601,4 +601,15 @@ export function transitionLocalVoiceStateSnapshot(
 	event: LocalVoiceStateEvent,
 ): LocalVoiceStateSnapshot {
 	return transition(localVoiceStateMachine, snapshot, event)[0] as LocalVoiceStateSnapshot;
+}
+
+export function getActiveLocalVoiceState(
+	snapshot: LocalVoiceStateSnapshot,
+	activeConnectionId: string | null,
+): LocalVoiceConnectionState {
+	return cloneState(getActiveStateForRead(snapshot.context, activeConnectionId));
+}
+
+export function hasLocalVoiceConnectionState(snapshot: LocalVoiceStateSnapshot, connectionId: string | null): boolean {
+	return connectionId ? snapshot.context.connections[connectionId] !== undefined : false;
 }

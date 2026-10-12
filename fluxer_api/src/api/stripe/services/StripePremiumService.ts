@@ -6,59 +6,54 @@ import {Config} from '@app/api/Config';
 import {SYSTEM_USER_ID} from '@app/api/constants/Core';
 import type {GiftCodeDurationType} from '@app/api/database/types/PaymentTypes';
 import type {UserRow} from '@app/api/database/types/UserTypes';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {GuildService} from '@app/api/guild/services/GuildService';
 import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
 import {Logger} from '@app/api/Logger';
 import {createRequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {addGiftCodeDuration} from '@app/api/models/GiftCode';
 import type {User} from '@app/api/models/User';
-import {
-	getSubscriptionCurrentPeriodStart,
-	getSubscriptionPremiumPeriodEnd,
-} from '@app/api/stripe/StripeSubscriptionPeriod';
-import {shiftGiftExtensionPastPremiumUntil} from '@app/api/user/GiftExtensionShift';
-import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import type {IUserRepository} from '@app/api/user/IUserRepository';
 import {clearPerksSanitizedFlag, createPremiumClearPatch, getEffectivePremiumUntil} from '@app/api/user/UserHelpers';
-import {dispatchUserUpdate} from '@app/api/user/UserMappers';
+import {mapUserToPrivateResponse} from '@app/api/user/UserMappers';
 import {UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import {MissingAccessError} from '@fluxer/errors/src/domains/core/MissingAccessError';
 import {StripeError} from '@fluxer/errors/src/domains/payment/StripeError';
-import type Stripe from 'stripe';
 
 export class StripePremiumService {
 	constructor(
-		private userRepository: UserRepository,
+		private userRepository: IUserRepository,
 		private gatewayService: IGatewayService,
-		private guildRepository: GuildRepository,
+		private guildRepository: IGuildRepositoryAggregate,
 		private guildService: GuildService,
 	) {}
 
 	async setPremiumFromSubscriptionPeriod(
 		userId: UserID,
-
+		premiumType: 1 | 2,
 		periodEnd: Date,
 		billingCycle: string | null = null,
 		hasEverPurchased: boolean = false,
 		premiumSinceAnchor: Date | null = null,
-		periodStart: Date | null = null,
 	): Promise<void> {
 		const user = await this.userRepository.findUnique(userId);
 		if (!user) {
 			throw new StripeError('User not found for premium grant');
 		}
 		const now = new Date();
-		const visionarySequence = user.premiumLifetimeSequence;
-		const adjustedGiftEnd = shiftGiftExtensionPastPremiumUntil(
-			{premiumUntil: user.premiumUntil, giftEnd: user.premiumGiftExtensionEndsAt},
-			periodEnd,
-			now,
-			periodStart,
-		);
+		let visionarySequence: number | null = user.premiumLifetimeSequence;
+		if (premiumType === UserPremiumTypes.LIFETIME && !visionarySequence) {
+			visionarySequence = await this.allocateVisionarySequence(userId);
+		}
+		const shiftMs = user.premiumUntil ? periodEnd.getTime() - user.premiumUntil.getTime() : 0;
+		const adjustedGiftEnd =
+			user.premiumGiftExtensionEndsAt && shiftMs > 0
+				? new Date(user.premiumGiftExtensionEndsAt.getTime() + shiftMs)
+				: user.premiumGiftExtensionEndsAt;
 		const updatedUser = await this.userRepository.patchUpsert(
 			userId,
 			{
-				premium_type: UserPremiumTypes.SUBSCRIPTION,
+				premium_type: premiumType,
 				premium_since: this.resolvePremiumSince(user.premiumSince, premiumSinceAnchor, now),
 				premium_until: periodEnd,
 				premium_gift_extension_ends_at: adjustedGiftEnd,
@@ -71,9 +66,9 @@ export class StripePremiumService {
 			},
 			user.toRow(),
 		);
-		await dispatchUserUpdate(this.gatewayService, updatedUser);
+		await this.dispatchUser(updatedUser);
 		Logger.debug(
-			{userId, premiumType: UserPremiumTypes.SUBSCRIPTION, periodEnd, adjustedGiftEnd, billingCycle},
+			{userId, premiumType, periodEnd, shiftMs, adjustedGiftEnd, billingCycle},
 			'Premium set from subscription period',
 		);
 	}
@@ -104,7 +99,7 @@ export class StripePremiumService {
 			},
 			user.toRow(),
 		);
-		await dispatchUserUpdate(this.gatewayService, updatedUser);
+		await this.dispatchUser(updatedUser);
 		Logger.debug({userId, visionarySequence}, 'Lifetime premium granted');
 	}
 
@@ -141,41 +136,8 @@ export class StripePremiumService {
 			patch.has_ever_purchased = true;
 		}
 		const updatedUser = await this.userRepository.patchUpsert(userId, patch, user.toRow());
-		await dispatchUserUpdate(this.gatewayService, updatedUser);
+		await this.dispatchUser(updatedUser);
 		Logger.debug({userId, premiumType, durationType, durationQuantity, newGiftEnd}, 'Premium extended by gift');
-	}
-
-	async recordGiftTrialExtension(userId: UserID, subscription: Stripe.Subscription): Promise<void> {
-		const user = await this.userRepository.findUnique(userId);
-		if (!user) {
-			throw new StripeError('User not found for premium grant');
-		}
-		const now = new Date();
-		const periodEnd = getSubscriptionPremiumPeriodEnd(subscription);
-		const premiumUntil =
-			periodEnd && (!user.premiumUntil || periodEnd > user.premiumUntil) ? periodEnd : user.premiumUntil;
-		const shiftedGiftEnd = premiumUntil
-			? shiftGiftExtensionPastPremiumUntil(
-					{premiumUntil: user.premiumUntil, giftEnd: user.premiumGiftExtensionEndsAt},
-					premiumUntil,
-					now,
-					getSubscriptionCurrentPeriodStart(subscription),
-				)
-			: user.premiumGiftExtensionEndsAt;
-		const trialEnd = subscription.trial_end ? new Date(subscription.trial_end * 1000) : null;
-		const giftEnd = trialEnd && (!shiftedGiftEnd || trialEnd > shiftedGiftEnd) ? trialEnd : shiftedGiftEnd;
-		const updatedUser = await this.userRepository.patchUpsert(
-			userId,
-			{
-				premium_until: premiumUntil,
-				premium_gift_extension_ends_at: giftEnd,
-				premium_grace_ends_at: null,
-				has_ever_purchased: true,
-			},
-			user.toRow(),
-		);
-		await dispatchUserUpdate(this.gatewayService, updatedUser);
-		Logger.debug({userId, premiumUntil, giftEnd}, 'Premium extended by gift stacked onto Stripe trial');
 	}
 
 	async grantPremiumFromGiftWithDuration(
@@ -204,7 +166,7 @@ export class StripePremiumService {
 				},
 				user.toRow(),
 			);
-			await dispatchUserUpdate(this.gatewayService, updatedUser);
+			await this.dispatchUser(updatedUser);
 			Logger.debug({userId, lifetimeSequence: visionarySequenceNumber}, 'Lifetime premium granted from gift');
 			return;
 		}
@@ -224,7 +186,7 @@ export class StripePremiumService {
 			},
 			user.toRow(),
 		);
-		await dispatchUserUpdate(this.gatewayService, updatedUser);
+		await this.dispatchUser(updatedUser);
 		Logger.debug(
 			{userId, premiumType, durationType, durationQuantity, newGiftEnd},
 			'Premium extended by gift redemption',
@@ -276,9 +238,23 @@ export class StripePremiumService {
 			return false;
 		}
 		const updatedUser = await this.userRepository.patchUpsert(userId, createPremiumClearPatch(), user.toRow());
-		await dispatchUserUpdate(this.gatewayService, updatedUser);
+		await this.dispatchUser(updatedUser);
 		Logger.debug({userId}, 'Premium grace period ended early');
 		return true;
+	}
+
+	async revokePremium(userId: UserID): Promise<void> {
+		const user = await this.userRepository.findUniqueAssert(userId);
+		const updatedUser = await this.userRepository.patchUpsert(
+			userId,
+			{
+				premium_type: UserPremiumTypes.NONE,
+				premium_until: null,
+				premium_gift_extension_ends_at: null,
+			},
+			user.toRow(),
+		);
+		await this.dispatchUser(updatedUser);
 	}
 
 	async rejoinVisionariesGuild(userId: UserID): Promise<void> {
@@ -331,7 +307,6 @@ export class StripePremiumService {
 				guildId: visionariesGuildId,
 				sendJoinMessage: true,
 				skipBanCheck: true,
-				skipAccountLimitCheck: true,
 				requestCache,
 			});
 			Logger.debug({userId, guildId: visionariesGuildId}, 'Added visionary user to visionaries guild');
@@ -351,5 +326,13 @@ export class StripePremiumService {
 				'Failed to add visionary role to a rejoining visionary.',
 			);
 		}
+	}
+
+	private async dispatchUser(user: User): Promise<void> {
+		await this.gatewayService.dispatchPresence({
+			userId: user.id,
+			event: 'USER_UPDATE',
+			data: mapUserToPrivateResponse(user),
+		});
 	}
 }

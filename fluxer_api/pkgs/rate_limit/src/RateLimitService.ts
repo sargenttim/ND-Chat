@@ -7,19 +7,8 @@ import type {
 	RateLimitConfig,
 	RateLimitResult,
 } from '@pkgs/rate_limit/src/IRateLimitService';
-
-function getIdentifierKey(identifier: string): string {
-	if (identifier.length === 0) throw new Error('identifier must be a non-empty string');
-	return `ratelimit:${identifier}`;
-}
-function getBucketKey(bucket: string): string {
-	if (bucket.length === 0) throw new Error('bucket must be a non-empty string');
-	return `ratelimit:bucket:${bucket}`;
-}
-function getGlobalKey(identifier: string): string {
-	if (identifier.length === 0) throw new Error('identifier must be a non-empty string');
-	return `ratelimit:global:${identifier}`;
-}
+import {RateLimitKeyFactory} from '@pkgs/rate_limit/src/internal/RateLimitKeyFactory';
+import {assertPositiveFiniteNumber} from '@pkgs/rate_limit/src/internal/RateLimitValidation';
 
 interface IRateLimitStore {
 	checkLeakyBucketLimit(key: string, limit: number, windowMs: number, cost: number): Promise<KVRateLimitResult>;
@@ -53,14 +42,9 @@ function createRateLimitResult(result: KVRateLimitResult, global?: boolean): Rat
 	};
 }
 
-function peekRetryAfterMs(result: KVRateLimitResult, windowMs: number): number {
-	const capacity = result.limit;
-	const leakWindowMs = Math.max(1, Math.floor(windowMs));
-	return Math.max(1, Math.ceil(result.resetAfterMs - ((capacity - 1) * leakWindowMs) / capacity));
-}
-
 export class RateLimitService implements IRateLimitService {
 	private static readonly DEFAULT_GLOBAL_WINDOW_MS = 1000;
+	private readonly keyFactory = new RateLimitKeyFactory();
 	private readonly globalWindowMs: number;
 
 	constructor(
@@ -68,44 +52,35 @@ export class RateLimitService implements IRateLimitService {
 		options: RateLimitServiceOptions = {},
 	) {
 		this.globalWindowMs = options.globalWindowMs ?? RateLimitService.DEFAULT_GLOBAL_WINDOW_MS;
-		if (!Number.isFinite(this.globalWindowMs) || this.globalWindowMs <= 0)
-			throw new Error('globalWindowMs must be a positive finite number');
+		assertPositiveFiniteNumber(this.globalWindowMs, 'globalWindowMs');
 	}
 
 	async checkLimit(config: RateLimitConfig): Promise<RateLimitResult> {
-		const key = getIdentifierKey(config.identifier);
+		const key = this.keyFactory.getIdentifierKey(config.identifier);
 		const result = await this.store.checkLeakyBucketLimit(key, config.maxAttempts, config.windowMs, 1);
 		return createRateLimitResult(result);
 	}
 
 	async peekLimit(config: RateLimitConfig): Promise<RateLimitResult> {
-		const key = getIdentifierKey(config.identifier);
+		const key = this.keyFactory.getIdentifierKey(config.identifier);
 		const result = await this.store.checkLeakyBucketLimit(key, config.maxAttempts, config.windowMs, 0);
-		if (result.remaining >= 1) {
-			return createRateLimitResult(result);
-		}
-		return createRateLimitResult({
-			...result,
-			allowed: false,
-			remaining: 0,
-			retryAfterMs: peekRetryAfterMs(result, config.windowMs),
-		});
+		return createRateLimitResult(result);
 	}
 
 	async checkBucketLimit(bucket: string, config: BucketConfig): Promise<RateLimitResult> {
-		const key = getBucketKey(bucket);
+		const key = this.keyFactory.getBucketKey(bucket);
 		const result = await this.store.checkLeakyBucketLimit(key, config.limit, config.windowMs, 1);
 		return createRateLimitResult(result);
 	}
 
 	async checkGlobalLimit(identifier: string, limit: number): Promise<RateLimitResult> {
-		const key = getGlobalKey(identifier);
+		const key = this.keyFactory.getGlobalKey(identifier);
 		const result = await this.store.checkLeakyBucketLimit(key, limit, this.globalWindowMs, 1);
 		return createRateLimitResult(result, true);
 	}
 
 	async resetLimit(identifier: string): Promise<void> {
-		const key = getIdentifierKey(identifier);
+		const key = this.keyFactory.getIdentifierKey(identifier);
 		await this.store.del(key);
 	}
 
@@ -113,7 +88,7 @@ export class RateLimitService implements IRateLimitService {
 		if (identifierPrefix.length === 0) {
 			throw new Error('identifierPrefix must be non-empty');
 		}
-		const keyPrefix = getIdentifierKey(identifierPrefix);
+		const keyPrefix = this.keyFactory.getIdentifierKey(identifierPrefix);
 		const pattern = `${keyPrefix.replace(/[\\*?[\]]/g, '\\$&')}*`;
 		let totalDeleted = 0;
 		const batchSize = 256;

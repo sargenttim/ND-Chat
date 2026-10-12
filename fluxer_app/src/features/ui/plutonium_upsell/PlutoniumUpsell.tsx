@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {PREMIUM_PRODUCT_NAME} from '@app/features/app/config/I18nDisplayConstants';
 import {GET_PREMIUM_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
 import * as PremiumModalCommands from '@app/features/premium/commands/PremiumModalCommands';
-import {getPremiumProductName, shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
+import {shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import {remFromPx} from '@app/features/theme/layout/RemFromPx';
 import {Button} from '@app/features/ui/button/Button';
 import styles from '@app/features/ui/plutonium_upsell/PlutoniumUpsell.module.css';
@@ -51,10 +52,10 @@ export const PlutoniumUpsell: React.FC<PlutoniumUpsellProps> = ({
 						superCompact={true}
 						fitContent={true}
 						onClick={onButtonClick ?? (() => PremiumModalCommands.open())}
-						aria-label={i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
+						aria-label={i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: PREMIUM_PRODUCT_NAME})}
 						data-flx="ui.plutonium-upsell.plutonium-upsell.button"
 					>
-						{buttonText ?? i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: getPremiumProductName()})}
+						{buttonText ?? i18n._(GET_PREMIUM_DESCRIPTOR, {premiumProductName: PREMIUM_PRODUCT_NAME})}
 					</Button>
 					{dismissible && onDismiss && (
 						<button

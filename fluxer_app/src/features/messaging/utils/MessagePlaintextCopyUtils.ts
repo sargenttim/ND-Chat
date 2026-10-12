@@ -16,6 +16,6 @@ export function buildMessagePlaintextCopyText(message: Message, i18n: I18n): str
 	return buildUserMessageCopyText(message, {
 		channelId: message.channelId,
 		i18n,
-		includeEmbeds: UserSettings.renderEmbeds && !message.suppressEmbeds,
+		includeEmbeds: UserSettings.getRenderEmbeds() && !message.suppressEmbeds,
 	});
 }

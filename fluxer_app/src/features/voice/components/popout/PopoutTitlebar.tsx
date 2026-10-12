@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import nativeTitlebarStyles from '@app/features/app/components/layout/NativeTitlebar.module.css';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import {getNativePlatformSync} from '@app/features/ui/utils/NativeUtils';
 import styles from '@app/features/voice/components/popout/PopoutTitlebar.module.css';
-import {POP_BACK_IN_DESCRIPTOR} from '@app/features/voice/utils/VoiceSharedMessageDescriptors';
-import {NATIVE_TITLEBAR_CLASS} from '@fluxer/desktop_ipc/src/NativeTitlebarShell';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import {ArrowSquareInIcon, PushPinIcon, PushPinSlashIcon, XIcon} from '@phosphor-icons/react';
@@ -20,7 +19,10 @@ const REMOVE_FROM_TOP_DESCRIPTOR = msg({
 	message: 'Remove from top',
 	comment: 'Button label in a popped-out voice window titlebar that unpins the window from staying above others.',
 });
-
+const POP_BACK_IN_DESCRIPTOR = msg({
+	message: 'Pop back in',
+	comment: 'Button label in a popped-out voice window titlebar that restores the content into the main app window.',
+});
 const CLOSE_WINDOW_DESCRIPTOR = msg({
 	message: 'Close window',
 	comment: 'Button label in a popped-out voice window titlebar that closes the popped-out window.',
@@ -68,7 +70,7 @@ export const PopoutTitlebar: React.FC<PopoutTitlebarProps> = ({
 					<FocusRing offset={-2} data-flx="voice.popout-titlebar.focus-ring.pin">
 						<button
 							type="button"
-							className={clsx(NATIVE_TITLEBAR_CLASS.control, isAlwaysOnTop && styles.actionButtonActive)}
+							className={clsx(nativeTitlebarStyles.controlButton, isAlwaysOnTop && styles.actionButtonActive)}
 							onClick={onToggleAlwaysOnTop}
 							aria-pressed={isAlwaysOnTop}
 							aria-label={pinLabel}
@@ -82,7 +84,7 @@ export const PopoutTitlebar: React.FC<PopoutTitlebarProps> = ({
 				<FocusRing offset={-2} data-flx="voice.popout-titlebar.focus-ring.restore">
 					<button
 						type="button"
-						className={NATIVE_TITLEBAR_CLASS.control}
+						className={nativeTitlebarStyles.controlButton}
 						onClick={onRestore}
 						aria-label={i18n._(POP_BACK_IN_DESCRIPTOR)}
 						title={i18n._(POP_BACK_IN_DESCRIPTOR)}
@@ -95,7 +97,7 @@ export const PopoutTitlebar: React.FC<PopoutTitlebarProps> = ({
 					<FocusRing offset={-2} data-flx="voice.popout-titlebar.focus-ring.close">
 						<button
 							type="button"
-							className={clsx(NATIVE_TITLEBAR_CLASS.control, NATIVE_TITLEBAR_CLASS.controlClose)}
+							className={clsx(nativeTitlebarStyles.controlButton, nativeTitlebarStyles.closeButton)}
 							onClick={onClose}
 							aria-label={i18n._(CLOSE_WINDOW_DESCRIPTOR)}
 							data-flx="voice.popout-titlebar.control-button.close"

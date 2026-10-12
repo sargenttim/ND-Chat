@@ -13,10 +13,7 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Args, Clone)]
 pub struct BuildDesktopNativeAddonArgs {
-    #[arg(
-        long,
-        help = "Directory holding the addon crate to build, defaults to the current directory"
-    )]
+    #[arg(long)]
     addon_root: Option<PathBuf>,
 }
 
@@ -58,26 +55,6 @@ const LINUX_AUDIO_CAPTURE_PKG_CONFIG: &[PkgConfigRequirement] = &[PkgConfigRequi
 }];
 
 const DESKTOP_NATIVE_ADDONS: &[DesktopNativeAddon] = &[
-    DesktopNativeAddon {
-        package_dir: "app-store",
-        package_name: "@fluxer/app-store",
-        crate_name: "fluxer_app_store",
-        node_file_stem: "app-store",
-        required_platform: None,
-        features: &[],
-        pkg_config: &[],
-        special: DesktopNativeSpecialBuild::None,
-    },
-    DesktopNativeAddon {
-        package_dir: "gateway-socket",
-        package_name: "@fluxer/gateway-socket",
-        crate_name: "fluxer_gateway_socket",
-        node_file_stem: "gateway-socket",
-        required_platform: None,
-        features: &[],
-        pkg_config: &[],
-        special: DesktopNativeSpecialBuild::None,
-    },
     DesktopNativeAddon {
         package_dir: "hardware-encoder",
         package_name: "@fluxer/hardware-encoder",
@@ -133,6 +110,16 @@ const DESKTOP_NATIVE_ADDONS: &[DesktopNativeAddon] = &[
         package_name: "@fluxer/linux-portals",
         crate_name: "fluxer_linux_portals",
         node_file_stem: "linux-portals",
+        required_platform: Some("linux"),
+        features: &[],
+        pkg_config: &[],
+        special: DesktopNativeSpecialBuild::None,
+    },
+    DesktopNativeAddon {
+        package_dir: "linux-screen-capture",
+        package_name: "@fluxer/linux-screen-capture",
+        crate_name: "fluxer_linux_screen_capture",
+        node_file_stem: "linux-screen-capture",
         required_platform: Some("linux"),
         features: &[],
         pkg_config: &[],
@@ -263,6 +250,16 @@ const DESKTOP_NATIVE_ADDONS: &[DesktopNativeAddon] = &[
         package_name: "@fluxer/win-shell",
         crate_name: "fluxer_win_shell",
         node_file_stem: "win-shell",
+        required_platform: Some("win32"),
+        features: &[],
+        pkg_config: &[],
+        special: DesktopNativeSpecialBuild::None,
+    },
+    DesktopNativeAddon {
+        package_dir: "win-toast",
+        package_name: "@fluxer/win-toast",
+        crate_name: "fluxer_win_toast",
+        node_file_stem: "win-toast",
         required_platform: Some("win32"),
         features: &[],
         pkg_config: &[],
@@ -985,88 +982,54 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_desktop_build_script_builds_and_verifies_every_registered_addon() {
-        let build_script =
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fluxer_desktop/scripts/build.mjs");
-        let source = fs::read_to_string(&build_script)
-            .unwrap_or_else(|error| panic!("failed to read {}: {error}", build_script.display()));
-        for addon in DESKTOP_NATIVE_ADDONS {
-            assert!(
-                source.contains(&format!("dirName: '{}'", addon.package_dir)),
-                "{} is registered but fluxer_desktop/scripts/build.mjs never builds it",
-                addon.package_dir
-            );
-            assert!(
-                source
-                    .matches(&format!("label: '{}'", addon.package_name))
-                    .count()
-                    >= 2,
-                "{} must appear in both the build list and the artifact verification list in fluxer_desktop/scripts/build.mjs",
-                addon.package_name
-            );
-        }
-    }
-
-    #[test]
-    fn addon_directory_names_stay_within_the_velopack_path_budget() {
-        for addon in DESKTOP_NATIVE_ADDONS {
-            assert!(
-                addon.package_dir.len() <= 20,
-                "{} exceeds the 20 character addon directory budget",
-                addon.package_dir
-            );
-        }
-    }
-
-    #[test]
-    fn the_registry_covers_every_shipped_addon_package() {
-        let native_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fluxer_desktop/native");
-        let mut shipped = Vec::new();
-        for entry in fs::read_dir(&native_root).expect("failed to read the native addon root") {
-            let entry = entry.expect("failed to read a native addon directory entry");
-            if entry.path().join("package.json").exists() {
-                shipped.push(entry.file_name().to_string_lossy().into_owned());
-            }
-        }
-        shipped.sort();
-        let mut registered = DESKTOP_NATIVE_ADDONS
+    fn addon_mapping_covers_expected_packages() {
+        let names = DESKTOP_NATIVE_ADDONS
             .iter()
-            .map(|addon| addon.package_dir.to_string())
+            .map(|addon| addon.package_dir)
             .collect::<Vec<_>>();
-        registered.sort();
+
+        assert!(names.contains(&"linux-audio-capture"));
+        assert!(names.contains(&"webauthn"));
+        assert!(names.contains(&"win-game-capture"));
+        assert_eq!(DESKTOP_NATIVE_ADDONS.len(), 22);
+    }
+
+    #[test]
+    fn platform_tags_match_legacy_node_helper() {
+        assert_eq!(platform_tag("linux", "x64").unwrap(), "linux-x64-gnu");
+        assert_eq!(platform_tag("darwin", "arm64").unwrap(), "darwin-arm64");
+        assert_eq!(platform_tag("win32", "x64").unwrap(), "win32-x64-msvc");
+    }
+
+    #[test]
+    fn rust_targets_match_legacy_node_helper() {
         assert_eq!(
-            shipped, registered,
-            "every fluxer_desktop/native/* directory with a package.json must be registered in DESKTOP_NATIVE_ADDONS"
+            rust_target_for_platform("linux", "arm64").unwrap(),
+            "aarch64-unknown-linux-gnu"
+        );
+        assert_eq!(
+            rust_target_for_platform("darwin", "x64").unwrap(),
+            "x86_64-apple-darwin"
+        );
+        assert_eq!(
+            rust_target_for_platform("win32", "arm64").unwrap(),
+            "aarch64-pc-windows-msvc"
         );
     }
 
     #[test]
-    fn every_addon_ships_a_byte_identical_loader_diagnostics_copy() {
-        let native_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fluxer_desktop/native");
-        let mut canonical: Option<(String, Vec<u8>)> = None;
-        let mut checked = 0;
-        for addon in DESKTOP_NATIVE_ADDONS {
-            let path = native_root
-                .join(addon.package_dir)
-                .join("loader-diagnostics.cjs");
-            if !path.exists() {
-                continue;
-            }
-            let contents = fs::read(&path)
-                .unwrap_or_else(|error| panic!("failed to read {}: {error}", path.display()));
-            match &canonical {
-                None => canonical = Some((addon.package_dir.to_string(), contents)),
-                Some((first_dir, first_contents)) => assert!(
-                    first_contents == &contents,
-                    "{} ships a loader-diagnostics.cjs that differs from {first_dir}",
-                    addon.package_dir
-                ),
-            }
-            checked += 1;
-        }
-        assert!(
-            checked >= DESKTOP_NATIVE_ADDONS.len() - 1,
-            "expected every addon but hardware-encoder to ship loader-diagnostics.cjs, checked {checked}"
+    fn dynamic_library_names_match_legacy_node_helper() {
+        assert_eq!(
+            cargo_dynamic_library_file_name("fluxer_webauthn", "linux").unwrap(),
+            "libfluxer_webauthn.so"
+        );
+        assert_eq!(
+            cargo_dynamic_library_file_name("fluxer-webauthn", "darwin").unwrap(),
+            "libfluxer_webauthn.dylib"
+        );
+        assert_eq!(
+            cargo_dynamic_library_file_name("fluxer_webauthn", "win32").unwrap(),
+            "fluxer_webauthn.dll"
         );
     }
 
@@ -1145,5 +1108,12 @@ mod tests {
             assert!(assert_system32_dependent_load_flag(&unset, "win32").is_err());
             assert!(assert_system32_dependent_load_flag(&unset, "linux").is_ok());
         }
+    }
+
+    #[test]
+    fn linux_library_bundling_denylist_matches_legacy_prefixes() {
+        assert!(!should_bundle_linux_library("libc.so.6"));
+        assert!(!should_bundle_linux_library("ld-linux-x86-64.so.2"));
+        assert!(should_bundle_linux_library("libfido2.so.1"));
     }
 }

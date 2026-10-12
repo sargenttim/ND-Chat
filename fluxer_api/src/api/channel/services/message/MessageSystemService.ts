@@ -2,27 +2,27 @@
 
 import type {GuildID, UserID} from '@app/api/BrandedTypes';
 import {createMessageID} from '@app/api/BrandedTypes';
-import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
-import {dispatchMessageCreateBroadcast} from '@app/api/channel/services/message/MessageGatewayDispatch';
+import type {IChannelRepositoryAggregate} from '@app/api/channel/repositories/IChannelRepositoryAggregate';
+import type {MessageDispatchService} from '@app/api/channel/services/message/MessageDispatchService';
 import type {MessagePersistenceService} from '@app/api/channel/services/message/MessagePersistenceService';
-import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
-import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
+import type {IGuildRepositoryAggregate} from '@app/api/guild/repositories/IGuildRepositoryAggregate';
 import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
 import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
 import {MessageTypes} from '@fluxer/constants/src/ChannelConstants';
 
 export class MessageSystemService {
 	constructor(
-		private channelRepository: ChannelRepository,
-		private guildRepository: GuildRepository,
+		private channelRepository: IChannelRepositoryAggregate,
+		private guildRepository: IGuildRepositoryAggregate,
 		private snowflakeService: ISnowflakeService,
 		private persistenceService: MessagePersistenceService,
-		private gatewayService: IGatewayService,
+		private dispatchService: MessageDispatchService,
 	) {}
 
 	async sendJoinSystemMessage({
 		guildId,
 		userId,
+		requestCache,
 	}: {
 		guildId: GuildID;
 		userId: UserID;
@@ -43,6 +43,6 @@ export class MessageSystemService {
 			guildId,
 			channel: systemChannel,
 		});
-		await dispatchMessageCreateBroadcast({gatewayService: this.gatewayService, channel: systemChannel, message});
+		await this.dispatchService.dispatchMessageCreate({channel: systemChannel, message, requestCache});
 	}
 }
