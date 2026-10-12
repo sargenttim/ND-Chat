@@ -32,5 +32,5 @@ jobs:
           file: Dockerfile.api # Adjust the path if your Dockerfile is nested
           push: true
           tags: |
-            ghcr.io/sargenttim/fluxer-api:v1
-            ghcr.io/sargenttim/fluxer-api:latest
+            ghcr.io/nexiorachat/fluxer-api:v1
+            ghcr.io/nexiorachat/fluxer-api:latest
