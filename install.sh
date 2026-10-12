@@ -50,10 +50,10 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
-FLUXER_RAW_BASE='https://raw.githubusercontent.com/TimsOrganization/ndchat'
+FLUXER_RAW_BASE='https://raw.githubusercontent.com/nexiorachat/ndchat'
 #FLUXER_RAW_BASE='https://raw.githubusercontent.com/fluxerapp/fluxer'
 #FLUXER_INSTALLER_URL='https://fluxer.dev/install.sh'
-FLUXER_INSTALLER_URL='https://raw.githubusercontent.com/TimsOrganization/ndchat/install.sh'
+FLUXER_INSTALLER_URL='https://raw.githubusercontent.com/nexiorachat/ndchat/install.sh'
 FLUXER_STACK_PATH='deploy/self-hosting'
 FLUXER_MIN_ENGINE='24.0.0'
 # Podman numbers its releases on its own scale, so the Docker Engine floor says
