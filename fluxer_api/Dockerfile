@@ -5,7 +5,7 @@ FROM node:26-trixie-slim AS base
 
 WORKDIR /usr/src/app
 
-RUN npm install -g pnpm@11.27.0
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 FROM base AS deploy
 
@@ -57,7 +57,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		libvips42t64 && \
 	rm -rf /var/lib/apt/lists/*
 
-RUN npm install -g pnpm@11.27.0
+RUN corepack enable && corepack prepare pnpm@latest --activate
 
 COPY --from=deploy /out ./
 COPY --from=deploy /usr/src/app/fluxer_api/dist ./dist
