@@ -96,6 +96,7 @@ catalog:
   cassandra-driver: 4.9.0
   clsx: 2.1.1
   combokeys: 3.0.1
+  colorjs.io: ^0.5.0 # (or whatever version your project needs)
   emoji-regex: 11.0.0
   esbuild: 0.28.2
   eslint: 10.10.0
