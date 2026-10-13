@@ -101,6 +101,7 @@ catalog:
   eslint: 10.10.0
   eslint-plugin-react-google-translate: 1.0.4
   eventemitter3: 5.0.4
+  fast-xml-parser: ^4.3.2
   fake-indexeddb: 6.2.5
   favico.js: 0.3.10
   framer-motion: 13.4.0
