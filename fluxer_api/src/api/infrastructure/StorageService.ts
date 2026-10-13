@@ -1,0 +1,783 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import {PassThrough, pipeline, Readable} from 'node:stream';
+import {promisify} from 'node:util';
+import {Config} from '@app/api/Config';
+import {
+	type IStorageService,
+	type ProcessedStorageObjectMetadata,
+	StorageObjectListingOverflowError,
+	StorageObjectRangeNotSatisfiableError,
+} from '@app/api/infrastructure/IStorageService';
+import {processMediaFile} from '@app/api/infrastructure/StorageObjectHelpers';
+import {Logger} from '@app/api/Logger';
+import {
+	AbortMultipartUploadCommand,
+	CompleteMultipartUploadCommand,
+	CopyObjectCommand,
+	CreateMultipartUploadCommand,
+	DeleteObjectCommand,
+	GetObjectCommand,
+	type GetObjectCommandOutput,
+	HeadObjectCommand,
+	ListObjectsV2Command,
+	ListPartsCommand,
+	PutObjectCommand,
+	S3Client,
+	S3ServiceException,
+	UploadPartCommand,
+} from '@aws-sdk/client-s3';
+import {Upload} from '@aws-sdk/lib-storage';
+import {getSignedUrl} from '@aws-sdk/s3-request-presigner';
+import type {S3ProviderSettings} from '@fluxer/config/src/S3ProviderSettings';
+import {isSupportedMediaContentType} from '@pkgs/mime_utils/src/ContentTypeUtils';
+import {seconds} from 'itty-time';
+import {temporaryFile} from 'tempy';
+
+const STREAM_UPLOAD_PART_BYTES = 8 * 1024 * 1024;
+const STREAM_UPLOAD_CONCURRENCY = 4;
+
+interface PooledS3Options {
+	endpoint: string;
+	region: string;
+	accessKeyId: string;
+	secretAccessKey: string;
+	forcePathStyle?: boolean;
+}
+
+function buildPooledS3Client(options: PooledS3Options): S3Client {
+	return new S3Client({
+		endpoint: options.endpoint,
+		region: options.region,
+		forcePathStyle: options.forcePathStyle ?? true,
+		credentials: {
+			accessKeyId: options.accessKeyId,
+			secretAccessKey: options.secretAccessKey,
+		},
+		requestChecksumCalculation: 'WHEN_REQUIRED',
+		responseChecksumValidation: 'WHEN_REQUIRED',
+		maxAttempts: 3,
+	});
+}
+
+const pipelinePromise = promisify(pipeline);
+
+async function streamToUint8Array(body: Readable, maxBytes?: number): Promise<Uint8Array> {
+	if (maxBytes !== undefined && maxBytes <= 0) {
+		body.destroy();
+		return new Uint8Array(0);
+	}
+	const chunks: Array<Buffer> = [];
+	let total = 0;
+	for await (const chunk of body) {
+		const buf = chunk instanceof Buffer ? chunk : Buffer.from(chunk as Uint8Array);
+		if (maxBytes !== undefined && total + buf.length > maxBytes) {
+			body.destroy();
+			throw new Error(
+				`Stream exceeds maximum buffer size of ${maxBytes} bytes (got at least ${total + buf.length} bytes)`,
+			);
+		}
+		chunks.push(buf);
+		total += buf.length;
+	}
+	const out = new Uint8Array(total);
+	let offset = 0;
+	for (const c of chunks) {
+		out.set(c, offset);
+		offset += c.length;
+	}
+	return out;
+}
+
+function extractStreamFromGet(out: GetObjectCommandOutput): Readable {
+	const body = out.Body;
+	if (!(body instanceof Readable)) {
+		throw new Error('Unexpected S3 response body type (not a Node Readable)');
+	}
+	if (body instanceof PassThrough) {
+		return body;
+	}
+	const wrapped = new PassThrough();
+	pipeline(body, wrapped, () => undefined);
+	return wrapped;
+}
+
+const REJECTED_SERVER_SIDE_COPY_ERRORS = new Set([
+	'NoSuchBucket',
+	'NoSuchKey',
+	'NotFound',
+	'NotImplemented',
+	'AccessDenied',
+	'InvalidRequest',
+	'MethodNotAllowed',
+]);
+
+function encodedEndpointPath(endpoint: string): Array<string> {
+	return (URL.parse(endpoint)?.pathname ?? '')
+		.split('/')
+		.filter((segment) => segment !== '')
+		.map((segment) => encodeURIComponent(decodeURIComponent(segment)));
+}
+
+function isRejectedServerSideCopy(error: unknown): boolean {
+	return (
+		error instanceof S3ServiceException &&
+		(REJECTED_SERVER_SIDE_COPY_ERRORS.has(error.name) || error.$metadata?.httpStatusCode === 501)
+	);
+}
+
+export class StorageService implements IStorageService {
+	private readonly client: S3Client;
+	private readonly presignClient: S3Client;
+	private readonly provider: S3ProviderSettings;
+	private readonly endpointPath: Array<string>;
+
+	constructor(provider?: S3ProviderSettings) {
+		this.provider = provider ?? {
+			endpoint: Config.s3.endpoint,
+			presignedUrlBase: Config.s3.presignedUrlBase,
+			forcePathStyle: Config.s3.forcePathStyle,
+			region: Config.s3.region,
+			accessKeyId: Config.s3.accessKeyId,
+			secretAccessKey: Config.s3.secretAccessKey,
+		};
+		this.endpointPath = encodedEndpointPath(this.provider.endpoint);
+		this.client = buildPooledS3Client({
+			endpoint: this.provider.endpoint,
+			region: this.provider.region,
+			accessKeyId: this.provider.accessKeyId,
+			secretAccessKey: this.provider.secretAccessKey,
+			forcePathStyle: this.provider.forcePathStyle,
+		});
+		this.presignClient = buildPooledS3Client({
+			endpoint: this.resolvePresignEndpoint(),
+			region: this.provider.region,
+			accessKeyId: this.provider.accessKeyId,
+			secretAccessKey: this.provider.secretAccessKey,
+			forcePathStyle: this.provider.forcePathStyle,
+		});
+		Logger.info(
+			{
+				endpoint: this.provider.endpoint,
+				presignEndpoint: this.resolvePresignEndpoint(),
+				region: this.provider.region,
+				addressing: this.provider.forcePathStyle ? 'path' : 'virtual-host',
+			},
+			'Object storage client ready',
+		);
+	}
+
+	private resolvePresignEndpoint(): string {
+		const fallbackEndpoint = this.provider.endpoint;
+		const configuredEndpoint = this.provider.presignedUrlBase;
+		if (!configuredEndpoint) {
+			return fallbackEndpoint;
+		}
+		try {
+			const endpoint = new URL(configuredEndpoint);
+			const uploadsPrefix = `${Config.s3.buckets.uploads}.`;
+			if (endpoint.hostname.startsWith(uploadsPrefix)) {
+				endpoint.hostname = endpoint.hostname.slice(uploadsPrefix.length);
+				endpoint.pathname = '/';
+				endpoint.search = '';
+				endpoint.hash = '';
+			}
+			return endpoint.toString();
+		} catch {
+			return configuredEndpoint;
+		}
+	}
+
+	async uploadObject({
+		bucket,
+		key,
+		body,
+		contentType,
+		expiresAt,
+	}: {
+		bucket: string;
+		key: string;
+		body: Uint8Array | Readable;
+		contentType?: string;
+		expiresAt?: Date;
+	}): Promise<void> {
+		if (body instanceof Uint8Array) {
+			await this.client.send(
+				new PutObjectCommand({
+					Bucket: bucket,
+					Key: key,
+					Body: body,
+					ContentType: contentType,
+					Expires: expiresAt,
+				}),
+			);
+			return;
+		}
+		const upload = new Upload({
+			client: this.client,
+			params: {
+				Bucket: bucket,
+				Key: key,
+				Body: body,
+				ContentType: contentType,
+				Expires: expiresAt,
+			},
+			partSize: STREAM_UPLOAD_PART_BYTES,
+			queueSize: STREAM_UPLOAD_CONCURRENCY,
+			leavePartsOnError: false,
+		});
+		await upload.done();
+	}
+
+	async uploadObjectFromFile({
+		bucket,
+		key,
+		filePath,
+		contentType,
+		contentLength,
+		expiresAt,
+		cacheControl,
+		contentDisposition,
+	}: {
+		bucket: string;
+		key: string;
+		filePath: string;
+		contentType?: string;
+		contentLength?: number;
+		expiresAt?: Date;
+		cacheControl?: string;
+		contentDisposition?: string;
+	}): Promise<void> {
+		const size = contentLength ?? (await fs.promises.stat(filePath)).size;
+		if (size <= STREAM_UPLOAD_PART_BYTES) {
+			const body = await fs.promises.readFile(filePath);
+			await this.client.send(
+				new PutObjectCommand({
+					Bucket: bucket,
+					Key: key,
+					Body: body,
+					ContentType: contentType,
+					ContentLength: size,
+					Expires: expiresAt,
+					CacheControl: cacheControl,
+					ContentDisposition: contentDisposition,
+				}),
+			);
+			return;
+		}
+		const stream = fs.createReadStream(filePath, {highWaterMark: 1024 * 1024});
+		const errors = new Set<unknown>();
+		const onSourceError = (error: Error) => {
+			errors.add(error);
+		};
+		stream.on('error', onSourceError);
+		const closed = new Promise<void>((resolve) => stream.once('close', resolve));
+		try {
+			const upload = new Upload({
+				client: this.client,
+				params: {
+					Bucket: bucket,
+					Key: key,
+					Body: stream,
+					ContentType: contentType,
+					Expires: expiresAt,
+					CacheControl: cacheControl,
+					ContentDisposition: contentDisposition,
+				},
+				partSize: STREAM_UPLOAD_PART_BYTES,
+				queueSize: STREAM_UPLOAD_CONCURRENCY,
+				leavePartsOnError: false,
+			});
+			await upload.done();
+			if (!stream.readableEnded) {
+				throw new Error('File upload completed before its source stream ended');
+			}
+		} catch (error) {
+			errors.add(error);
+		} finally {
+			stream.destroy();
+			await closed;
+			stream.off('error', onSourceError);
+		}
+		if (errors.size === 1) throw errors.values().next().value;
+		if (errors.size > 1) throw new AggregateError(errors, 'File upload and source stream failed');
+	}
+
+	async getPresignedDownloadURL({
+		bucket,
+		key,
+		expiresIn = seconds('5 minutes'),
+		responseContentType,
+		responseContentDisposition,
+	}: {
+		bucket: string;
+		key: string;
+		expiresIn?: number;
+		responseContentType?: string;
+		responseContentDisposition?: string;
+	}): Promise<string> {
+		const command = new GetObjectCommand({
+			Bucket: bucket,
+			Key: key,
+			ResponseContentType: responseContentType,
+			ResponseContentDisposition: responseContentDisposition,
+		});
+		return getSignedUrl(this.presignClient, command, {expiresIn});
+	}
+
+	async getPresignedUploadURL({
+		bucket,
+		key,
+		contentType,
+		contentLength,
+		expiresIn = seconds('5 minutes'),
+	}: {
+		bucket: string;
+		key: string;
+		contentType?: string;
+		contentLength?: number;
+		expiresIn?: number;
+	}): Promise<string> {
+		const command = new PutObjectCommand({
+			Bucket: bucket,
+			Key: key,
+			ContentType: contentType,
+			ContentLength: contentLength,
+		});
+		return getSignedUrl(this.presignClient, command, {expiresIn});
+	}
+
+	async getPresignedUploadPartURL({
+		bucket,
+		key,
+		uploadId,
+		partNumber,
+		contentLength,
+		expiresIn = seconds('1 hour'),
+	}: {
+		bucket: string;
+		key: string;
+		uploadId: string;
+		partNumber: number;
+		contentLength?: number;
+		expiresIn?: number;
+	}): Promise<string> {
+		const command = new UploadPartCommand({
+			Bucket: bucket,
+			Key: key,
+			UploadId: uploadId,
+			PartNumber: partNumber,
+			ContentLength: contentLength,
+		});
+		return getSignedUrl(this.presignClient, command, {expiresIn});
+	}
+
+	async deleteObject(bucket: string, key: string): Promise<void> {
+		await this.client.send(new DeleteObjectCommand({Bucket: bucket, Key: key}));
+	}
+
+	async getObjectMetadata(
+		bucket: string,
+		key: string,
+	): Promise<{
+		contentLength: number;
+		contentType: string;
+		etag?: string;
+		lastModified?: Date;
+	} | null> {
+		try {
+			const out = await this.client.send(new HeadObjectCommand({Bucket: bucket, Key: key}));
+			return {
+				contentLength: out.ContentLength ?? 0,
+				contentType: out.ContentType ?? '',
+				...(out.ETag === undefined ? {} : {etag: out.ETag}),
+				...(out.LastModified === undefined ? {} : {lastModified: out.LastModified}),
+			};
+		} catch (error) {
+			if (error instanceof S3ServiceException && (error.name === 'NoSuchKey' || error.name === 'NotFound')) {
+				return null;
+			}
+			throw error;
+		}
+	}
+
+	async computeObjectSha256(bucket: string, key: string): Promise<string> {
+		const hash = createHash('sha256');
+		const out = await this.client.send(new GetObjectCommand({Bucket: bucket, Key: key}));
+		const body = extractStreamFromGet(out);
+		try {
+			for await (const chunk of body) {
+				hash.update(chunk as Uint8Array);
+			}
+		} catch (error) {
+			body.destroy();
+			throw error;
+		}
+		return hash.digest('hex');
+	}
+
+	async readObject(bucket: string, key: string, maxBytes?: number): Promise<Uint8Array> {
+		const out = await this.client.send(new GetObjectCommand({Bucket: bucket, Key: key}));
+		const body = extractStreamFromGet(out);
+		if (maxBytes !== undefined && out.ContentLength !== undefined && out.ContentLength > maxBytes) {
+			body.destroy();
+			throw new Error(`Stream exceeds maximum buffer size of ${maxBytes} bytes (got ${out.ContentLength} bytes)`);
+		}
+		return streamToUint8Array(body, maxBytes);
+	}
+
+	async streamObject(params: {bucket: string; key: string; range?: string}): Promise<{
+		body: Readable;
+		contentLength: number;
+		contentRange?: string | null;
+		contentType?: string | null;
+		etag?: string | null;
+		lastModified?: Date | null;
+	} | null> {
+		try {
+			const out = await this.client.send(
+				new GetObjectCommand({Bucket: params.bucket, Key: params.key, Range: params.range}),
+			);
+			return {
+				body: extractStreamFromGet(out),
+				contentLength: out.ContentLength ?? 0,
+				contentRange: out.ContentRange ?? null,
+				contentType: out.ContentType ?? null,
+				etag: out.ETag ?? null,
+				lastModified: out.LastModified ?? null,
+			};
+		} catch (error) {
+			if (error instanceof S3ServiceException && (error.name === 'NoSuchKey' || error.name === 'NotFound')) {
+				return null;
+			}
+			if (
+				params.range !== undefined &&
+				error instanceof S3ServiceException &&
+				(error.name === 'InvalidRange' || error.$metadata?.httpStatusCode === 416)
+			) {
+				throw new StorageObjectRangeNotSatisfiableError(params.bucket, params.key, params.range);
+			}
+			throw error;
+		}
+	}
+
+	private async ensureDirectoryExists(dirPath: string): Promise<void> {
+		await fs.promises.mkdir(dirPath, {recursive: true});
+	}
+
+	async writeObjectToDisk(bucket: string, key: string, filePath: string): Promise<void> {
+		await this.ensureDirectoryExists(path.dirname(filePath));
+		await this.downloadObject(bucket, key, filePath);
+	}
+
+	private async downloadObject(bucket: string, key: string, filePath: string): Promise<GetObjectCommandOutput> {
+		const out = await this.client.send(new GetObjectCommand({Bucket: bucket, Key: key}));
+		const stream = extractStreamFromGet(out);
+		const writeStream = fs.createWriteStream(filePath);
+		try {
+			await pipelinePromise(stream, writeStream);
+		} catch (error) {
+			writeStream.destroy();
+			throw error;
+		}
+		return out;
+	}
+
+	async copyObject({
+		sourceBucket,
+		sourceKey,
+		destinationBucket,
+		destinationKey,
+		newContentType,
+	}: {
+		sourceBucket: string;
+		sourceKey: string;
+		destinationBucket: string;
+		destinationKey: string;
+		newContentType?: string;
+	}): Promise<void> {
+		const isSameObject = sourceBucket === destinationBucket && sourceKey === destinationKey;
+		if (isSameObject && !newContentType) {
+			return;
+		}
+		try {
+			await this.client.send(
+				new CopyObjectCommand({
+					Bucket: destinationBucket,
+					Key: destinationKey,
+					CopySource: this.copySource(sourceBucket, sourceKey),
+					ContentType: newContentType,
+					MetadataDirective: newContentType ? 'REPLACE' : undefined,
+				}),
+			);
+		} catch (copyError) {
+			if (!isRejectedServerSideCopy(copyError)) {
+				throw copyError;
+			}
+			await this.copyObjectThroughApi(
+				{sourceBucket, sourceKey, destinationBucket, destinationKey, newContentType},
+				copyError,
+			);
+		}
+	}
+
+	private copySource(bucket: string, key: string): string {
+		const encodedBucket = encodeURIComponent(bucket);
+		const location = this.provider.forcePathStyle
+			? [...this.endpointPath, encodedBucket]
+			: [encodedBucket, ...this.endpointPath];
+		return [...location, ...key.split('/').map(encodeURIComponent)].join('/');
+	}
+
+	private async copyObjectThroughApi(
+		{
+			sourceBucket,
+			sourceKey,
+			destinationBucket,
+			destinationKey,
+			newContentType,
+		}: {
+			sourceBucket: string;
+			sourceKey: string;
+			destinationBucket: string;
+			destinationKey: string;
+			newContentType?: string;
+		},
+		copyError: unknown,
+	): Promise<void> {
+		const downloadedSource = temporaryFile();
+		try {
+			const source = await this.downloadObject(sourceBucket, sourceKey, downloadedSource);
+			Logger.warn(
+				{sourceBucket, destinationBucket, error: copyError},
+				'Object storage rejected a server-side copy, copying through the API instead',
+			);
+			await this.uploadObjectFromFile({
+				bucket: destinationBucket,
+				key: destinationKey,
+				filePath: downloadedSource,
+				contentType: newContentType ?? source.ContentType,
+				...(newContentType
+					? {}
+					: {
+							cacheControl: source.CacheControl,
+							contentDisposition: source.ContentDisposition,
+							expiresAt: source.Expires,
+						}),
+			});
+		} finally {
+			await fs.promises.unlink(downloadedSource).catch(() => undefined);
+		}
+	}
+
+	async copyObjectWithMetadataStripping({
+		sourceBucket,
+		sourceKey,
+		destinationBucket,
+		destinationKey,
+		contentType,
+		sourceLocalPath,
+	}: {
+		sourceBucket: string;
+		sourceKey: string;
+		destinationBucket: string;
+		destinationKey: string;
+		contentType: string;
+		sourceLocalPath?: string;
+	}): Promise<ProcessedStorageObjectMetadata | null> {
+		if (!isSupportedMediaContentType(contentType)) {
+			await this.copyObject({
+				sourceBucket,
+				sourceKey,
+				destinationBucket,
+				destinationKey,
+				newContentType: contentType,
+			});
+			return null;
+		}
+		const downloadedSource = sourceLocalPath ?? temporaryFile();
+		const ownsDownload = !sourceLocalPath;
+		const processedPath = temporaryFile();
+		try {
+			if (ownsDownload) {
+				await this.writeObjectToDisk(sourceBucket, sourceKey, downloadedSource);
+			}
+			const processed = await processMediaFile(downloadedSource, processedPath, contentType).catch((error) => {
+				Logger.error({error, contentType, sourceBucket, sourceKey}, 'Failed to strip attachment media metadata');
+				return null;
+			});
+			if (!processed) {
+				await this.copyObject({
+					sourceBucket,
+					sourceKey,
+					destinationBucket,
+					destinationKey,
+					newContentType: contentType,
+				});
+				return null;
+			}
+			await this.uploadObjectFromFile({
+				bucket: destinationBucket,
+				key: destinationKey,
+				filePath: processed.filePath,
+				contentType: processed.contentType,
+				contentLength: processed.contentLength,
+			});
+			return {
+				contentType: processed.contentType,
+				contentLength: processed.contentLength,
+				contentHash: processed.contentHash,
+				...(processed.width != null ? {width: processed.width} : {}),
+				...(processed.height != null ? {height: processed.height} : {}),
+			};
+		} finally {
+			await fs.promises.unlink(processedPath).catch(() => undefined);
+			if (ownsDownload) {
+				await fs.promises.unlink(downloadedSource).catch(() => undefined);
+			}
+		}
+	}
+
+	async uploadAvatar(params: {prefix: string; key: string; body: Uint8Array}): Promise<void> {
+		const {prefix, key, body} = params;
+		await this.uploadObject({
+			bucket: Config.s3.buckets.cdn,
+			key: `${prefix}/${key}`,
+			body,
+		});
+	}
+
+	async deleteAvatar(params: {prefix: string; key: string}): Promise<void> {
+		const {prefix, key} = params;
+		await this.deleteObject(Config.s3.buckets.cdn, `${prefix}/${key}`);
+	}
+
+	async listObjects(params: {bucket: string; prefix: string; maxObjects?: number}): Promise<
+		ReadonlyArray<{
+			key: string;
+			lastModified?: Date;
+		}>
+	> {
+		if (params.maxObjects !== undefined && (!Number.isSafeInteger(params.maxObjects) || params.maxObjects <= 0)) {
+			throw new RangeError('maxObjects must be a positive safe integer');
+		}
+		const result: Array<{
+			key: string;
+			lastModified?: Date;
+		}> = [];
+		let listedObjects = 0;
+		let continuationToken: string | undefined;
+		do {
+			const remaining = params.maxObjects === undefined ? undefined : params.maxObjects - listedObjects;
+			const command = new ListObjectsV2Command({
+				Bucket: params.bucket,
+				Prefix: params.prefix,
+				ContinuationToken: continuationToken,
+				MaxKeys: remaining === undefined ? undefined : Math.min(remaining, 1000),
+			});
+			const response = await this.client.send(command);
+			if (response.Contents) {
+				for (const obj of response.Contents) {
+					listedObjects += 1;
+					if (obj.Key) {
+						result.push({key: obj.Key, lastModified: obj.LastModified});
+					}
+				}
+			}
+			if (
+				params.maxObjects !== undefined &&
+				(listedObjects > params.maxObjects || (listedObjects === params.maxObjects && response.IsTruncated))
+			) {
+				throw new StorageObjectListingOverflowError(params.bucket, params.prefix, params.maxObjects);
+			}
+			if (response.IsTruncated && !response.NextContinuationToken) {
+				throw new Error(
+					`Truncated object listing omitted its continuation token for ${params.bucket}/${params.prefix}`,
+				);
+			}
+			continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
+		} while (continuationToken);
+		return result;
+	}
+
+	async createMultipartUpload(params: {bucket: string; key: string; contentType?: string}): Promise<{
+		uploadId: string;
+	}> {
+		const command = new CreateMultipartUploadCommand({
+			Bucket: params.bucket,
+			Key: params.key,
+			ContentType: params.contentType,
+		});
+		const response = await this.client.send(command);
+		assert(response.UploadId != null, 'Missing UploadId in CreateMultipartUpload response');
+		return {uploadId: response.UploadId};
+	}
+
+	async listParts(params: {bucket: string; key: string; uploadId: string}): Promise<
+		Array<{
+			partNumber: number;
+			etag: string;
+			size?: number;
+		}>
+	> {
+		const all: Array<{
+			partNumber: number;
+			etag: string;
+			size?: number;
+		}> = [];
+		let partNumberMarker: string | undefined;
+		do {
+			const response = await this.client.send(
+				new ListPartsCommand({
+					Bucket: params.bucket,
+					Key: params.key,
+					UploadId: params.uploadId,
+					PartNumberMarker: partNumberMarker,
+				}),
+			);
+			for (const part of response.Parts ?? []) {
+				if (part.PartNumber == null || part.ETag == null) continue;
+				all.push({partNumber: part.PartNumber, etag: part.ETag, size: part.Size});
+			}
+			partNumberMarker = response.IsTruncated ? response.NextPartNumberMarker : undefined;
+		} while (partNumberMarker);
+		all.sort((a, b) => a.partNumber - b.partNumber);
+		return all;
+	}
+
+	async completeMultipartUpload(params: {
+		bucket: string;
+		key: string;
+		uploadId: string;
+		parts: Array<{
+			partNumber: number;
+			etag: string;
+		}>;
+	}): Promise<void> {
+		const command = new CompleteMultipartUploadCommand({
+			Bucket: params.bucket,
+			Key: params.key,
+			UploadId: params.uploadId,
+			MultipartUpload: {
+				Parts: params.parts.map((part) => ({
+					PartNumber: part.partNumber,
+					ETag: part.etag,
+				})),
+			},
+		});
+		await this.client.send(command);
+	}
+
+	async abortMultipartUpload(params: {bucket: string; key: string; uploadId: string}): Promise<void> {
+		const command = new AbortMultipartUploadCommand({
+			Bucket: params.bucket,
+			Key: params.key,
+			UploadId: params.uploadId,
+		});
+		await this.client.send(command);
+	}
+}

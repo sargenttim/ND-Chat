@@ -1,0 +1,184 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.textareaContainer {
+	position: relative;
+	margin-top: 0.5rem;
+	background-color: var(--background-textarea);
+	border-radius: var(--radius-xl);
+	font-size: var(--textarea-font-size);
+}
+
+.divider {
+	width: 0.0625rem;
+	height: 1.5rem;
+	background-color: var(--background-modifier-hover);
+	margin-inline: var(--composer-action-gap);
+	align-self: center;
+}
+
+.textareaOuter {
+	display: flex;
+	flex-direction: column;
+	flex: 0 1 auto;
+	padding-inline: var(--composer-box-padding-inline);
+	box-sizing: border-box;
+	max-width: 100%;
+	min-width: 0;
+	contain: inline-size;
+	overflow: visible;
+}
+
+.collapsibleSection {
+	flex: 0 1 auto;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.inputSection {
+	flex-shrink: 1000;
+}
+
+.textareaOuterMobile {
+	padding: 0;
+	min-height: 0;
+	--textarea-min-height: var(--composer-mobile-box-height);
+	--textarea-padding-y: var(--composer-mobile-padding-y);
+	--composer-box-inset: 0px;
+	--composer-box-inset-inline: 0px;
+	--composer-box-padding-inline: 0px;
+}
+
+.mainWrapperDense {
+	display: grid;
+	grid-template-columns: minmax(0, auto) minmax(0, 1fr) minmax(0, auto);
+	align-items: start;
+	position: relative;
+	min-height: var(--textarea-min-height);
+	box-sizing: border-box;
+	padding: var(--textarea-padding-y) 0;
+	column-gap: var(--textarea-upload-gap);
+	min-width: 0;
+	width: 100%;
+	max-width: 100%;
+}
+
+.mainWrapperEditing {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--spacing-3);
+	padding-block: var(--spacing-2);
+	padding-inline-start: var(--spacing-4);
+	padding-inline-end: max(
+		0rem,
+		calc(var(--spacing-4) - (var(--textarea-button-height) - var(--textarea-button-icon-size)) / 2)
+	);
+	background-color: var(--background-textarea);
+	border: 0.0625rem solid var(--background-modifier-accent);
+	border-radius: var(--radius-md);
+	transition: border-color 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+	--scrollbar-track-bg: var(--background-textarea);
+}
+
+.mainWrapperEditing:focus-within {
+	border-color: var(--background-modifier-accent-focus);
+}
+
+.uploadButtonColumn {
+	grid-column: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	min-height: var(--textarea-button-height);
+	min-width: 0;
+	flex-shrink: 1;
+}
+
+.sideButtonPadding {
+	padding-inline: var(--textarea-side-button-padding);
+}
+
+.plusButtonAboveBackdrop {
+	position: relative;
+	z-index: calc(var(--z-index-contextmenu) + 1);
+}
+
+.contentAreaDense {
+	grid-column: 2;
+	display: flex;
+	flex-direction: column;
+	min-height: var(--textarea-button-height);
+	min-width: 0;
+	padding-top: var(--textarea-content-offset);
+}
+
+.contentAreaEditing {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	padding-top: var(--textarea-content-offset);
+}
+
+.contentAreaDense > * {
+	flex: 0 1 auto;
+	min-height: 0;
+}
+
+.buttonContainerDense {
+	grid-column: 3;
+	display: flex;
+	align-items: center;
+	gap: var(--composer-action-gap);
+	min-height: var(--textarea-button-height);
+	min-width: 0;
+	flex-shrink: 1;
+}
+
+.buttonContainerEditing {
+	display: flex;
+	align-items: flex-start;
+	justify-content: center;
+}
+
+.textareaOuterRow {
+	min-height: var(--textarea-min-height);
+	margin-block-start: 0;
+	margin-block-end: var(--composer-box-inset);
+	margin-inline: var(--composer-box-inset-inline);
+	background-color: var(--background-textarea);
+	--composer-box-radius: var(--footer-box-radius);
+	--composer-box-ring-color: var(--floating-surface-ring-color);
+	--scrollbar-track-bg: var(--background-textarea);
+}
+
+.textareaOuterRow::after {
+	content: '';
+	position: absolute;
+	inset: 0;
+	border-radius: inherit;
+	box-shadow: inset 0 0 0 0.0625rem var(--composer-box-ring-color);
+	transition: box-shadow 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+	pointer-events: none;
+}
+
+.textareaOuterRow:focus-within {
+	--composer-box-ring-color: var(--floating-surface-ring-color-strong);
+}
+
+.textareaOuterBare {
+	--composer-box-padding-inline: 0px;
+	--textarea-padding-y: 0px;
+	--textarea-min-height: 1.5rem;
+	padding-inline: 0;
+	background-color: transparent;
+}
+
+.mainWrapperBare {
+	grid-template-columns: minmax(0, 1fr);
+	column-gap: 0;
+}
+
+.mainWrapperBare > .contentAreaDense {
+	grid-column: 1;
+	padding-top: 0;
+}

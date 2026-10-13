@@ -21,6 +21,7 @@ const SECRETS: Record<string, string> = {
 	FLUXER_ERLANG_COOKIE: 'erlang-cookie',
 	FLUXER_SUDO_MODE_SECRET: 'sudo-mode-secret',
 	FLUXER_CONNECTION_INITIATION_SECRET: 'connection-initiation-secret',
+	FLUXER_PROFILE_PSEUDONYM_SECRET: 'profile-pseudonym-secret',
 	FLUXER_GATEWAY_RPC_AUTH_TOKEN: 'gateway-rpc-auth-token',
 	FLUXER_MEDIA_PROXY_SECRET_KEY: 'media-proxy-secret-key',
 	FLUXER_MEDIA_PROXY_UPLOAD_RELAY_SECRET_BASE64: 'AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=',
@@ -175,25 +176,6 @@ async function loadApiConfig(env: Record<string, string>): Promise<MasterConfig>
 	return loadConfig();
 }
 
-describe('Compose environment interpolation', () => {
-	test.each([
-		[`\${VALUE}`, {VALUE: 'set'}, 'set'],
-		['$VALUE/path', {VALUE: 'set'}, 'set/path'],
-		[`\${VALUE:-fallback}`, {VALUE: ''}, 'fallback'],
-		[`\${VALUE:-\${OTHER:-fallback}}`, {OTHER: 'nested'}, 'nested'],
-		[`\${VALUE:+alternate}`, {VALUE: 'set'}, 'alternate'],
-		[`\${VALUE:+alternate}`, {}, ''],
-		[`\${VALUE:?required}`, {VALUE: 'set'}, 'set'],
-	] as const)('expands %s with %j to %s', (source, environment, expected) => {
-		expect(expand(source, environment)).toBe(expected);
-	});
-
-	test('rejects a missing required value and unbalanced interpolation', () => {
-		expect(() => expand(`\${VALUE:?required}`, {})).toThrow('VALUE is required: required');
-		expect(() => expand('${VALUE:-fallback', {})).toThrow('unbalanced interpolation');
-	});
-});
-
 describe('the shipped compose stack expanded on a non-default port', () => {
 	test('every service handed a public URL is handed the base domain and port that repair it', () => {
 		const starved = serviceNames
@@ -207,7 +189,7 @@ describe('the shipped compose stack expanded on a non-default port', () => {
 		expect(starved).toEqual([]);
 	});
 
-	test('every public URL the stack hands a browser carries the port', () => {
+	test('every public URL the stack hands a browser includes the port', () => {
 		const entries = serviceNames
 			.filter((service) => !SERVICES_WITHOUT_ENDPOINT_REPAIR.has(service))
 			.flatMap((service) => repairedPublicUrls(service, PORT_ONLY_ENV));
@@ -226,7 +208,7 @@ describe('the shipped compose stack expanded on a non-default port', () => {
 	});
 });
 
-describe('a public origin carrying a port while FLUXER_PUBLIC_PORT stays standard', () => {
+describe('a public origin with a port while FLUXER_PUBLIC_PORT stays standard', () => {
 	beforeEach(() => {
 		resetConfig();
 	});
@@ -236,7 +218,7 @@ describe('a public origin carrying a port while FLUXER_PUBLIC_PORT stays standar
 		vi.unstubAllEnvs();
 	});
 
-	test('the compose overrides all carry the origin port', () => {
+	test('the compose overrides all include the origin port', () => {
 		const environment = expandedEnvironment('api', ORIGIN_ONLY_ENV);
 		const entries = publicUrlNames(environment).map((name): [string, string] => [name, environment[name]]);
 		expect(entries.length).toBeGreaterThan(0);

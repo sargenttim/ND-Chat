@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import type {GuildID} from '@app/api/BrandedTypes';
+import {BatchBuilder, fetchMany, fetchOne} from '@app/api/database/CassandraQueryExecution';
+import type {GuildDiscoveryByStatusRow, GuildDiscoveryRow} from '@app/api/database/types/GuildDiscoveryTypes';
+import {GuildDiscovery, GuildDiscoveryByStatus} from '@app/api/Tables';
+import {DISCOVERY_DEFAULT_LANGUAGE, DiscoveryCategories} from '@fluxer/constants/src/DiscoveryConstants';
+
+const FETCH_DISCOVERY_BY_GUILD_ID = GuildDiscovery.selectCql({
+	where: GuildDiscovery.where.eq('guild_id'),
+	limit: 1,
+});
+const FETCH_DISCOVERY_BY_STATUS = GuildDiscoveryByStatus.selectCql({
+	where: GuildDiscoveryByStatus.where.eq('status'),
+});
+
+export class GuildDiscoveryRepository {
+	async findByGuildId(guildId: GuildID): Promise<GuildDiscoveryRow | null> {
+		const row = await fetchOne<GuildDiscoveryRow>(FETCH_DISCOVERY_BY_GUILD_ID, {
+			guild_id: guildId,
+		});
+		if (row) {
+			row.category_type ??= DiscoveryCategories.GAMING;
+			row.primary_language ??= DISCOVERY_DEFAULT_LANGUAGE;
+			row.custom_tags ??= [];
+		}
+		return row;
+	}
+
+	async listByStatus(status: string): Promise<Array<GuildDiscoveryByStatusRow>> {
+		return fetchMany<GuildDiscoveryByStatusRow>(FETCH_DISCOVERY_BY_STATUS, {
+			status,
+		});
+	}
+
+	async listFullByStatus(status: string): Promise<Array<GuildDiscoveryRow>> {
+		const indexRows = await this.listByStatus(status);
+		const fullRows = await Promise.all(indexRows.map((indexRow) => this.findByGuildId(indexRow.guild_id)));
+		return fullRows.filter((row): row is GuildDiscoveryRow => row !== null);
+	}
+
+	async upsert(row: GuildDiscoveryRow): Promise<void> {
+		const batch = new BatchBuilder();
+		batch.addPrepared(
+			GuildDiscovery.insert({
+				guild_id: row.guild_id,
+				status: row.status,
+				category_type: row.category_type,
+				description: row.description,
+				primary_language: row.primary_language,
+				custom_tags: row.custom_tags,
+				applied_at: row.applied_at,
+				reviewed_at: row.reviewed_at,
+				reviewed_by: row.reviewed_by,
+				review_reason: row.review_reason,
+				removed_at: row.removed_at,
+				removed_by: row.removed_by,
+				removal_reason: row.removal_reason,
+			}),
+		);
+		batch.addPrepared(
+			GuildDiscoveryByStatus.insert({
+				status: row.status,
+				applied_at: row.applied_at,
+				guild_id: row.guild_id,
+			}),
+		);
+		await batch.execute();
+	}
+
+	async deleteByGuildId(guildId: GuildID, status: string, appliedAt: Date): Promise<void> {
+		const batch = new BatchBuilder();
+		batch.addPrepared(GuildDiscovery.deleteByPk({guild_id: guildId}));
+		batch.addPrepared(
+			GuildDiscoveryByStatus.deleteByPk({
+				status,
+				applied_at: appliedAt,
+				guild_id: guildId,
+			}),
+		);
+		await batch.execute();
+	}
+
+	async updateStatus(
+		guildId: GuildID,
+		oldStatus: string,
+		oldAppliedAt: Date,
+		updatedRow: GuildDiscoveryRow,
+	): Promise<void> {
+		const batch = new BatchBuilder();
+		batch.addPrepared(
+			GuildDiscoveryByStatus.deleteByPk({
+				status: oldStatus,
+				applied_at: oldAppliedAt,
+				guild_id: guildId,
+			}),
+		);
+		batch.addPrepared(
+			GuildDiscovery.insert({
+				guild_id: updatedRow.guild_id,
+				status: updatedRow.status,
+				category_type: updatedRow.category_type,
+				description: updatedRow.description,
+				primary_language: updatedRow.primary_language,
+				custom_tags: updatedRow.custom_tags,
+				applied_at: updatedRow.applied_at,
+				reviewed_at: updatedRow.reviewed_at,
+				reviewed_by: updatedRow.reviewed_by,
+				review_reason: updatedRow.review_reason,
+				removed_at: updatedRow.removed_at,
+				removed_by: updatedRow.removed_by,
+				removal_reason: updatedRow.removal_reason,
+			}),
+		);
+		batch.addPrepared(
+			GuildDiscoveryByStatus.insert({
+				status: updatedRow.status,
+				applied_at: updatedRow.applied_at,
+				guild_id: updatedRow.guild_id,
+			}),
+		);
+		await batch.execute();
+	}
+}

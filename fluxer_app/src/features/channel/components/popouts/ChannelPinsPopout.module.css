@@ -1,0 +1,50 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.container {
+	--pins-popout-header-height: 4.25rem;
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	overflow: hidden;
+	border-radius: 0.5rem;
+	border: 0.0625rem solid var(--background-modifier-accent);
+	background-color: var(--form-surface-background);
+}
+
+.header {
+	position: relative;
+	display: flex;
+	align-items: center;
+	gap: 0.25rem;
+	padding: 1rem;
+	min-height: var(--pins-popout-header-height);
+}
+
+.body {
+	flex: 1 1 0%;
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	overflow: hidden;
+}
+
+.title {
+	font-weight: 600;
+	font-size: 1rem;
+	color: var(--text-primary);
+	line-height: 1.25;
+}
+
+.iconLarge {
+	height: 1.5rem;
+	width: 1.5rem;
+	color: var(--text-primary-muted);
+}
+
+:global(html.channel-pins-popout-resizing),
+:global(html.channel-pins-popout-resizing) * {
+	cursor: var(--channel-pins-popout-resize-cursor, nwse-resize) !important;
+	user-select: none !important;
+	-webkit-user-select: none !important;
+}

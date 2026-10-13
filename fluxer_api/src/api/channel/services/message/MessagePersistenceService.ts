@@ -1,0 +1,699 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import assert from 'node:assert/strict';
+import {AttachmentDecayService} from '@app/api/attachment/AttachmentDecayService';
+import type {ChannelID, GuildID, MessageID, RoleID, StickerID, UserID, WebhookID} from '@app/api/BrandedTypes';
+import {createAttachmentID, createGuildID} from '@app/api/BrandedTypes';
+import {Config} from '@app/api/Config';
+import type {AttachmentToProcess} from '@app/api/channel/AttachmentDTOs';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {MessageUpdateRequest} from '@app/api/channel/MessageTypes';
+import type {AttachmentUploadTraceRepository} from '@app/api/channel/repositories/message/AttachmentUploadTraceRepository';
+import {AttachmentProcessingService} from '@app/api/channel/services/message/AttachmentProcessingService';
+import {type DmNsfwContext, MessageContentService} from '@app/api/channel/services/message/MessageContentService';
+import {MessageEmbedAttachmentResolver} from '@app/api/channel/services/message/MessageEmbedAttachmentResolver';
+import {
+	assertAttachmentFileSizesWithinLimit,
+	collectMessageAttachments,
+	isCrosspostCopy,
+	keepOwnedEmbedAttachments,
+} from '@app/api/channel/services/message/MessageHelpers';
+import {MessageStickerService} from '@app/api/channel/services/message/MessageStickerService';
+import {resolveNsfwScopeChannel} from '@app/api/channel/utils/ThreadNsfwScope';
+import {getContentMessage} from '@app/api/content_i18n/ContentI18n';
+import type {
+	MessageAttachment,
+	MessageEmbed,
+	MessageReference,
+	MessageStickerItem,
+} from '@app/api/database/types/MessageTypes';
+import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {EmbedService} from '@app/api/infrastructure/EmbedService';
+import type {IMediaService, MediaProxyNsfwMode} from '@app/api/infrastructure/IMediaService';
+import type {ISnowflakeService} from '@app/api/infrastructure/ISnowflakeService';
+import type {IStorageService} from '@app/api/infrastructure/IStorageService';
+import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
+import {resolveLimitSafe} from '@app/api/limits/LimitConfigUtils';
+import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder';
+import type {Channel} from '@app/api/models/Channel';
+import type {Message} from '@app/api/models/Message';
+import type {MessageSnapshot} from '@app/api/models/MessageSnapshot';
+import type {User} from '@app/api/models/User';
+import type {ReadStateService} from '@app/api/read_state/ReadStateService';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import {MessageFlags, Permissions, SENDABLE_MESSAGE_FLAGS} from '@fluxer/constants/src/ChannelConstants';
+import {ATTACHMENT_MAX_SIZE_NON_PREMIUM} from '@fluxer/constants/src/LimitConstants';
+import {UserFlags} from '@fluxer/constants/src/UserConstants';
+import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
+import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
+import type {GuildMemberResponse} from '@fluxer/schema/src/domains/guild/GuildMemberSchemas';
+import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
+import type {RichEmbedRequest} from '@fluxer/schema/src/domains/message/MessageRequestSchemas';
+import type {AllowedMentionsRequest} from '@fluxer/schema/src/domains/message/SharedMessageSchemas';
+import {hasVisibleContent} from '@fluxer/schema/src/primitives/MessageValidators';
+import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
+import * as BucketUtils from '@fluxer/snowflake/src/SnowflakeBuckets';
+import type {IVirusScanService} from '@pkgs/virus_scan/src/IVirusScanService';
+
+function mapAttachmentForEmbedResolution(att: MessageAttachment) {
+	return {
+		attachment_id: att.attachment_id,
+		filename: att.filename,
+		width: att.width ?? null,
+		height: att.height ?? null,
+		content_type: att.content_type,
+		content_hash: att.content_hash ?? null,
+		placeholder: att.placeholder ?? null,
+		flags: att.flags ?? 0,
+		duration: att.duration ?? null,
+		nsfw: att.nsfw ?? null,
+	};
+}
+
+interface CreateMessageResult {
+	message: Message;
+	enqueueDeferredEmbeds: () => Promise<void>;
+}
+
+interface UpdateMessageResult {
+	message: Message;
+	enqueueDeferredEmbeds: () => Promise<void>;
+}
+
+interface CreateMessageParams {
+	messageId: MessageID;
+	channelId: ChannelID;
+	user?: User;
+	userId?: UserID;
+	webhookId?: WebhookID;
+	webhookName?: string;
+	webhookAvatar?: string | null;
+	type: number;
+	content: string | null | undefined;
+	flags: number;
+	embeds?: Array<RichEmbedRequest>;
+	attachments?: Array<AttachmentToProcess>;
+	attachmentUploadUserId?: UserID;
+	uploadChannelId?: ChannelID;
+	processedAttachments?: Array<MessageAttachment>;
+	stickerIds?: Array<StickerID>;
+	messageReference?: MessageReference;
+	messageSnapshots?: Array<MessageSnapshot>;
+	guildId: GuildID | null;
+	channel?: Channel;
+	referencedMessage?: Message | null;
+	allowedMentions?: AllowedMentionsRequest | null;
+	guild?: GuildResponse | null;
+	member?: GuildMemberResponse | null;
+	hasPermission?: (permission: bigint) => Promise<boolean>;
+	mentionData?: {
+		flags: number;
+		mentionUserIds: Array<UserID>;
+		mentionRoleIds: Array<RoleID>;
+		mentionChannelIds: Array<ChannelID>;
+		mentionEveryone: boolean;
+	};
+	allowEmbeds?: boolean;
+	dmNsfwContext?: DmNsfwContext;
+	processedEmbeds?: Array<MessageEmbed>;
+	processedStickerItems?: Array<MessageStickerItem>;
+	skipDeferredEmbeds?: boolean;
+	threadInsert?: boolean;
+}
+
+export class MessagePersistenceService {
+	private readonly attachmentService: AttachmentProcessingService;
+	private readonly contentService: MessageContentService;
+	private readonly stickerService: MessageStickerService;
+	private readonly embedAttachmentResolver: MessageEmbedAttachmentResolver;
+	private readonly attachmentDecayService: AttachmentDecayService;
+
+	constructor(
+		private channelRepository: ChannelRepository,
+		private userRepository: UserRepository,
+		guildRepository: GuildRepository,
+		private embedService: EmbedService,
+		private readonly storageService: IStorageService,
+		attachmentUploadTraceRepository: AttachmentUploadTraceRepository,
+		mediaService: IMediaService,
+		virusScanService: IVirusScanService,
+		snowflakeService: ISnowflakeService,
+		private readStateService: ReadStateService,
+		private readonly limitConfigService: LimitConfigService,
+	) {
+		this.attachmentService = new AttachmentProcessingService(
+			storageService,
+			attachmentUploadTraceRepository,
+			mediaService,
+			virusScanService,
+			snowflakeService,
+		);
+		this.contentService = new MessageContentService(this.userRepository, guildRepository, limitConfigService);
+		this.stickerService = new MessageStickerService(this.userRepository, guildRepository, limitConfigService);
+		this.embedAttachmentResolver = new MessageEmbedAttachmentResolver();
+		this.attachmentDecayService = new AttachmentDecayService();
+	}
+
+	private nsfwScopeChannel(channel: Channel): Promise<Channel> {
+		return resolveNsfwScopeChannel(channel, (channelId) => this.channelRepository.channelData.findUnique(channelId));
+	}
+
+	resolveDmNsfwContext(channel: Channel, senderId: UserID): Promise<DmNsfwContext | undefined> {
+		return this.contentService.resolveDmNsfwContext(channel, senderId);
+	}
+
+	getEmbedAttachmentResolver(): MessageEmbedAttachmentResolver {
+		return this.embedAttachmentResolver;
+	}
+
+	async createMessage(params: CreateMessageParams): Promise<CreateMessageResult> {
+		const authorId = params.user?.id ?? params.userId ?? null;
+		const mentionData =
+			params.mentionData ??
+			({
+				flags: params.flags,
+				mentionUserIds: [],
+				mentionRoleIds: [],
+				mentionChannelIds: [],
+				mentionEveryone: false,
+			} as const);
+		const isBot = params.user?.isBot ?? false;
+		const isBugHunterBot = isBot && ((params.user?.flags ?? 0n) & UserFlags.BUG_HUNTER) !== 0n;
+		const isNSFWAllowed = this.contentService.isNSFWContentAllowed({
+			channel: params.channel ? await this.nsfwScopeChannel(params.channel) : undefined,
+			guild: params.guild,
+			member: params.member,
+			isBot,
+			dmNsfwContext: params.dmNsfwContext,
+		});
+		const [sanitizedContent, attachmentResult, processedStickers] = await Promise.all([
+			this.sanitizeContentIfNeeded(params, authorId),
+			this.processAttachments(params, isNSFWAllowed ? 'allow' : 'block'),
+			this.processStickers(params, authorId),
+		]);
+		let messageContent = sanitizedContent;
+		let processedAttachments: Array<MessageAttachment> = params.processedAttachments
+			? [...params.processedAttachments]
+			: [];
+		if (attachmentResult) {
+			if (attachmentResult.hasVirusDetected) {
+				messageContent = getContentMessage('content.virus_detected', params.user?.locale);
+				processedAttachments = [];
+			} else {
+				processedAttachments = [...processedAttachments, ...attachmentResult.attachments];
+			}
+		}
+		const allowEmbeds = params.allowEmbeds ?? true;
+		let initialEmbeds: Array<MessageEmbed> | null = null;
+		let hasUncachedUrls = false;
+		const referencedFilenames = params.processedEmbeds
+			? new Set<string>()
+			: this.embedAttachmentResolver.collectReferencedAttachmentFilenames(params.embeds);
+		if (params.processedEmbeds) {
+			initialEmbeds = params.processedEmbeds.length > 0 ? params.processedEmbeds : null;
+		} else if (allowEmbeds) {
+			const resolvedEmbeds = this.embedAttachmentResolver.resolveEmbedAttachmentUrls({
+				embeds: params.embeds,
+				attachments: processedAttachments.map(mapAttachmentForEmbedResolution),
+				channelId: params.channelId,
+			});
+			const embedResult = await this.embedService.getInitialEmbeds({
+				content: messageContent,
+				customEmbeds: resolvedEmbeds,
+				nsfwMode: isNSFWAllowed ? 'allow' : 'block',
+				isBugHunterBot,
+			});
+			initialEmbeds = embedResult.embeds;
+			hasUncachedUrls = embedResult.hasUncachedUrls;
+		}
+		const messageAttachments =
+			referencedFilenames.size > 0
+				? processedAttachments.filter((att) => !referencedFilenames.has(att.filename))
+				: processedAttachments;
+		const messageRowData = {
+			channel_id: params.channelId,
+			bucket: BucketUtils.makeBucket(params.messageId),
+			message_id: params.messageId,
+			author_id: authorId,
+			type: params.type,
+			webhook_id: params.webhookId || null,
+			webhook_name: params.webhookName || null,
+			webhook_avatar_hash: params.webhookAvatar || null,
+			content: messageContent,
+			edited_timestamp: null,
+			pinned_timestamp: null,
+			flags: mentionData.flags,
+			mention_everyone: mentionData.mentionEveryone,
+			mention_users: mentionData.mentionUserIds.length > 0 ? new Set(mentionData.mentionUserIds) : null,
+			mention_roles: mentionData.mentionRoleIds.length > 0 ? new Set(mentionData.mentionRoleIds) : null,
+			mention_channels: mentionData.mentionChannelIds.length > 0 ? new Set(mentionData.mentionChannelIds) : null,
+			attachments: messageAttachments.length > 0 ? messageAttachments : null,
+			embeds: allowEmbeds ? initialEmbeds : null,
+			sticker_items: processedStickers.length > 0 ? processedStickers : null,
+			message_reference: params.messageReference || null,
+			message_snapshots:
+				params.messageSnapshots && params.messageSnapshots.length > 0
+					? params.messageSnapshots.map((snapshot) => snapshot.toMessageSnapshot())
+					: null,
+			call: null,
+			has_reaction: false,
+			version: 1,
+		};
+		const message = await this.channelRepository.messages.upsertMessage(
+			messageRowData,
+			null,
+			params.threadInsert ? {isInsert: true} : undefined,
+		);
+		const enqueueDeferredEmbeds = await this.runPostPersistenceOperations({
+			message,
+			params,
+			authorId,
+			allowEmbeds,
+			hasUncachedUrls,
+			isNSFWAllowed,
+		});
+		return {message, enqueueDeferredEmbeds};
+	}
+
+	private async sanitizeContentIfNeeded(params: CreateMessageParams, authorId: UserID | null): Promise<string | null> {
+		const messageContent = params.content ?? null;
+		if (!messageContent || !hasVisibleContent(messageContent)) {
+			return null;
+		}
+		if (!params.channel) {
+			return messageContent;
+		}
+		const sanitizedContent = await this.contentService.sanitizeCustomEmojis({
+			content: messageContent,
+			userId: authorId,
+			webhookId: params.webhookId ?? null,
+			guildId: params.guildId,
+			hasPermission: params.guildId ? params.hasPermission : undefined,
+		});
+		return hasVisibleContent(sanitizedContent) ? sanitizedContent : null;
+	}
+
+	private async processAttachments(
+		params: CreateMessageParams,
+		nsfwMode: MediaProxyNsfwMode,
+	): Promise<{
+		attachments: Array<MessageAttachment>;
+		hasVirusDetected: boolean;
+	} | null> {
+		if (!params.attachments || params.attachments.length === 0) {
+			return null;
+		}
+		const uploadUserId = params.attachmentUploadUserId;
+		assert(uploadUserId !== undefined, 'Attachment upload actor must be resolved before processing new attachments');
+		return this.attachmentService.computeAttachments({
+			message: {
+				id: params.messageId,
+				channelId: params.channelId,
+			} as Message,
+			attachments: params.attachments,
+			uploadUserId,
+			uploadChannelId: params.uploadChannelId,
+			channel: params.channel,
+			guild: params.guild,
+			member: params.member,
+			nsfwMode,
+		});
+	}
+
+	private async processStickers(
+		params: CreateMessageParams,
+		authorId: UserID | null,
+	): Promise<Array<MessageStickerItem>> {
+		if (params.processedStickerItems) {
+			return params.processedStickerItems;
+		}
+		if (!params.stickerIds || params.stickerIds.length === 0) {
+			return [];
+		}
+		return this.stickerService.computeStickerIds({
+			stickerIds: params.stickerIds,
+			userId: authorId,
+			guildId: params.guildId,
+			hasPermission: params.hasPermission,
+		});
+	}
+
+	private async runPostPersistenceOperations(context: {
+		message: Message;
+		params: CreateMessageParams;
+		authorId: UserID | null;
+		allowEmbeds: boolean;
+		hasUncachedUrls: boolean;
+		isNSFWAllowed: boolean;
+	}): Promise<() => Promise<void>> {
+		const {message, params, authorId, allowEmbeds, hasUncachedUrls, isNSFWAllowed} = context;
+		const operations: Array<Promise<unknown>> = [];
+		const trackedAttachments = isCrosspostCopy(message) ? [] : collectMessageAttachments(message);
+		if (trackedAttachments.length > 0) {
+			const uploadedAt = snowflakeToDate(params.messageId);
+			const decayPayloads = trackedAttachments.map((att) => ({
+				attachmentId: att.id,
+				channelId: params.channelId,
+				messageId: params.messageId,
+				filename: att.filename,
+				sizeBytes: att.size,
+				uploadedAt,
+			}));
+			operations.push(this.attachmentDecayService.upsertMany(decayPayloads));
+		}
+		let enqueueDeferredEmbeds: () => Promise<void> = () => Promise.resolve();
+		if (allowEmbeds && hasUncachedUrls && !params.skipDeferredEmbeds) {
+			enqueueDeferredEmbeds = () =>
+				this.embedService.enqueueUrlEmbedExtraction(
+					params.channelId,
+					params.messageId,
+					params.guildId,
+					isNSFWAllowed ? 'allow' : 'block',
+					{content: message.content},
+				);
+		}
+		if (authorId) {
+			const isBot = params.user?.isBot ?? false;
+			if (!isBot) {
+				operations.push(
+					this.readStateService.ackMessage({
+						userId: authorId,
+						channelId: params.channelId,
+						messageId: params.messageId,
+						mentionCount: 0,
+						implicit: {unreadThrough: params.user ? (params.channel?.lastMessageId ?? null) : null},
+						emitGateway: false,
+						...(params.threadInsert ? {capable: true, channel: params.channel ?? null} : {}),
+					}),
+				);
+			}
+		}
+		if (operations.length > 0) {
+			await Promise.all(operations);
+		}
+		return enqueueDeferredEmbeds;
+	}
+
+	async updateMessage(params: {
+		message: Message;
+		messageId: MessageID;
+		data: MessageUpdateRequest;
+		channel: Channel;
+		guild: GuildResponse | null;
+		member?: GuildMemberResponse | null;
+		allowEmbeds?: boolean;
+		attachmentUploadUserId?: UserID;
+		isBot?: boolean;
+		isBugHunterBot?: boolean;
+		locale?: string | null;
+		dmNsfwContext?: DmNsfwContext;
+	}): Promise<UpdateMessageResult> {
+		const {message, messageId, data, channel, guild, member} = params;
+		if (message.messageSnapshots && message.messageSnapshots.length > 0) {
+			throw InputValidationError.fromCode('message', ValidationErrorCodes.MESSAGES_WITH_SNAPSHOTS_CANNOT_BE_EDITED);
+		}
+		const isNSFWAllowed = this.contentService.isNSFWContentAllowed({
+			channel: await this.nsfwScopeChannel(channel),
+			guild,
+			member,
+			isBot: params.isBot,
+			dmNsfwContext: params.dmNsfwContext,
+		});
+		const updatedRowData = {...message.toRow()};
+		let hasChanges = false;
+		const allowEmbeds = params.allowEmbeds ?? true;
+		let hasUncachedUrls = false;
+		if (data.content !== undefined && data.content !== message.content) {
+			let sanitizedContent = data.content && hasVisibleContent(data.content) ? data.content : '';
+			if (sanitizedContent) {
+				sanitizedContent = await this.contentService.sanitizeCustomEmojis({
+					content: sanitizedContent,
+					userId: message.authorId ?? null,
+					webhookId: message.webhookId ?? null,
+					guildId: channel.guildId,
+				});
+				if (!hasVisibleContent(sanitizedContent)) {
+					sanitizedContent = '';
+				}
+			}
+			updatedRowData.content = sanitizedContent;
+			updatedRowData.edited_timestamp = new Date();
+			hasChanges = true;
+		}
+		if (data.flags !== undefined) {
+			const preservedFlags = message.flags & ~SENDABLE_MESSAGE_FLAGS;
+			const newFlags = data.flags & SENDABLE_MESSAGE_FLAGS;
+			updatedRowData.flags = preservedFlags | newFlags;
+			hasChanges = true;
+		}
+		if (data.attachments !== undefined) {
+			if (data.attachments.length > 0) {
+				type EditNewAttachment = AttachmentToProcess & {
+					upload_filename: string;
+				};
+				type EditExistingAttachment = {
+					id: bigint;
+					title?: string | null;
+					description?: string | null;
+				};
+				type EditAttachment = EditNewAttachment | EditExistingAttachment;
+				const newAttachments: Array<AttachmentToProcess> = [];
+				const existingAttachments: Array<MessageAttachment> = [];
+				for (const att of data.attachments as Array<EditAttachment>) {
+					if ('upload_filename' in att && att.upload_filename) {
+						newAttachments.push(att as AttachmentToProcess);
+					} else {
+						const existingAtt = att as EditExistingAttachment;
+						const refId = createAttachmentID(existingAtt.id);
+						let found = message.attachments.find((existing) => existing.id === refId);
+						if (!found && refId < BigInt(message.attachments.length)) {
+							found = message.attachments[Number(refId)];
+						}
+						if (found) {
+							const updated = found.toMessageAttachment();
+							if ('title' in existingAtt && existingAtt.title !== undefined) {
+								updated.title = existingAtt.title;
+							}
+							if ('description' in existingAtt && existingAtt.description !== undefined) {
+								updated.description = existingAtt.description;
+							}
+							existingAttachments.push(updated);
+						}
+					}
+				}
+				let processedNewAttachments: Array<MessageAttachment> = [];
+				if (newAttachments.length > 0) {
+					const uploadUserId = params.attachmentUploadUserId;
+					assert(
+						uploadUserId !== undefined,
+						'Attachment upload actor must be resolved before processing new attachments',
+					);
+					const uploader = await this.userRepository.findUnique(uploadUserId);
+					const guildFeatures = guild?.features ?? null;
+					const maxFileSize = Math.floor(
+						resolveLimitSafe(
+							this.limitConfigService.getConfigSnapshot(),
+							createLimitMatchContext({user: uploader, guildFeatures}),
+							'max_attachment_file_size',
+							ATTACHMENT_MAX_SIZE_NON_PREMIUM,
+							guildFeatures ? 'guild' : 'user',
+						),
+					);
+					const uploadedSizes: Array<number> = [];
+					for (const [index, attachment] of newAttachments.entries()) {
+						const uploadedFile = await this.storageService.getObjectMetadata(
+							Config.s3.buckets.uploads,
+							attachment.upload_filename,
+						);
+						if (!uploadedFile) {
+							throw InputValidationError.fromCode(
+								`attachments.${index}.upload_filename`,
+								ValidationErrorCodes.FILE_NOT_FOUND,
+							);
+						}
+						uploadedSizes.push(uploadedFile.contentLength);
+					}
+					assertAttachmentFileSizesWithinLimit(uploadedSizes, maxFileSize);
+					const attachmentResult = await this.attachmentService.computeAttachments({
+						message,
+						attachments: newAttachments,
+						uploadUserId,
+						channel,
+						guild,
+						member,
+						nsfwMode: isNSFWAllowed ? 'allow' : 'block',
+					});
+					processedNewAttachments = attachmentResult.attachments;
+					if (attachmentResult.hasVirusDetected) {
+						updatedRowData.content = getContentMessage('content.virus_detected', params.locale);
+					}
+				}
+				const allAttachments = [...existingAttachments, ...processedNewAttachments];
+				updatedRowData.attachments = allAttachments.length > 0 ? allAttachments : null;
+			} else {
+				updatedRowData.attachments = null;
+			}
+			hasChanges = true;
+		}
+		const embedsExplicitlyProvided = data.embeds !== undefined;
+		if (allowEmbeds && (embedsExplicitlyProvided || data.content !== undefined)) {
+			const attachmentsForResolution = updatedRowData.attachments || [];
+			const resolvedEmbeds = this.embedAttachmentResolver.resolveEmbedAttachmentUrls({
+				embeds: data.embeds,
+				attachments: attachmentsForResolution.map(mapAttachmentForEmbedResolution),
+				channelId: channel.id,
+			});
+			const referencedFilenames = this.embedAttachmentResolver.collectReferencedAttachmentFilenames(data.embeds);
+			if (referencedFilenames.size > 0 && updatedRowData.attachments) {
+				const filtered = updatedRowData.attachments.filter((att) => !referencedFilenames.has(att.filename));
+				updatedRowData.attachments = filtered.length > 0 ? filtered : null;
+			}
+			const {embeds: initialEmbeds, hasUncachedUrls: embedUrls} = await this.embedService.getInitialEmbeds({
+				content: updatedRowData.content ?? null,
+				customEmbeds: resolvedEmbeds,
+				nsfwMode: isNSFWAllowed ? 'allow' : 'block',
+				isBugHunterBot: params.isBugHunterBot,
+			});
+			if (embedsExplicitlyProvided) {
+				keepOwnedEmbedAttachments(message, initialEmbeds);
+				updatedRowData.embeds = initialEmbeds;
+			} else {
+				const preservedEmbeds = message.embeds
+					.map((embed) => embed.toMessageEmbed())
+					.filter((embed) => embed.type === 'rich');
+				const nextEmbeds = [...preservedEmbeds, ...(initialEmbeds ?? [])];
+				updatedRowData.embeds = nextEmbeds.length > 0 ? nextEmbeds : null;
+			}
+			hasUncachedUrls = embedUrls;
+			hasChanges = true;
+		}
+		let updatedMessage = message;
+		if (hasChanges) {
+			updatedMessage = await this.channelRepository.messages.upsertMessage(updatedRowData, message.toRow());
+		}
+		const enqueueDeferredEmbeds =
+			allowEmbeds && hasUncachedUrls
+				? () =>
+						this.embedService.enqueueUrlEmbedExtraction(
+							channel.id,
+							messageId,
+							guild?.id ? createGuildID(BigInt(guild.id)) : null,
+							isNSFWAllowed ? 'allow' : 'block',
+							{content: updatedMessage.content},
+						)
+				: () => Promise.resolve();
+		return {message: updatedMessage, enqueueDeferredEmbeds};
+	}
+
+	async handleNonAuthorEdit(params: {
+		message: Message;
+		data: MessageUpdateRequest;
+		guild: GuildResponse | null;
+		hasPermission: (permission: bigint) => Promise<boolean>;
+	}): Promise<{
+		canEdit: boolean;
+		updatedFlags?: number;
+		updatedAttachments?: Array<MessageAttachment>;
+	}> {
+		const {message, data, guild, hasPermission} = params;
+		if (!guild) {
+			return {canEdit: false};
+		}
+		const hasEditableFields = data.flags != null || data.attachments !== undefined;
+		if (!hasEditableFields) {
+			return {canEdit: false};
+		}
+		const canManage = await hasPermission(Permissions.MANAGE_MESSAGES);
+		if (!canManage) {
+			return {canEdit: false};
+		}
+		let updatedFlags: number | undefined;
+		let updatedAttachments: Array<MessageAttachment> | undefined;
+		if (data.flags != null) {
+			if (data.flags & MessageFlags.SUPPRESS_EMBEDS) {
+				updatedFlags = message.flags | MessageFlags.SUPPRESS_EMBEDS;
+			} else {
+				updatedFlags = message.flags & ~MessageFlags.SUPPRESS_EMBEDS;
+			}
+		}
+		if (data.attachments !== undefined) {
+			type EditExistingAttachment = {
+				id: bigint;
+				title?: string | null;
+				description?: string | null;
+			};
+			type EditAttachment =
+				| (AttachmentToProcess & {
+						upload_filename: string;
+				  })
+				| EditExistingAttachment;
+			for (const att of data.attachments as Array<EditAttachment>) {
+				if (!('upload_filename' in att)) {
+					const allowedKeys = new Set(['id', 'title', 'description', 'flags']);
+					const disallowedEditKeys = new Set(['filename', 'duration', 'waveform']);
+					const actualKeys = Object.keys(att);
+					const hasDisallowedKeys =
+						actualKeys.some((key) => !allowedKeys.has(key)) || actualKeys.some((key) => disallowedEditKeys.has(key));
+					if (hasDisallowedKeys) {
+						throw InputValidationError.fromCode('attachments', ValidationErrorCodes.CANNOT_EDIT_ATTACHMENT_METADATA);
+					}
+				}
+			}
+			const processedAttachments: Array<MessageAttachment> = [];
+			for (const att of data.attachments as Array<EditAttachment>) {
+				if (!('upload_filename' in att)) {
+					const existingAtt = att as EditExistingAttachment;
+					const refId = createAttachmentID(existingAtt.id);
+					let found = message.attachments.find((existing) => existing.id === refId);
+					if (!found && refId < BigInt(message.attachments.length)) {
+						found = message.attachments[Number(refId)];
+					}
+					if (found) {
+						const updated = found.toMessageAttachment();
+						if ('title' in existingAtt && existingAtt.title !== undefined) {
+							updated.title = existingAtt.title;
+						}
+						if ('description' in existingAtt && existingAtt.description !== undefined) {
+							updated.description = existingAtt.description;
+						}
+						processedAttachments.push(updated);
+					}
+				}
+			}
+			updatedAttachments = processedAttachments;
+		}
+		return {canEdit: true, updatedFlags, updatedAttachments};
+	}
+
+	async createSystemMessage(params: {
+		messageId: MessageID;
+		channelId: ChannelID;
+		userId: UserID;
+		type: number;
+		content?: string | null;
+		guildId?: GuildID | null;
+		mentionUserIds?: Array<UserID>;
+		messageReference?: MessageReference;
+	}): Promise<Message> {
+		const {message} = await this.createMessage({
+			messageId: params.messageId,
+			channelId: params.channelId,
+			userId: params.userId,
+			type: params.type,
+			content: params.content ?? null,
+			flags: 0,
+			guildId: params.guildId ?? null,
+			allowEmbeds: false,
+			messageReference: params.messageReference,
+			threadInsert: true,
+			mentionData: {
+				flags: 0,
+				mentionUserIds: params.mentionUserIds ?? [],
+				mentionRoleIds: [],
+				mentionChannelIds: [],
+				mentionEveryone: false,
+			},
+		});
+		return message;
+	}
+}

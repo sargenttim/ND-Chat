@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+export const TEST_TIMEOUTS = {
+	IMMEDIATE: 20,
+	QUICK: 100,
+} as const;
+export const TEST_CREDENTIALS = {
+	STRONG_PASSWORD: 'a-strong-password',
+	ALT_PASSWORD_1: 'AnotherStrongPassword123!',
+	ALT_PASSWORD_2: 'SecurePass-2024!',
+} as const;
+export const TEST_USER_DATA = {
+	DEFAULT_DATE_OF_BIRTH: '2000-01-01',
+	DEFAULT_GLOBAL_NAME: 'Test User',
+} as const;
+export const HTTP_STATUS = {
+	OK: 200,
+	CREATED: 201,
+	NO_CONTENT: 204,
+	BAD_REQUEST: 400,
+	UNAUTHORIZED: 401,
+	FORBIDDEN: 403,
+	NOT_FOUND: 404,
+	CONFLICT: 409,
+	INTERNAL_SERVER_ERROR: 500,
+	SERVICE_UNAVAILABLE: 503,
+} as const;
+export const TEST_IDS = {
+	NONEXISTENT_GUILD: '999999999999999999',
+	NONEXISTENT_CHANNEL: '999999999999999999',
+	NONEXISTENT_USER: '999999999999999999',
+	NONEXISTENT_MESSAGE: '999999999999999999',
+} as const;
+export function generateUniquePassword(): string {
+	return `SecurePass-${Date.now()}!`;
+}
+
+export function wait(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}

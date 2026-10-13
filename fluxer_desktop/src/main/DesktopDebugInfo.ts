@@ -1,0 +1,300 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import path from 'node:path';
+import {APP_PROTOCOL, DESKTOP_APP_URL} from '@electron/common/Constants';
+import {getDesktopTroubleshootingSettings, getDesktopWindowBehaviorSettings} from '@electron/common/DesktopConfig';
+import type {DesktopInfo, DesktopTroubleshootingSettings, DesktopWindowBehaviorSettings} from '@electron/common/Types';
+import {isPortableMode} from '@electron/common/UserDataPath';
+import {hasEnabledBlinkFeature, MIDDLE_CLICK_AUTOSCROLL_BLINK_FEATURE} from '@electron/main/ChromiumRuntime';
+import {
+	type DesktopAccountStoreCounts,
+	formatDesktopAccountStoreTelemetry,
+	readDesktopAccountStoreTelemetry,
+} from '@electron/main/DesktopAccountStoreTelemetry';
+import {type DesktopAppStoreState, readDesktopAppStoreState} from '@electron/main/DesktopAppStoreHealth';
+import {getArgValue, hasFlag, isSafeModeLaunch} from '@electron/main/LaunchOptions';
+import {getDesktopInfo} from '@electron/main/PlatformInfo';
+import {
+	formatDesktopOsName,
+	formatReleaseChannelLabel,
+	normalizeArchitectureValue,
+} from '@fluxer/desktop_ipc/src/DesktopLabels';
+import {app} from 'electron';
+import log from 'electron-log';
+
+const DEBUG_INFO_ARGS = new Set(['--fluxer-debug-info', '--fluxer-client-info', '--client-info']);
+const DISABLE_HARDWARE_ACCELERATION_ARGS = new Set(['--fluxer-disable-gpu', '--fluxer-disable-hardware-acceleration']);
+const OPEN_DEVTOOLS_ARGS = new Set(['--fluxer-devtools', '--fluxer-open-devtools']);
+const RESET_WINDOW_STATE_ARGS = new Set(['--fluxer-reset-window-state']);
+const RENDERER_CONSOLE_LOG_ARGS = new Set(['--fluxer-log-renderer-console']);
+const NET_LOG_ARGS = new Set(['--fluxer-net-log']);
+
+interface DesktopDebugInfo {
+	clientInfo: string;
+	desktopInfo: DesktopInfo;
+	appUrl: string;
+	userDataPath: string;
+	logsPath: string | null;
+	logFilePath: string | null;
+	configPath: string;
+	accountStore: DesktopAppStoreState | null;
+	accountStoreTelemetry: DesktopAccountStoreCounts;
+	windowBehavior: DesktopWindowBehaviorSettings;
+	troubleshooting: DesktopTroubleshootingSettings;
+	packaged: boolean;
+	portable: boolean;
+	pid: number;
+	execPath: string;
+	appImagePath: string | null;
+	appDirPath: string | null;
+	cwd: string;
+	launchArgs: Array<string>;
+}
+
+interface DesktopDebugInfoOptions {
+	nativeProbes?: boolean;
+}
+
+interface DesktopClientInfoOptions {
+	locale?: string | null;
+}
+
+function getDesktopWindowBehaviorDebugSettings(): DesktopWindowBehaviorSettings {
+	return {
+		...getDesktopWindowBehaviorSettings(),
+		activeSmoothScrolling: !app.commandLine.hasSwitch('disable-smooth-scrolling'),
+		activeMiddleClickAutoscroll:
+			process.platform === 'linux' && hasEnabledBlinkFeature(MIDDLE_CLICK_AUTOSCROLL_BLINK_FEATURE),
+	};
+}
+
+export function hasDesktopDebugInfoArg(argv: ReadonlyArray<string>): boolean {
+	return hasFlag(argv, DEBUG_INFO_ARGS);
+}
+
+export function shouldDisableHardwareAccelerationForLaunch(argv: ReadonlyArray<string>): boolean {
+	return hasFlag(argv, DISABLE_HARDWARE_ACCELERATION_ARGS) || isSafeModeLaunch(argv);
+}
+
+export function resolveEffectiveDesktopTroubleshootingSettings(
+	settings: DesktopTroubleshootingSettings,
+	argv: ReadonlyArray<string>,
+	platform: NodeJS.Platform,
+): DesktopTroubleshootingSettings {
+	return {
+		...settings,
+		disableHardwareAcceleration:
+			platform !== 'darwin' &&
+			(settings.disableHardwareAcceleration || shouldDisableHardwareAccelerationForLaunch(argv)),
+	};
+}
+
+let launchTroubleshootingSettings: DesktopTroubleshootingSettings | null = null;
+
+export function getLaunchDesktopTroubleshootingSettings(): DesktopTroubleshootingSettings {
+	launchTroubleshootingSettings ??= resolveEffectiveDesktopTroubleshootingSettings(
+		getDesktopTroubleshootingSettings(),
+		process.argv,
+		process.platform,
+	);
+	return launchTroubleshootingSettings;
+}
+
+export function shouldOpenDevToolsOnLaunch(argv: ReadonlyArray<string>): boolean {
+	return hasFlag(argv, OPEN_DEVTOOLS_ARGS);
+}
+
+export function shouldResetWindowStateOnLaunch(argv: ReadonlyArray<string>): boolean {
+	return hasFlag(argv, RESET_WINDOW_STATE_ARGS);
+}
+
+export function shouldIgnoreWindowStateForLaunch(argv: ReadonlyArray<string>): boolean {
+	return isSafeModeLaunch(argv);
+}
+
+export function shouldForwardRendererConsoleToMainLog(argv: ReadonlyArray<string>): boolean {
+	return hasFlag(argv, RENDERER_CONSOLE_LOG_ARGS);
+}
+
+export function getLaunchNetLogPath(userDataPath: string, argv: ReadonlyArray<string>): string | null {
+	const value = getArgValue(argv, NET_LOG_ARGS);
+	if (value === null) {
+		return null;
+	}
+	const trimmed = value.trim();
+	if (trimmed.length > 0) {
+		return path.resolve(trimmed);
+	}
+	return path.join(userDataPath, `netlog-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+}
+
+function safeGetLogsPath(): string | null {
+	try {
+		return app.getPath('logs');
+	} catch {
+		return null;
+	}
+}
+
+function getLogFilePath(): string | null {
+	try {
+		const file = log.transports.file.getFile();
+		return file?.path ?? null;
+	} catch {
+		return null;
+	}
+}
+
+function sanitizeLaunchArg(arg: string): string {
+	if (arg.toLowerCase().startsWith(`${APP_PROTOCOL}://`)) {
+		return `${APP_PROTOCOL}://<redacted>`;
+	}
+	if (/^(--[^=]*(?:token|secret|password|key|code)[^=]*)=/i.test(arg)) {
+		return `${arg.slice(0, arg.indexOf('='))}=<redacted>`;
+	}
+	return arg;
+}
+
+function sanitizeLaunchArgs(argv: ReadonlyArray<string>): Array<string> {
+	return argv.map(sanitizeLaunchArg);
+}
+
+function formatSystemArchitecture(desktopInfo: DesktopInfo): string {
+	return (
+		normalizeArchitectureValue(desktopInfo.hardwareArch || desktopInfo.arch) ??
+		desktopInfo.hardwareArch ??
+		desktopInfo.arch
+	);
+}
+
+function getBuildString(desktopInfo: DesktopInfo): string {
+	const buildVersion = process.env.PUBLIC_BUILD_VERSION || process.env.BUILD_VERSION || desktopInfo.version || 'dev';
+	const releaseChannel = formatReleaseChannelLabel(
+		process.env.PUBLIC_RELEASE_CHANNEL || process.env.RELEASE_CHANNEL || desktopInfo.channel,
+	);
+	return `${releaseChannel} Desktop ${buildVersion}`;
+}
+
+function safeGetLocale(): string {
+	try {
+		if (!app.isReady()) return 'en-US';
+		return app.getLocale() || 'en-US';
+	} catch {
+		return 'en-US';
+	}
+}
+
+function formatDesktopClientInfo(desktopInfo: DesktopInfo, options: DesktopClientInfoOptions = {}): string {
+	const osVersion = desktopInfo.systemVersion || desktopInfo.osVersion;
+	const osDescription = `${[formatDesktopOsName(desktopInfo), osVersion].filter(Boolean).join(' ')} (${formatSystemArchitecture(
+		desktopInfo,
+	)})`;
+	const parts = [
+		getBuildString(desktopInfo),
+		osDescription,
+		`Electron ${desktopInfo.electronVersion}`,
+		`Chrome ${desktopInfo.chromeVersion}`,
+		`Node ${desktopInfo.nodeVersion}`,
+		options.locale ? `Locale ${options.locale}` : '',
+	];
+	return parts.filter(Boolean).join(', ');
+}
+
+export async function getDesktopDebugInfo(
+	userDataPath: string,
+	options: DesktopDebugInfoOptions = {},
+): Promise<DesktopDebugInfo> {
+	const desktopInfo = await getDesktopInfo({nativeProbes: options.nativeProbes ?? true});
+	return {
+		clientInfo: formatDesktopClientInfo(desktopInfo, {locale: safeGetLocale()}),
+		desktopInfo,
+		appUrl: DESKTOP_APP_URL,
+		userDataPath,
+		logsPath: safeGetLogsPath(),
+		logFilePath: getLogFilePath(),
+		configPath: path.join(userDataPath, 'settings.json'),
+		accountStore: readDesktopAppStoreState(userDataPath),
+		accountStoreTelemetry: readDesktopAccountStoreTelemetry(userDataPath),
+		windowBehavior: getDesktopWindowBehaviorDebugSettings(),
+		troubleshooting: getLaunchDesktopTroubleshootingSettings(),
+		packaged: app.isPackaged,
+		portable: isPortableMode(),
+		pid: process.pid,
+		execPath: process.execPath,
+		appImagePath: process.env.APPIMAGE || null,
+		appDirPath: process.env.APPDIR || null,
+		cwd: process.cwd(),
+		launchArgs: sanitizeLaunchArgs(process.argv.slice(1)),
+	};
+}
+
+function formatWindowBehavior(settings: DesktopWindowBehaviorSettings): string {
+	return [
+		`showTrayIcon=${settings.showTrayIcon}`,
+		`minimizeToTray=${settings.minimizeToTray}`,
+		`closeToTray=${settings.closeToTray}`,
+		`startMinimized=${settings.startMinimized}`,
+		`useNativeTitleBar=${settings.useNativeTitleBar}`,
+		`rememberWindowState=${settings.rememberWindowState}`,
+		`allowTransparency=${settings.allowTransparency}`,
+		`activeAllowTransparency=${settings.activeAllowTransparency}`,
+		`smoothScrolling=${settings.smoothScrolling}`,
+		`activeSmoothScrolling=${settings.activeSmoothScrolling}`,
+		`middleClickAutoscroll=${settings.middleClickAutoscroll}`,
+		`activeMiddleClickAutoscroll=${settings.activeMiddleClickAutoscroll}`,
+	].join(', ');
+}
+
+function formatAccountStoreState(state: DesktopAppStoreState | null): string {
+	if (state === null) {
+		return 'never opened successfully on this device';
+	}
+	return `firstSuccessAt=${new Date(state.firstSuccessAt).toISOString()}, lastSuccessAt=${new Date(
+		state.lastSuccessAt,
+	).toISOString()}, schemaVersion=${state.lastSchemaVersion}`;
+}
+
+export function formatDesktopDebugInfo(info: DesktopDebugInfo): string {
+	return [
+		'Fluxer desktop debug info',
+		info.clientInfo,
+		`App URL: ${info.appUrl}`,
+		`User data: ${info.userDataPath}`,
+		`Config: ${info.configPath}`,
+		`Account store: ${formatAccountStoreState(info.accountStore)}`,
+		`Account store telemetry: ${formatDesktopAccountStoreTelemetry(info.accountStoreTelemetry)}`,
+		`Logs: ${info.logFilePath ?? info.logsPath ?? '(unavailable)'}`,
+		`Troubleshooting: disableHardwareAcceleration=${info.troubleshooting.disableHardwareAcceleration}`,
+		`Window behavior: ${formatWindowBehavior(info.windowBehavior)}`,
+		`Runtime: packaged=${info.packaged}, portable=${info.portable}, pid=${info.pid}, cwd=${info.cwd}`,
+		`Sandbox: flatpak=${info.desktopInfo.flatpak}, flatpakAppId=${info.desktopInfo.flatpakAppId ?? '(none)'}`,
+		`Executable: ${info.execPath}`,
+		...(info.appImagePath ? [`AppImage: ${info.appImagePath}`] : []),
+		`Launch args: ${info.launchArgs.length > 0 ? info.launchArgs.join(' ') : '(none)'}`,
+	].join('\n');
+}
+
+export function logDesktopDebugInfo(info: DesktopDebugInfo): void {
+	log.info('[DebugInfo] Client info:', info.clientInfo);
+	log.info('[DebugInfo] Runtime:', {
+		appUrl: info.appUrl,
+		userDataPath: info.userDataPath,
+		configPath: info.configPath,
+		accountStore: info.accountStore,
+		accountStoreTelemetry: info.accountStoreTelemetry,
+		logsPath: info.logsPath,
+		logFilePath: info.logFilePath,
+		troubleshooting: info.troubleshooting,
+		windowBehavior: info.windowBehavior,
+		packaged: info.packaged,
+		portable: info.portable,
+		pid: info.pid,
+		execPath: info.execPath,
+		flatpak: info.desktopInfo.flatpak,
+		flatpakAppId: info.desktopInfo.flatpakAppId,
+		appImagePath: info.appImagePath,
+		appDirPath: info.appDirPath,
+		cwd: info.cwd,
+		launchArgs: info.launchArgs,
+	});
+}

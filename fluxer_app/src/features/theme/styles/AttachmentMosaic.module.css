@@ -1,0 +1,31 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.mosaicContainerWrapper {
+	position: relative;
+	overflow: hidden;
+	display: block;
+	width: 100%;
+	max-width: min(100%, var(--message-media-max-width, var(--attachment-media-max-width, 34.375rem)));
+}
+
+@media (max-width: 640px) {
+	.mosaicContainer {
+		max-width: 100%;
+	}
+}
+
+@keyframes loading {
+	0% {
+		background-position: 200% 0;
+	}
+	100% {
+		background-position: -200% 0;
+	}
+}
+
+.mosaicContainer {
+	max-width: min(100%, var(--message-media-max-width, var(--attachment-media-max-width, 34.375rem)));
+	width: 100%;
+	height: auto;
+	overflow: hidden;
+}

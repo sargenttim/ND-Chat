@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import styles from '@app/features/ui/stepped_carousel/SteppedCarousel.module.css';
+import {
+	createSteppedCarouselSnapshot,
+	getSteppedCarouselStateValue,
+	resolveSteppedCarouselHeight,
+	selectSteppedCarouselModel,
+	transitionSteppedCarouselSnapshot,
+} from '@app/features/ui/stepped_carousel/SteppedCarouselStateMachine';
+import {flxElementClassName} from '@app/lib/react';
+import {AnimatePresence, motion, type Transition, useReducedMotion, type Variants} from 'framer-motion';
+import type React from 'react';
+import {useCallback, useLayoutEffect, useRef, useState} from 'react';
+
+interface SteppedCarouselProps<Step extends string> {
+	step: Step;
+	steps: ReadonlyArray<Step>;
+	children: React.ReactNode;
+	direction?: number;
+	focusOnStepChange?: boolean;
+	onStepShown?: (step: Step) => void;
+	ariaLabel?: string;
+	'data-flx'?: string;
+}
+
+interface SteppedCarouselActionsProps extends React.HTMLAttributes<HTMLElement> {
+	children: React.ReactNode;
+}
+
+const slideVariants: Variants = {
+	enter: (direction: number) => ({
+		opacity: 0,
+		x: direction > 0 ? 24 : direction < 0 ? -24 : 0,
+	}),
+	center: {
+		opacity: 1,
+		x: 0,
+		transition: {type: 'spring', stiffness: 520, damping: 42, mass: 0.7},
+	},
+	exit: (direction: number) => ({
+		opacity: 0,
+		x: direction > 0 ? -24 : direction < 0 ? 24 : 0,
+		transition: {duration: 0.1, ease: 'easeIn'},
+	}),
+};
+const heightTransition: Transition = {
+	type: 'spring',
+	stiffness: 460,
+	damping: 40,
+	mass: 0.7,
+};
+const instantTransition: Transition = {
+	duration: 0,
+};
+const reducedMotionVariants: Variants = {
+	enter: {
+		opacity: 0,
+		x: 0,
+	},
+	center: {
+		opacity: 1,
+		x: 0,
+	},
+	exit: {
+		opacity: 0,
+		x: 0,
+	},
+};
+const focusableSelector = [
+	'[data-step-focus="true"]',
+	'input:not([type="hidden"]):not([disabled]):not([tabindex="-1"])',
+	'button:not([disabled]):not([tabindex="-1"])',
+	'a[href]:not([tabindex="-1"])',
+	'select:not([disabled]):not([tabindex="-1"])',
+	'textarea:not([disabled]):not([tabindex="-1"])',
+	'[tabindex]:not([tabindex="-1"])',
+].join(',');
+
+function stepsEqual(a: ReadonlyArray<string>, b: ReadonlyArray<string>): boolean {
+	return a === b || (a.length === b.length && a.every((value, index) => value === b[index]));
+}
+
+export function SteppedCarousel<Step extends string>({
+	step,
+	steps,
+	children,
+	direction: directionProp,
+	focusOnStepChange = false,
+	onStepShown,
+	ariaLabel,
+	'data-flx': dataFlx,
+}: SteppedCarouselProps<Step>): React.ReactElement {
+	const shouldReduceMotion = useReducedMotion();
+	const [snapshot, setSnapshot] = useState(() =>
+		createSteppedCarouselSnapshot({step, steps, direction: directionProp, focusOnStepChange}),
+	);
+	const context = snapshot.context;
+	const nextSnapshot =
+		context.step !== step ||
+		context.focusOnStepChange !== focusOnStepChange ||
+		(directionProp !== undefined && context.direction !== directionProp) ||
+		!stepsEqual(context.steps, steps)
+			? transitionSteppedCarouselSnapshot(snapshot, {
+					type: 'carousel.propsChanged',
+					step,
+					steps,
+					direction: directionProp,
+					focusOnStepChange,
+				})
+			: snapshot;
+	if (nextSnapshot !== snapshot) {
+		setSnapshot(nextSnapshot);
+	}
+	const model = selectSteppedCarouselModel(nextSnapshot);
+	const paneRef = useRef<HTMLDivElement | null>(null);
+	const pendingFocusRequestRef = useRef(0);
+	const handledFocusRequestRef = useRef(0);
+	const onStepShownRef = useRef(onStepShown);
+	const paneStep = step;
+	const measureNode = useCallback((node: HTMLElement) => {
+		const offsetHeight = node.offsetHeight;
+		const scrollHeight = node.scrollHeight;
+		setSnapshot((current) =>
+			getSteppedCarouselStateValue(current) === 'ready' &&
+			current.context.contentHeight === resolveSteppedCarouselHeight({offsetHeight, scrollHeight})
+				? current
+				: transitionSteppedCarouselSnapshot(current, {type: 'carousel.measured', offsetHeight, scrollHeight}),
+		);
+	}, []);
+	const setMeasureNode = useCallback(
+		(node: HTMLDivElement) => {
+			paneRef.current = node;
+			const focusRequestId = pendingFocusRequestRef.current;
+			if (focusRequestId !== handledFocusRequestRef.current) {
+				handledFocusRequestRef.current = focusRequestId;
+				if (!node.contains(document.activeElement)) {
+					(node.querySelector<HTMLElement>(focusableSelector) ?? node).focus({preventScroll: true});
+				}
+			}
+			onStepShownRef.current?.(paneStep);
+			let observer: ResizeObserver | null = null;
+			if (typeof ResizeObserver !== 'undefined') {
+				observer = new ResizeObserver(() => {
+					if (paneRef.current === node) {
+						measureNode(node);
+					}
+				});
+				observer.observe(node);
+			}
+			return () => {
+				observer?.disconnect();
+				if (paneRef.current === node) {
+					paneRef.current = null;
+				}
+			};
+		},
+		[measureNode, paneStep],
+	);
+	useLayoutEffect(() => {
+		pendingFocusRequestRef.current = model.focusRequestId;
+	}, [model.focusRequestId]);
+	useLayoutEffect(() => {
+		onStepShownRef.current = onStepShown;
+	});
+	return (
+		<motion.div
+			className={styles.container}
+			animate={{height: model.contentHeight}}
+			transition={shouldReduceMotion ? instantTransition : heightTransition}
+			aria-label={ariaLabel}
+			role={ariaLabel ? 'group' : undefined}
+			data-flx={dataFlx ?? 'ui.stepped-carousel.container'}
+		>
+			<AnimatePresence
+				mode="popLayout"
+				initial={false}
+				custom={model.direction}
+				data-flx="ui.stepped-carousel.stepped-carousel.animate-presence"
+			>
+				<motion.div
+					key={model.step}
+					ref={setMeasureNode}
+					className={styles.pane}
+					custom={model.direction}
+					variants={shouldReduceMotion ? reducedMotionVariants : slideVariants}
+					initial="enter"
+					animate="center"
+					exit="exit"
+					transition={shouldReduceMotion ? instantTransition : undefined}
+					tabIndex={focusOnStepChange ? -1 : undefined}
+					data-flx="ui.stepped-carousel.pane"
+				>
+					{children}
+				</motion.div>
+			</AnimatePresence>
+		</motion.div>
+	);
+}
+
+export function SteppedCarouselActions({
+	children,
+	className,
+	...props
+}: SteppedCarouselActionsProps): React.ReactElement {
+	return (
+		<flx-ui-stepped-carousel-actions
+			className={flxElementClassName(styles.actions, className)}
+			data-flx="ui.stepped-carousel.actions"
+			{...props}
+		>
+			{children}
+		</flx-ui-stepped-carousel-actions>
+	);
+}

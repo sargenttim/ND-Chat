@@ -1,0 +1,28 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.emailRow {
+	display: inline-flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.emailText {
+	color: var(--text-primary-muted);
+	font-size: 0.8125rem;
+}
+
+.emailTextSelectable {
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+.toggleButton {
+	color: var(--text-link);
+	font-size: 0.8125rem;
+	cursor: pointer;
+}
+
+.toggleButton:hover {
+	text-decoration: underline;
+}

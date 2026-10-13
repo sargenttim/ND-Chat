@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+import type {DonorRow} from '@app/api/database/types/DonationTypes';
+
+const ACTIVE_SUBSCRIPTION_STATUSES: ReadonlySet<string> = new Set(['active', 'trialing']);
+
+export class Donor {
+	readonly email: string;
+	readonly stripeCustomerId: string | null;
+	readonly businessName: string | null;
+	readonly taxId: string | null;
+	readonly taxIdType: string | null;
+	readonly stripeSubscriptionId: string | null;
+	readonly subscriptionAmountCents: number | null;
+	readonly subscriptionCurrency: string | null;
+	readonly subscriptionInterval: string | null;
+	readonly subscriptionCurrentPeriodEnd: Date | null;
+	readonly subscriptionCancelAt: Date | null;
+	readonly subscriptionStatus: string | null;
+	readonly createdAt: Date;
+	readonly updatedAt: Date;
+	readonly version: number;
+
+	constructor(row: DonorRow) {
+		this.email = row.email;
+		this.stripeCustomerId = row.stripe_customer_id ?? null;
+		this.businessName = row.business_name ?? null;
+		this.taxId = row.tax_id ?? null;
+		this.taxIdType = row.tax_id_type ?? null;
+		this.stripeSubscriptionId = row.stripe_subscription_id ?? null;
+		this.subscriptionAmountCents = row.subscription_amount_cents ?? null;
+		this.subscriptionCurrency = row.subscription_currency ?? null;
+		this.subscriptionInterval = row.subscription_interval ?? null;
+		this.subscriptionCurrentPeriodEnd = row.subscription_current_period_end ?? null;
+		this.subscriptionCancelAt = row.subscription_cancel_at ?? null;
+		this.subscriptionStatus = row.subscription_status ?? null;
+		this.createdAt = row.created_at;
+		this.updatedAt = row.updated_at;
+		this.version = row.version;
+	}
+
+	hasActiveSubscription(): boolean {
+		if (!this.stripeSubscriptionId || !this.subscriptionCurrentPeriodEnd) {
+			return false;
+		}
+		if (this.subscriptionCancelAt !== null) {
+			return false;
+		}
+		if (this.subscriptionStatus !== null && !ACTIVE_SUBSCRIPTION_STATUSES.has(this.subscriptionStatus)) {
+			return false;
+		}
+		return this.subscriptionCurrentPeriodEnd > new Date();
+	}
+}

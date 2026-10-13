@@ -1,0 +1,11 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.warningBox {
+	border-radius: 0.375rem;
+	border: 0.0625rem solid var(--background-header-secondary);
+	padding: 1rem;
+}
+
+.warningText {
+	margin: 0;
+}

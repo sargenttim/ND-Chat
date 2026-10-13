@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {requireAdminACL} from '@app/api/middleware/AdminMiddleware';
+import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
+import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
+import {RateLimitConfigs} from '@app/api/RateLimitConfig';
+import type {HonoApp} from '@app/api/types/HonoEnv';
+import {Validator} from '@app/api/Validator';
+import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
+import {SendSystemDmRequest, SendSystemDmResponse} from '@fluxer/schema/src/domains/admin/AdminSchemas';
+
+export function SystemDmAdminController(app: HonoApp) {
+	app.post(
+		'/admin/system-dms',
+		RateLimitMiddleware(RateLimitConfigs.ADMIN_MESSAGE_OPERATION),
+		requireAdminACL(AdminACLs.SYSTEM_DM_SEND),
+		Validator('json', SendSystemDmRequest),
+		OpenAPI({
+			operationId: 'create_admin_system_dm',
+			summary: 'Send a system direct message',
+			responseSchema: SendSystemDmResponse,
+			statusCode: 200,
+			security: 'adminApiKey',
+			tags: 'Admin',
+			description:
+				'Queue a worker job that delivers the same content to every listed user, or to every user when all_users is set, as a direct message from the system account. Progress is observable through the Jobs admin resource (task_type=sendSystemDm), and an in-flight broadcast is stopped by cancelling that job. Requires SYSTEM_DM_SEND permission.',
+		}),
+		async (ctx) => {
+			const adminService = ctx.get('adminService');
+			const adminUserId = ctx.get('adminUserId');
+			const auditLogReason = ctx.get('auditLogReason');
+			const payload = ctx.req.valid('json');
+			const result = await adminService.sendSystemDm(
+				{
+					content: payload.content,
+					recipients: payload.all_users
+						? {kind: 'all'}
+						: {kind: 'list', userIds: (payload.user_ids ?? []).map((id) => id.toString())},
+				},
+				adminUserId,
+				auditLogReason,
+			);
+			return ctx.json(result);
+		},
+	);
+}

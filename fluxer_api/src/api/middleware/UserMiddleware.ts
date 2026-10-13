@@ -1,0 +1,180 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import * as AuthSession from '@app/api/auth/AuthSession';
+import {Logger} from '@app/api/Logger';
+import {hashRequestToken, recordAuthFailure} from '@app/api/middleware/RequestErrorTelemetry';
+import type {User} from '@app/api/models/User';
+import type {HonoEnv} from '@app/api/types/HonoEnv';
+import {isSignInRefused} from '@app/api/user/UserHelpers';
+import {getRequestClientIp} from '@app/api/utils/RequestClientIp';
+import {stripApiPrefix} from '@app/api/utils/RequestPathUtils';
+import type {Context} from 'hono';
+import {createMiddleware} from 'hono/factory';
+
+type TokenType = 'session' | 'bearer' | 'bot' | 'admin_api_key';
+
+interface ParsedAuthHeader {
+	token: string;
+	type: TokenType;
+}
+
+const SKIP_PATHS = new Set([
+	'/_health',
+	'/webhooks/livekit',
+	'/webhooks/sweego',
+	'/webhooks/app-store',
+	'/webhooks/google-play',
+]);
+const SESSION_TOKEN_PATTERN = /^flx_[A-Za-z0-9]{36}$/;
+
+function parseAuthHeader(authHeader?: string | null): ParsedAuthHeader | null {
+	if (!authHeader) return null;
+	if (authHeader !== authHeader.trim()) return null;
+	const normalized = authHeader;
+	if (!normalized) return null;
+	if (normalized.startsWith('Bearer ')) {
+		const token = normalized.slice('Bearer '.length);
+		if (token.length === 0 || token !== token.trim()) return null;
+		return {
+			token,
+			type: SESSION_TOKEN_PATTERN.test(token) ? 'session' : 'bearer',
+		};
+	}
+	if (normalized.startsWith('Bot ')) {
+		const token = normalized.slice('Bot '.length);
+		if (token.length === 0 || token !== token.trim()) return null;
+		return {
+			token,
+			type: 'bot',
+		};
+	}
+	if (normalized.startsWith('Admin ')) {
+		const token = normalized.slice('Admin '.length);
+		if (token.length === 0 || token !== token.trim()) return null;
+		return {
+			token,
+			type: 'admin_api_key',
+		};
+	}
+	if (normalized.includes(' ')) return null;
+	return {
+		token: normalized,
+		type: 'session',
+	};
+}
+
+function setUserInContext(ctx: Context<HonoEnv>, user: User, trackActivity: boolean): void {
+	ctx.set('user', user);
+	if (trackActivity) {
+		const now = new Date();
+		const ip = getRequestClientIp(ctx);
+		const kvActivityTracker = ctx.get('kvActivityTracker');
+		const userActivityBuffer = ctx.get('userActivityBuffer');
+		userActivityBuffer.recordActivity(user.id, now, ip);
+		void kvActivityTracker.updateActivity(user.id, now).catch((error: unknown) => {
+			Logger.warn({error, userId: user.id}, 'Failed to update real-time user activity');
+		});
+	}
+}
+
+export const UserMiddleware = createMiddleware<HonoEnv>(async (ctx, next) => {
+	const path = stripApiPrefix(ctx.req.path);
+	if (SKIP_PATHS.has(path)) {
+		return next();
+	}
+	const rawAuthHeader = ctx.req.header('Authorization');
+	const parsed = parseAuthHeader(rawAuthHeader);
+	const resolvedClientIp = getRequestClientIp(ctx);
+	ctx.set('oauthBearerApplicationId', undefined);
+	ctx.set('oauthBearerAllowed', false);
+	ctx.set('oauthBearerScopes', undefined);
+	ctx.set('authToken', undefined);
+	if (!parsed) {
+		if (rawAuthHeader) {
+			recordAuthFailure(resolvedClientIp, hashRequestToken(rawAuthHeader));
+		}
+		return next();
+	}
+	const {token, type} = parsed;
+	const tokenHash = hashRequestToken(token);
+	ctx.set('authToken', token);
+	if (type === 'session') {
+		const apiContext = ctx.get('apiContext');
+		const authSession = await AuthSession.getAuthSessionByToken(apiContext, token);
+		if (authSession) {
+			const user = await apiContext.services.users.findUnique(authSession.userId);
+			if (user && !isSignInRefused(user)) {
+				void AuthSession.updateAuthSessionLastUsed(apiContext, authSession.sessionIdHash);
+				ctx.set('authSession', authSession);
+				ctx.set('authTokenType', 'session');
+				setUserInContext(ctx, user, true);
+			} else {
+				recordAuthFailure(resolvedClientIp, tokenHash);
+				if (user) {
+					void AuthSession.revokeToken(apiContext, token).catch((error: unknown) => {
+						Logger.warn({error, userId: user.id}, 'Failed to revoke a refused session');
+					});
+				}
+			}
+		} else {
+			recordAuthFailure(resolvedClientIp, tokenHash);
+		}
+		await next();
+		return;
+	}
+	if (type === 'bearer') {
+		const oauth2TokenRepository = ctx.get('oauth2TokenRepository');
+		const accessToken = await oauth2TokenRepository.getAccessToken(token);
+		const tokenUser = accessToken ? await ctx.get('apiContext').services.users.findUnique(accessToken.userId) : null;
+		if (accessToken && !(tokenUser && isSignInRefused(tokenUser))) {
+			ctx.set('oauthBearerApplicationId', accessToken.applicationId);
+			ctx.set('oauthBearerScopes', accessToken.scope);
+			ctx.set('authTokenType', 'bearer');
+			if (tokenUser) {
+				setUserInContext(ctx, tokenUser, false);
+			}
+			await next();
+			return;
+		}
+		recordAuthFailure(resolvedClientIp, tokenHash);
+		await next();
+		return;
+	}
+	if (type === 'bot') {
+		const botAuthService = ctx.get('botAuthService');
+		const botUserId = await botAuthService.validateBotToken(token);
+		if (botUserId) {
+			const botUser = await ctx.get('apiContext').services.users.findUnique(botUserId);
+			if (botUser) {
+				ctx.set('authTokenType', 'bot');
+				setUserInContext(ctx, botUser, false);
+			}
+		} else {
+			recordAuthFailure(resolvedClientIp, tokenHash);
+		}
+		await next();
+		return;
+	}
+	if (type === 'admin_api_key') {
+		const path = stripApiPrefix(ctx.req.path);
+		if (!(path === '/admin' || path.startsWith('/admin/'))) {
+			await next();
+			return;
+		}
+		const adminApiKeyService = ctx.get('adminApiKeyService');
+		const apiKey = await adminApiKeyService.validateApiKey(token);
+		if (apiKey) {
+			const user = await ctx.get('apiContext').services.users.findUnique(apiKey.createdById);
+			if (user) {
+				ctx.set('authTokenType', 'admin_api_key');
+				ctx.set('adminApiKeyAcls', apiKey.acls);
+				setUserInContext(ctx, user, false);
+			}
+		} else {
+			recordAuthFailure(resolvedClientIp, tokenHash);
+		}
+		await next();
+		return;
+	}
+	await next();
+});

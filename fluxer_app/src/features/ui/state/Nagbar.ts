@@ -1,0 +1,353 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {initializeStore} from '@app/features/platform/utils/StoreInitialization';
+import {makeSyncedField} from '@app/features/user/state/SyncedField';
+import {NagbarDismissalsSchema} from '@fluxer/schema/src/gen/fluxer/user/preferences/v1/preferences_pb';
+import {makeAutoObservable} from 'mobx';
+
+interface NagbarSettings {
+	iosInstallDismissed: boolean;
+	pwaInstallDismissed: boolean;
+	pushNotificationDismissed: boolean;
+	desktopNotificationDismissed: boolean;
+	premiumGracePeriodDismissed: boolean;
+	premiumExpiredDismissed: boolean;
+	premiumOnboardingDismissed: boolean;
+	giftInventoryDismissed: boolean;
+	desktopDownloadDismissed: boolean;
+	pendingBulkDeletionDismissed: Record<string, boolean>;
+	invitesDisabledDismissed: Record<string, boolean>;
+	guildMfaRequirementDismissed: Record<string, boolean>;
+	priceAnnouncementDismissed: Record<string, boolean>;
+	legacyPriceOptInDismissed: Record<string, boolean>;
+	guildMembershipCtaDismissed: boolean;
+	visionaryMfaDismissed: boolean;
+	claimAccountModalShownThisSession: boolean;
+	forceConnectionNotice: boolean;
+	forceEmailVerification: boolean;
+	forceAccountLimited: boolean;
+	forceUnclaimedAccount: boolean;
+	forceDesktopNotification: boolean;
+	forceInvitesDisabled: boolean;
+	forcePremiumGracePeriod: boolean;
+	forcePremiumExpired: boolean;
+	forcePremiumOnboarding: boolean;
+	forceGiftInventory: boolean;
+	forceDesktopDownload: boolean;
+	forceGuildMembershipCta: boolean;
+	forceVisionaryMfa: boolean;
+	forceTermsAcceptance: boolean;
+	forceCorruptedInstallation: boolean;
+	forceScheduledMaintenance: boolean;
+	forceVoiceSessionRestore: boolean;
+	forceGuildMfaRequirement: boolean;
+	forceDomainMoved: boolean;
+	forceHideConnectionNotice: boolean;
+	forceHideEmailVerification: boolean;
+	forceHideAccountLimited: boolean;
+	forceHideUnclaimedAccount: boolean;
+	forceHideDesktopNotification: boolean;
+	forceHideInvitesDisabled: boolean;
+	forceHidePremiumGracePeriod: boolean;
+	forceHidePremiumExpired: boolean;
+	forceHidePremiumOnboarding: boolean;
+	forceHideGiftInventory: boolean;
+	forceHideDesktopDownload: boolean;
+	forceHideGuildMembershipCta: boolean;
+	forceHideVisionaryMfa: boolean;
+	forceHideTermsAcceptance: boolean;
+	forceHideCorruptedInstallation: boolean;
+	forceHideScheduledMaintenance: boolean;
+	forceHideVoiceSessionRestore: boolean;
+	forceHideGuildMfaRequirement: boolean;
+	forceHideDomainMoved: boolean;
+}
+
+export type NagbarToggleKey = Exclude<
+	keyof NagbarSettings,
+	| 'guildMfaRequirementDismissed'
+	| 'invitesDisabledDismissed'
+	| 'claimAccountModalShownThisSession'
+	| 'pendingBulkDeletionDismissed'
+	| 'priceAnnouncementDismissed'
+	| 'legacyPriceOptInDismissed'
+>;
+
+export class Nagbar implements NagbarSettings {
+	iosInstallDismissed = false;
+	pwaInstallDismissed = false;
+	pushNotificationDismissed = false;
+	desktopNotificationDismissed = false;
+	premiumGracePeriodDismissed = false;
+	premiumExpiredDismissed = false;
+	premiumOnboardingDismissed = false;
+	giftInventoryDismissed = false;
+	desktopDownloadDismissed = false;
+	pendingBulkDeletionDismissed: Record<string, boolean> = {};
+	invitesDisabledDismissed: Record<string, boolean> = {};
+	guildMfaRequirementDismissed: Record<string, boolean> = {};
+	priceAnnouncementDismissed: Record<string, boolean> = {};
+	legacyPriceOptInDismissed: Record<string, boolean> = {};
+	guildMembershipCtaDismissed = false;
+	visionaryMfaDismissed = false;
+	buildEnvironmentDismissedThisSession = false;
+	scheduledMaintenanceDismissalVersion = 0;
+	claimAccountModalShownThisSession = false;
+	forceEmailVerification = false;
+	forceAccountLimited = false;
+	forceUnclaimedAccount = false;
+	forceDesktopNotification = false;
+	forceInvitesDisabled = false;
+	forcePremiumGracePeriod = false;
+	forcePremiumExpired = false;
+	forcePremiumOnboarding = false;
+	forceGiftInventory = false;
+	forceDesktopDownload = false;
+	forceGuildMembershipCta = false;
+	forceVisionaryMfa = false;
+	forceTermsAcceptance = false;
+	forceCorruptedInstallation = false;
+	forceScheduledMaintenance = false;
+	forceVoiceSessionRestore = false;
+	forceGuildMfaRequirement = false;
+	forceDomainMoved = false;
+	forceConnectionNotice = false;
+	forceHideEmailVerification = false;
+	forceHideAccountLimited = false;
+	forceHideUnclaimedAccount = false;
+	forceHideDesktopNotification = false;
+	forceHideInvitesDisabled = false;
+	forceHidePremiumGracePeriod = false;
+	forceHidePremiumExpired = false;
+	forceHidePremiumOnboarding = false;
+	forceHideGiftInventory = false;
+	forceHideDesktopDownload = false;
+	forceHideGuildMembershipCta = false;
+	forceHideVisionaryMfa = false;
+	forceHideTermsAcceptance = false;
+	forceHideCorruptedInstallation = false;
+	forceHideScheduledMaintenance = false;
+	forceHideVoiceSessionRestore = false;
+	forceHideGuildMfaRequirement = false;
+	forceHideDomainMoved = false;
+	forceHideConnectionNotice = false;
+
+	constructor() {
+		makeAutoObservable(this, {}, {autoBind: true});
+		initializeStore(this, () => this.initPersistence());
+	}
+
+	private async initPersistence(): Promise<void> {
+		await makeSyncedField(this, {
+			field: 'nagbars',
+			schema: NagbarDismissalsSchema,
+			persist: [
+				'iosInstallDismissed',
+				'pwaInstallDismissed',
+				'pushNotificationDismissed',
+				'desktopNotificationDismissed',
+				'premiumGracePeriodDismissed',
+				'premiumExpiredDismissed',
+				'premiumOnboardingDismissed',
+				'giftInventoryDismissed',
+				'desktopDownloadDismissed',
+				'pendingBulkDeletionDismissed',
+				'invitesDisabledDismissed',
+				'guildMfaRequirementDismissed',
+				'priceAnnouncementDismissed',
+				'legacyPriceOptInDismissed',
+				'guildMembershipCtaDismissed',
+				'visionaryMfaDismissed',
+			],
+			toMessage: (s) => ({
+				iosInstall: s.iosInstallDismissed,
+				pwaInstall: s.pwaInstallDismissed,
+				pushNotification: s.pushNotificationDismissed,
+				desktopNotification: s.desktopNotificationDismissed,
+				premiumGracePeriod: s.premiumGracePeriodDismissed,
+				premiumExpired: s.premiumExpiredDismissed,
+				premiumOnboarding: s.premiumOnboardingDismissed,
+				giftInventory: s.giftInventoryDismissed,
+				desktopDownload: s.desktopDownloadDismissed,
+				guildMembershipCta: s.guildMembershipCtaDismissed,
+				visionaryMfa: s.visionaryMfaDismissed,
+				pendingBulkDeletion: {...s.pendingBulkDeletionDismissed},
+				invitesDisabled: {...s.invitesDisabledDismissed},
+				guildMfaRequirement: {...s.guildMfaRequirementDismissed},
+				priceAnnouncement: {...s.priceAnnouncementDismissed},
+				legacyPriceOptIn: {...s.legacyPriceOptInDismissed},
+			}),
+			applyMessage: (s, m) => {
+				s.iosInstallDismissed = m.iosInstall;
+				s.pwaInstallDismissed = m.pwaInstall;
+				s.pushNotificationDismissed = m.pushNotification;
+				s.desktopNotificationDismissed = m.desktopNotification;
+				s.premiumGracePeriodDismissed = m.premiumGracePeriod;
+				s.premiumExpiredDismissed = m.premiumExpired;
+				s.premiumOnboardingDismissed = m.premiumOnboarding;
+				s.giftInventoryDismissed = m.giftInventory;
+				s.desktopDownloadDismissed = m.desktopDownload;
+				s.guildMembershipCtaDismissed = m.guildMembershipCta;
+				s.visionaryMfaDismissed = m.visionaryMfa;
+				s.pendingBulkDeletionDismissed = {...m.pendingBulkDeletion};
+				s.invitesDisabledDismissed = {...m.invitesDisabled};
+				s.guildMfaRequirementDismissed = {...m.guildMfaRequirement};
+				s.priceAnnouncementDismissed = {...m.priceAnnouncement};
+				s.legacyPriceOptInDismissed = {...m.legacyPriceOptIn};
+			},
+		});
+	}
+
+	getInvitesDisabledDismissed(guildId: string): boolean {
+		return this.invitesDisabledDismissed[guildId] ?? false;
+	}
+
+	getGuildMfaRequirementDismissed(guildId: string): boolean {
+		return this.guildMfaRequirementDismissed[guildId] ?? false;
+	}
+
+	getPriceAnnouncementDismissed(campaignId: string): boolean {
+		return this.priceAnnouncementDismissed[campaignId] ?? false;
+	}
+
+	getLegacyPriceOptInDismissed(campaignId: string): boolean {
+		return this.legacyPriceOptInDismissed[campaignId] ?? false;
+	}
+
+	bumpScheduledMaintenanceDismissed(): void {
+		this.scheduledMaintenanceDismissalVersion++;
+	}
+
+	dismissBuildEnvironmentNagbar(): void {
+		this.buildEnvironmentDismissedThisSession = true;
+	}
+
+	markClaimAccountModalShown(): void {
+		this.claimAccountModalShownThisSession = true;
+	}
+
+	dismiss(nagbarType: NagbarToggleKey): void {
+		this[nagbarType] = true;
+	}
+
+	dismissInvitesDisabled(guildId: string): void {
+		this.invitesDisabledDismissed = {
+			...this.invitesDisabledDismissed,
+			[guildId]: true,
+		};
+	}
+
+	dismissGuildMfaRequirement(guildId: string): void {
+		this.guildMfaRequirementDismissed = {
+			...this.guildMfaRequirementDismissed,
+			[guildId]: true,
+		};
+	}
+
+	dismissPriceAnnouncement(campaignId: string): void {
+		this.priceAnnouncementDismissed = {
+			...this.priceAnnouncementDismissed,
+			[campaignId]: true,
+		};
+	}
+
+	dismissLegacyPriceOptIn(campaignId: string): void {
+		this.legacyPriceOptInDismissed = {
+			...this.legacyPriceOptInDismissed,
+			[campaignId]: true,
+		};
+	}
+
+	reset(nagbarType: NagbarToggleKey): void {
+		this[nagbarType] = false;
+	}
+
+	setFlag(key: NagbarToggleKey, value: boolean): void {
+		this[key] = value;
+	}
+
+	resetAll(): void {
+		this.iosInstallDismissed = false;
+		this.pwaInstallDismissed = false;
+		this.pushNotificationDismissed = false;
+		this.desktopNotificationDismissed = false;
+		this.premiumGracePeriodDismissed = false;
+		this.premiumExpiredDismissed = false;
+		this.premiumOnboardingDismissed = false;
+		this.giftInventoryDismissed = false;
+		this.desktopDownloadDismissed = false;
+		this.pendingBulkDeletionDismissed = {};
+		this.invitesDisabledDismissed = {};
+		this.guildMfaRequirementDismissed = {};
+		this.priceAnnouncementDismissed = {};
+		this.legacyPriceOptInDismissed = {};
+		this.guildMembershipCtaDismissed = false;
+		this.visionaryMfaDismissed = false;
+		this.buildEnvironmentDismissedThisSession = false;
+		this.claimAccountModalShownThisSession = false;
+		this.forceEmailVerification = false;
+		this.forceAccountLimited = false;
+		this.forceUnclaimedAccount = false;
+		this.forceDesktopNotification = false;
+		this.forceInvitesDisabled = false;
+		this.forcePremiumGracePeriod = false;
+		this.forcePremiumExpired = false;
+		this.forcePremiumOnboarding = false;
+		this.forceGiftInventory = false;
+		this.forceDesktopDownload = false;
+		this.forceGuildMembershipCta = false;
+		this.forceVisionaryMfa = false;
+		this.forceTermsAcceptance = false;
+		this.forceCorruptedInstallation = false;
+		this.forceScheduledMaintenance = false;
+		this.forceVoiceSessionRestore = false;
+		this.forceGuildMfaRequirement = false;
+		this.forceDomainMoved = false;
+		this.forceConnectionNotice = false;
+		this.forceHideEmailVerification = false;
+		this.forceHideAccountLimited = false;
+		this.forceHideUnclaimedAccount = false;
+		this.forceHideDesktopNotification = false;
+		this.forceHideInvitesDisabled = false;
+		this.forceHidePremiumGracePeriod = false;
+		this.forceHidePremiumExpired = false;
+		this.forceHidePremiumOnboarding = false;
+		this.forceHideGiftInventory = false;
+		this.forceHideDesktopDownload = false;
+		this.forceHideGuildMembershipCta = false;
+		this.forceHideVisionaryMfa = false;
+		this.forceHideTermsAcceptance = false;
+		this.forceHideCorruptedInstallation = false;
+		this.forceHideScheduledMaintenance = false;
+		this.forceHideVoiceSessionRestore = false;
+		this.forceHideGuildMfaRequirement = false;
+		this.forceHideDomainMoved = false;
+		this.forceHideConnectionNotice = false;
+	}
+
+	handleGuildUpdate(action: {
+		guild: {
+			id: string;
+			features?: ReadonlyArray<string>;
+			properties?: {
+				features: ReadonlyArray<string>;
+				mfa_level?: number;
+			};
+			mfa_level?: number;
+		};
+	}): void {
+		const guildId = action.guild.id;
+		const features = action.guild.features ?? action.guild.properties?.features;
+		if (features != null && !features.includes('INVITES_DISABLED') && this.invitesDisabledDismissed[guildId]) {
+			const {[guildId]: _, ...rest} = this.invitesDisabledDismissed;
+			this.invitesDisabledDismissed = rest;
+		}
+		const mfaLevel = action.guild.mfa_level ?? action.guild.properties?.mfa_level;
+		if (mfaLevel === 0 && this.guildMfaRequirementDismissed[guildId]) {
+			const {[guildId]: _, ...rest} = this.guildMfaRequirementDismissed;
+			this.guildMfaRequirementDismissed = rest;
+		}
+	}
+}
+
+export default new Nagbar();

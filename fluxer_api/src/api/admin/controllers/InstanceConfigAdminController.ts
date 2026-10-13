@@ -1,0 +1,886 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {AdminAuditReadActions} from '@app/api/admin/AdminAuditActions';
+import {recordAdminRead, recordAdminWrite} from '@app/api/admin/AdminAuditRecorder';
+import {startAttachmentDecayReconcile} from '@app/api/attachment/AttachmentDecayReconcileRun';
+import {createUserID} from '@app/api/BrandedTypes';
+import {Config} from '@app/api/Config';
+import {
+	type InstanceAttachmentDecayEffectiveConfig,
+	type InstancePolicyConfig,
+	REGISTRATION_PENDING_APPROVAL_TRAIT,
+	REGISTRATION_REJECTED_TRAIT,
+} from '@app/api/instance/InstanceConfigRepository';
+import {clearUsedSetupToken} from '@app/api/instance/SetupToken';
+import {deriveSsoRedirectUri, normalizeAndValidateSsoConfig} from '@app/api/instance/SsoConfigValidation';
+import {requireAdminACL} from '@app/api/middleware/AdminMiddleware';
+import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
+import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
+import {getKVClient, getWorkerService} from '@app/api/middleware/ServiceRegistry';
+import {getInstanceConfigRepository, getNatsConfigPublisher} from '@app/api/middleware/ServiceSingletons';
+import {RateLimitConfigs} from '@app/api/RateLimitConfig';
+import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
+import {Validator} from '@app/api/Validator';
+import {AdminACLs} from '@fluxer/constants/src/AdminACLs';
+import {resolveSmtpTlsMode, type SmtpTlsMode, smtpTlsModeFromSecure} from '@fluxer/constants/src/SmtpConstants';
+import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
+import {InstancePolicyTransitionNotAllowedError} from '@fluxer/errors/src/domains/core/InstancePolicyTransitionNotAllowedError';
+import {
+	BrandingAssetUploadRequest,
+	CreateRegistrationUrlRequest,
+	CreateRegistrationUrlResponse,
+	InstanceConfigResponse,
+	InstanceConfigUpdateRequest,
+	InstanceEmailSmtpTestRequest,
+	InstanceEmailSmtpTestResponse,
+	PendingRegistrationActionRequest,
+	RegistrationUrlIdParam,
+} from '@fluxer/schema/src/domains/admin/AdminSchemas';
+import {DomainMigrationConfigSchema} from '@fluxer/schema/src/domains/admin/DomainMigrationSchemas';
+import {GatewayRolloutConfigSchema} from '@fluxer/schema/src/domains/admin/GatewayRolloutSchemas';
+import type {PushRelayConfig, PushRelayConfigUpdateRequest} from '@fluxer/schema/src/domains/admin/PushRelaySchemas';
+import {VoiceP2pConfigSchema} from '@fluxer/schema/src/domains/admin/VoiceP2pSchemas';
+import {UserIdParam} from '@fluxer/schema/src/domains/common/CommonParamSchemas';
+import {ExperimentDeliveryConfigSchema} from '@fluxer/schema/src/domains/experiment/ExperimentSchemas';
+import type {InstanceBranding} from '@fluxer/schema/src/domains/instance/InstanceSchemas';
+import {SmtpEmailProvider} from '@pkgs/email/src/SmtpEmailProvider';
+import type {Context} from 'hono';
+
+const INSTANCE_BRANDING_ENTITY_ID = 0n;
+const ATTACHMENT_EXPIRY_RULE_FIELDS = [
+	'enabled',
+	'min_size_mb',
+	'max_size_mb',
+	'max_eligible_size_mb',
+	'min_lifetime_days',
+	'max_lifetime_days',
+	'curve',
+] as const satisfies ReadonlyArray<keyof InstanceAttachmentDecayEffectiveConfig>;
+
+function attachmentExpiryRulesChanged(
+	previous: InstanceAttachmentDecayEffectiveConfig,
+	next: InstanceAttachmentDecayEffectiveConfig,
+): boolean {
+	return ATTACHMENT_EXPIRY_RULE_FIELDS.some((field) => previous[field] !== next[field]);
+}
+
+function readOptionalField<T extends object, K extends keyof T>(value: T, key: K): T[K] | undefined {
+	return Object.hasOwn(value, key) ? value[key] : undefined;
+}
+
+function readSmtpTlsModeUpdate(smtp: {
+	tls_mode?: SmtpTlsMode | null;
+	secure?: boolean | null;
+}): SmtpTlsMode | null | undefined {
+	const tlsMode = readOptionalField(smtp, 'tls_mode');
+	if (tlsMode !== undefined) return tlsMode;
+	const secure = readOptionalField(smtp, 'secure');
+	return secure === undefined ? undefined : smtpTlsModeFromSecure(secure);
+}
+
+function mergeOptionalField<T>(currentValue: T, nextValue: T | undefined): T {
+	return nextValue === undefined ? currentValue : nextValue;
+}
+
+function omitUndefinedFields<T extends object>(value: T): Partial<T> {
+	return Object.fromEntries(Object.entries(value).filter(([, entry]) => entry !== undefined)) as Partial<T>;
+}
+
+async function buildInstanceConfigResponse(): Promise<InstanceConfigResponse> {
+	const instanceConfigRepository = getInstanceConfigRepository();
+	const [
+		ssoConfig,
+		gatewayRollout,
+		pushRelay,
+		domainMigration,
+		voiceP2p,
+		captcha,
+		experimentDelivery,
+		registrationConfig,
+		registrationUrls,
+		pendingRegistrations,
+	] = await Promise.all([
+		instanceConfigRepository.getSsoConfig(),
+		instanceConfigRepository.getGatewayRolloutConfig(),
+		instanceConfigRepository.getPushRelayConfig(),
+		instanceConfigRepository.getDomainMigrationConfig(),
+		instanceConfigRepository.getVoiceP2pConfig(),
+		instanceConfigRepository.getCaptchaConfig(),
+		instanceConfigRepository.getExperimentDeliveryConfig(),
+		instanceConfigRepository.getRegistrationConfig(),
+		instanceConfigRepository.getRegistrationUrlsForAdmin(),
+		instanceConfigRepository.getPendingRegistrations(),
+	]);
+	const [appPublic, policy, resolvedServices, integrations, media, billing, accountIdentity, accountIdentityLocked] =
+		await Promise.all([
+			instanceConfigRepository.getAppPublicConfig(),
+			instanceConfigRepository.getInstancePolicyConfig(),
+			instanceConfigRepository.getResolvedServicesConfig(),
+			instanceConfigRepository.getInstanceIntegrationsAdminConfig(),
+			instanceConfigRepository.getInstanceMediaAdminConfig(),
+			instanceConfigRepository.getInstanceBillingAdminConfig(),
+			instanceConfigRepository.getAccountIdentity(),
+			instanceConfigRepository.isAccountIdentityLocked(),
+		]);
+	return {
+		sso: {
+			enabled: ssoConfig.enabled,
+			enforced: ssoConfig.enforced,
+			display_name: ssoConfig.displayName,
+			issuer: ssoConfig.issuer,
+			authorization_url: ssoConfig.authorizationUrl,
+			token_url: ssoConfig.tokenUrl,
+			userinfo_url: ssoConfig.userInfoUrl,
+			jwks_url: ssoConfig.jwksUrl,
+			client_id: ssoConfig.clientId,
+			client_secret_set: ssoConfig.clientSecretSet ?? false,
+			scope: ssoConfig.scope,
+			allowed_domains: ssoConfig.allowedEmailDomains,
+			auto_provision: ssoConfig.autoProvision,
+			redirect_uri: deriveSsoRedirectUri(Config.endpoints.webApp),
+		},
+		gateway_rollout: gatewayRollout,
+		push_relay: pushRelay,
+		domain_migration: domainMigration,
+		voice_p2p: voiceP2p,
+		captcha,
+		experiment_delivery: experimentDelivery,
+		registration: {
+			...registrationConfig,
+			urls: registrationUrls,
+			pending_registrations: pendingRegistrations,
+		},
+		self_hosted: Config.instance.selfHosted,
+		account_identity: {
+			mode: accountIdentity.mode,
+			locked: accountIdentityLocked,
+			tag_style: accountIdentity.tagStyle,
+		},
+		app_public: appPublic,
+		policy: {
+			single_community_enabled: policy.single_community_enabled,
+			single_community_guild_id: policy.single_community_guild_id,
+			direct_messages_disabled: policy.direct_messages_disabled,
+			direct_messages_locked: policy.direct_messages_locked,
+			guild_create_access: policy.guild_create_access,
+			premium_mode: policy.premium_mode,
+			services: {
+				gif_enabled: policy.gif_enabled,
+				youtube_enabled: policy.youtube_enabled,
+				bluesky_enabled: policy.bluesky_enabled,
+			},
+			services_resolved: resolvedServices,
+			services_available: {
+				gif: integrations.gif.effective_available,
+				youtube: integrations.youtube.effective_available,
+				bluesky: integrations.bluesky.effective_enabled,
+			},
+		},
+		integrations,
+		media,
+		billing,
+	};
+}
+
+function buildAdminIssuedRegistrationUrl(code: string): string {
+	const baseUrl = Config.endpoints.webApp.replace(/\/$/, '');
+	return `${baseUrl}/register?registration_url=${encodeURIComponent(code)}`;
+}
+
+function relayConsentStamp(
+	current: PushRelayConfig,
+	patch: PushRelayConfigUpdateRequest,
+	adminUserId: string,
+): Partial<PushRelayConfig> {
+	const accepted = patch.relay_consent_accepted;
+	if (accepted === undefined || accepted === current.relay_consent_accepted) {
+		return {};
+	}
+	return accepted
+		? {relay_consent_accepted_at: new Date().toISOString(), relay_consent_accepted_by: adminUserId}
+		: {relay_consent_accepted_at: null, relay_consent_accepted_by: null};
+}
+
+function assertSelfHostedBillingSections(data: InstanceConfigUpdateRequest): void {
+	if (Config.instance.selfHosted) {
+		return;
+	}
+	if (data.billing) {
+		throw InputValidationError.create('billing', 'Billing is configured through the environment on this instance');
+	}
+	const branding = data.app_public?.branding;
+	if (!branding) {
+		return;
+	}
+	for (const field of ['premium_product_name', 'premium_info_url'] as const) {
+		if (readOptionalField(branding, field) !== undefined) {
+			throw InputValidationError.create(
+				`app_public.branding.${field}`,
+				'This setting is only available on self-hosted instances',
+			);
+		}
+	}
+}
+
+async function assertBillingCompatibleWithStoredPremiumMode(
+	billing: NonNullable<InstanceConfigUpdateRequest['billing']>,
+): Promise<void> {
+	const requestedEnabled = readOptionalField(billing, 'enabled');
+	if (requestedEnabled !== true) {
+		return;
+	}
+	const policy = await getInstanceConfigRepository().readStoredInstancePolicyConfig();
+	if (policy.premium_mode === 'everyone') {
+		throw InputValidationError.create('billing.enabled', 'Billing can only be enabled when the premium mode is mirror');
+	}
+}
+
+async function assertPremiumModeCompatibleWithStoredBilling(
+	requestedBillingEnabled: boolean | null | undefined,
+): Promise<void> {
+	if (!Config.instance.selfHosted) {
+		return;
+	}
+	const repository = getInstanceConfigRepository();
+	const [policy, billing] = await Promise.all([
+		repository.readStoredInstancePolicyConfig(),
+		repository.readStoredInstanceBillingConfig(),
+	]);
+	if (policy.premium_mode === 'everyone') {
+		return;
+	}
+	const nextEnabled = requestedBillingEnabled === undefined ? billing.enabled : requestedBillingEnabled;
+	if (nextEnabled === true) {
+		throw InputValidationError.create(
+			'policy.premium_mode',
+			'Disable billing before switching the premium mode to everyone',
+		);
+	}
+}
+
+async function assertBillingCompatibleWithPremiumMode(data: InstanceConfigUpdateRequest): Promise<void> {
+	if (!Config.instance.selfHosted) {
+		return;
+	}
+	const requestedEnabled = data.billing ? readOptionalField(data.billing, 'enabled') : undefined;
+	const requestedPremiumMode = data.policy ? readOptionalField(data.policy, 'premium_mode') : undefined;
+	if (requestedEnabled === undefined && requestedPremiumMode === undefined) {
+		return;
+	}
+	const currentPremiumMode = (await getInstanceConfigRepository().getInstancePolicyConfig()).premium_mode;
+	const nextPremiumMode = requestedPremiumMode ?? currentPremiumMode;
+	if (nextPremiumMode !== 'everyone') {
+		return;
+	}
+	const nextEnabled =
+		requestedEnabled === undefined
+			? (await getInstanceConfigRepository().readStoredInstanceBillingConfig()).enabled
+			: requestedEnabled;
+	if (nextEnabled !== true) {
+		return;
+	}
+	if (requestedEnabled !== undefined) {
+		throw InputValidationError.create('billing.enabled', 'Billing can only be enabled when the premium mode is mirror');
+	}
+	if (currentPremiumMode !== 'everyone') {
+		throw InputValidationError.create(
+			'policy.premium_mode',
+			'Disable billing before switching the premium mode to everyone',
+		);
+	}
+}
+
+function listSuppliedSections(data: InstanceConfigUpdateRequest): string | undefined {
+	const sections = Object.entries(data)
+		.filter(([, value]) => value != null)
+		.map(([key]) => key)
+		.sort();
+	return sections.length > 0 ? sections.join(',') : undefined;
+}
+
+export function InstanceConfigAdminController(app: HonoApp) {
+	const instanceConfigRepository = getInstanceConfigRepository();
+	app.get(
+		'/admin/instance/config',
+		RateLimitMiddleware(RateLimitConfigs.ADMIN_LOOKUP),
+		requireAdminACL(AdminACLs.INSTANCE_CONFIG_VIEW),
+		OpenAPI({
+			operationId: 'get_admin_instance_config',
+			summary: 'Get instance configuration',
+			description:
+				'Retrieves instance-wide configuration including webhooks and SSO configuration. Requires INSTANCE_CONFIG_VIEW permission.',
+			responseSchema: InstanceConfigResponse,
+			statusCode: 200,
+			security: 'adminApiKey',
+			tags: 'Admin',
+		}),
+		async (ctx) => {
+			const response = await buildInstanceConfigResponse();
+			await recordAdminRead(ctx, {
+				targetType: 'instance_config',
+				targetId: 0n,
+				action: AdminAuditReadActions.GET_INSTANCE_CONFIG,
+				metadata: {
+					registration_url_count: response.registration.urls.length,
+					pending_registration_count: response.registration.pending_registrations.length,
+				},
+			});
+			return ctx.json(response);
+		},
+	);
+	app.patch(
+		'/admin/instance/config',
+		RateLimitMiddleware(RateLimitConfigs.ADMIN_USER_MODIFY),
+		requireAdminACL(AdminACLs.INSTANCE_CONFIG_UPDATE),
+		Validator('json', InstanceConfigUpdateRequest),
+		OpenAPI({
+			operationId: 'update_admin_instance_config',
+			summary: 'Update instance configuration',
+			description:
+				'Updates instance configuration settings including webhook URLs and SSO parameters. Changes apply immediately. Requires INSTANCE_CONFIG_UPDATE permission.',
+			responseSchema: InstanceConfigResponse,
+			statusCode: 200,
+			security: 'adminApiKey',
+			tags: 'Admin',
+		}),
+		async (ctx) => {
+			const data = ctx.req.valid('json');
+			assertSelfHostedBillingSections(data);
+			await assertBillingCompatibleWithPremiumMode(data);
+			if (data.gateway_rollout) {
+				const patch = data.gateway_rollout;
+				const landed = await instanceConfigRepository.updateGatewayRolloutConfig((current) =>
+					GatewayRolloutConfigSchema.parse({...current, ...patch}),
+				);
+				await getNatsConfigPublisher().publish('config.gateway.rollout', 'gateway_rollout_config', landed);
+			}
+			if (data.push_relay) {
+				const patch = omitUndefinedFields(data.push_relay);
+				if (Object.keys(patch).length > 0) {
+					const adminUserId = ctx.get('adminUserId').toString();
+					const landed = await instanceConfigRepository.updatePushRelayConfig((current) => ({
+						...current,
+						...patch,
+						...relayConsentStamp(current, patch, adminUserId),
+					}));
+					await getNatsConfigPublisher().publish('config.push.delivery', 'push_service_delivery_config', landed);
+				}
+			}
+			if (data.domain_migration) {
+				const patch = omitUndefinedFields(data.domain_migration);
+				if (Object.keys(patch).length > 0) {
+					await instanceConfigRepository.updateDomainMigrationConfig((current) =>
+						DomainMigrationConfigSchema.parse({
+							...current,
+							...patch,
+							config_version: current.config_version + 1,
+						}),
+					);
+				}
+			}
+			if (data.voice_p2p) {
+				const patch = omitUndefinedFields(data.voice_p2p);
+				if (Object.keys(patch).length > 0) {
+					await instanceConfigRepository.updateVoiceP2pConfig((current) =>
+						VoiceP2pConfigSchema.parse({
+							...current,
+							...patch,
+							config_version: current.config_version + 1,
+						}),
+					);
+				}
+			}
+			if (data.captcha) {
+				const patch = omitUndefinedFields(data.captcha);
+				if (Object.keys(patch).length > 0) {
+					await instanceConfigRepository.updateCaptchaConfig(patch);
+				}
+			}
+			if (data.experiment_delivery) {
+				const patch = data.experiment_delivery;
+				await instanceConfigRepository.updateExperimentDeliveryConfig((current) =>
+					ExperimentDeliveryConfigSchema.parse({...current, ...patch}),
+				);
+			}
+			if (data.sso) {
+				const sso = data.sso;
+				const current = await instanceConfigRepository.getSsoConfig({includeSecret: true});
+				const next = {
+					enabled: mergeOptionalField(current.enabled, readOptionalField(sso, 'enabled')),
+					enforced: mergeOptionalField(current.enforced, readOptionalField(sso, 'enforced')),
+					displayName: mergeOptionalField(current.displayName, readOptionalField(sso, 'display_name')),
+					issuer: mergeOptionalField(current.issuer, readOptionalField(sso, 'issuer')),
+					authorizationUrl: mergeOptionalField(current.authorizationUrl, readOptionalField(sso, 'authorization_url')),
+					tokenUrl: mergeOptionalField(current.tokenUrl, readOptionalField(sso, 'token_url')),
+					userInfoUrl: mergeOptionalField(current.userInfoUrl, readOptionalField(sso, 'userinfo_url')),
+					jwksUrl: mergeOptionalField(current.jwksUrl, readOptionalField(sso, 'jwks_url')),
+					clientId: mergeOptionalField(current.clientId, readOptionalField(sso, 'client_id')),
+					scope: mergeOptionalField(current.scope, readOptionalField(sso, 'scope')),
+					allowedEmailDomains: mergeOptionalField(
+						current.allowedEmailDomains,
+						readOptionalField(sso, 'allowed_domains'),
+					),
+					autoProvision: mergeOptionalField(current.autoProvision, readOptionalField(sso, 'auto_provision')),
+				};
+				const validated = await normalizeAndValidateSsoConfig(next, {
+					testModeEnabled: Config.dev.testModeEnabled,
+				});
+				const supplied = <T>(field: keyof typeof sso, value: T): T | undefined =>
+					readOptionalField(sso, field) === undefined ? undefined : value;
+				await instanceConfigRepository.setSsoConfig({
+					enabled: supplied('enabled', validated.enabled),
+					enforced: supplied('enforced', validated.enforced),
+					displayName: supplied('display_name', next.displayName),
+					issuer: supplied('issuer', validated.issuer),
+					authorizationUrl: supplied('authorization_url', validated.authorizationUrl),
+					tokenUrl: supplied('token_url', validated.tokenUrl),
+					userInfoUrl: supplied('userinfo_url', validated.userInfoUrl),
+					jwksUrl: supplied('jwks_url', validated.jwksUrl),
+					clientId: supplied('client_id', validated.clientId),
+					clientSecret: readOptionalField(sso, 'client_secret'),
+					scope: supplied('scope', next.scope),
+					allowedEmailDomains: supplied('allowed_domains', validated.allowedEmailDomains),
+					autoProvision: supplied('auto_provision', next.autoProvision),
+				});
+			}
+			if (data.registration) {
+				await instanceConfigRepository.setRegistrationConfig({
+					mode: data.registration.mode,
+					admin_registration_urls_enabled: data.registration.admin_registration_urls_enabled,
+				});
+			}
+			if (data.app_public) {
+				await instanceConfigRepository.setAppPublicConfig({
+					branding: data.app_public.branding
+						? omitUndefinedFields({
+								product_name: readOptionalField(data.app_public.branding, 'product_name'),
+								icon_url: readOptionalField(data.app_public.branding, 'icon_url'),
+								symbol_url: readOptionalField(data.app_public.branding, 'symbol_url'),
+								logo_url: readOptionalField(data.app_public.branding, 'logo_url'),
+								wordmark_url: readOptionalField(data.app_public.branding, 'wordmark_url'),
+								favicon_url: readOptionalField(data.app_public.branding, 'favicon_url'),
+								theme_color: readOptionalField(data.app_public.branding, 'theme_color'),
+								status_page_url: readOptionalField(data.app_public.branding, 'status_page_url'),
+								status_page_incident_history_url: readOptionalField(
+									data.app_public.branding,
+									'status_page_incident_history_url',
+								),
+								premium_product_name: readOptionalField(data.app_public.branding, 'premium_product_name'),
+								premium_info_url: readOptionalField(data.app_public.branding, 'premium_info_url'),
+							})
+						: undefined,
+					legal: data.app_public.legal
+						? omitUndefinedFields({
+								terms_url: readOptionalField(data.app_public.legal, 'terms_url'),
+								privacy_url: readOptionalField(data.app_public.legal, 'privacy_url'),
+								guidelines_url: readOptionalField(data.app_public.legal, 'guidelines_url'),
+							})
+						: undefined,
+					registration: data.app_public.registration
+						? omitUndefinedFields({
+								collect_date_of_birth: readOptionalField(data.app_public.registration, 'collect_date_of_birth'),
+							})
+						: undefined,
+				});
+			}
+			if (data.integrations) {
+				await instanceConfigRepository.setInstanceIntegrationsConfig({
+					gif: data.integrations.gif
+						? omitUndefinedFields({
+								klipy_api_key: readOptionalField(data.integrations.gif, 'klipy_api_key'),
+							})
+						: undefined,
+					youtube: data.integrations.youtube
+						? omitUndefinedFields({
+								api_key: readOptionalField(data.integrations.youtube, 'api_key'),
+							})
+						: undefined,
+					email: data.integrations.email
+						? {
+								...omitUndefinedFields({
+									enabled: readOptionalField(data.integrations.email, 'enabled'),
+									provider: readOptionalField(data.integrations.email, 'provider'),
+									from_email: readOptionalField(data.integrations.email, 'from_email'),
+									from_name: readOptionalField(data.integrations.email, 'from_name'),
+									disable_new_ip_authorization: readOptionalField(
+										data.integrations.email,
+										'disable_new_ip_authorization',
+									),
+								}),
+								smtp: data.integrations.email.smtp
+									? omitUndefinedFields({
+											host: readOptionalField(data.integrations.email.smtp, 'host'),
+											port: readOptionalField(data.integrations.email.smtp, 'port'),
+											username: readOptionalField(data.integrations.email.smtp, 'username'),
+											password: readOptionalField(data.integrations.email.smtp, 'password'),
+											tls_mode: readSmtpTlsModeUpdate(data.integrations.email.smtp),
+										})
+									: undefined,
+							}
+						: undefined,
+					bluesky: data.integrations.bluesky
+						? {
+								...omitUndefinedFields({
+									enabled: readOptionalField(data.integrations.bluesky, 'enabled'),
+									client_name: readOptionalField(data.integrations.bluesky, 'client_name'),
+									client_uri: readOptionalField(data.integrations.bluesky, 'client_uri'),
+									logo_uri: readOptionalField(data.integrations.bluesky, 'logo_uri'),
+									tos_uri: readOptionalField(data.integrations.bluesky, 'tos_uri'),
+									policy_uri: readOptionalField(data.integrations.bluesky, 'policy_uri'),
+								}),
+								keys: readOptionalField(data.integrations.bluesky, 'keys'),
+							}
+						: undefined,
+				});
+			}
+			if (data.media) {
+				const previousAttachmentDecay = await instanceConfigRepository.getEffectiveAttachmentDecayConfig();
+				await instanceConfigRepository.setInstanceMediaConfig({
+					attachment_decay: data.media.attachment_decay
+						? omitUndefinedFields({
+								enabled: readOptionalField(data.media.attachment_decay, 'enabled'),
+								min_size_mb: readOptionalField(data.media.attachment_decay, 'min_size_mb'),
+								max_size_mb: readOptionalField(data.media.attachment_decay, 'max_size_mb'),
+								max_eligible_size_mb: readOptionalField(data.media.attachment_decay, 'max_eligible_size_mb'),
+								min_lifetime_days: readOptionalField(data.media.attachment_decay, 'min_lifetime_days'),
+								max_lifetime_days: readOptionalField(data.media.attachment_decay, 'max_lifetime_days'),
+								curve: readOptionalField(data.media.attachment_decay, 'curve'),
+								renew_threshold_days: readOptionalField(data.media.attachment_decay, 'renew_threshold_days'),
+								renew_window_days: readOptionalField(data.media.attachment_decay, 'renew_window_days'),
+							})
+						: undefined,
+				});
+				const attachmentDecay = await instanceConfigRepository.getEffectiveAttachmentDecayConfig();
+				if (attachmentDecay.enabled && attachmentExpiryRulesChanged(previousAttachmentDecay, attachmentDecay)) {
+					await startAttachmentDecayReconcile(getKVClient(), getWorkerService());
+				}
+			}
+			if (data.policy) {
+				await applyInstancePolicyUpdate(
+					ctx,
+					data.policy,
+					data.billing ? readOptionalField(data.billing, 'enabled') : undefined,
+				);
+			}
+			if (data.billing) {
+				await assertBillingCompatibleWithStoredPremiumMode(data.billing);
+				await instanceConfigRepository.setInstanceBillingConfig(
+					omitUndefinedFields({
+						enabled: readOptionalField(data.billing, 'enabled'),
+						stripe_secret_key: readOptionalField(data.billing, 'stripe_secret_key'),
+						stripe_webhook_secret: readOptionalField(data.billing, 'stripe_webhook_secret'),
+						default_currency: readOptionalField(data.billing, 'default_currency'),
+						prices: readOptionalField(data.billing, 'prices'),
+						country_currencies: readOptionalField(data.billing, 'country_currencies'),
+						legacy_prices: readOptionalField(data.billing, 'legacy_prices'),
+						automatic_tax: readOptionalField(data.billing, 'automatic_tax'),
+						tax_id_collection: readOptionalField(data.billing, 'tax_id_collection'),
+						terms_consent_required: readOptionalField(data.billing, 'terms_consent_required'),
+					}),
+				);
+			}
+			if (data.app_public?.setup) {
+				const configured = readOptionalField(data.app_public.setup, 'configured');
+				await instanceConfigRepository.setAppPublicConfig({
+					setup: omitUndefinedFields({configured}),
+				});
+				if (configured === true) {
+					await instanceConfigRepository.claimAdminBootstrap();
+					await clearUsedSetupToken(instanceConfigRepository);
+				}
+			}
+			await recordAdminWrite(ctx, {
+				targetType: 'instance_config',
+				targetId: 0n,
+				action: 'update_instance_config',
+				metadata: {
+					sections: listSuppliedSections(data),
+				},
+			});
+			return ctx.json(await buildInstanceConfigResponse());
+		},
+	);
+	app.post(
+		'/admin/instance/config/branding-assets',
+		RateLimitMiddleware(RateLimitConfigs.ADMIN_USER_MODIFY),
+		requireAdminACL(AdminACLs.INSTANCE_CONFIG_UPDATE),
+		Validator('json', BrandingAssetUploadRequest),
+		OpenAPI({
+			operationId: 'create_admin_instance_branding_asset',
+			summary: 'Upload an instance branding asset',
+			description:
+				'Uploads a branding image served by the media proxy and stores its URL, or clears it when no image is provided. Requires INSTANCE_CONFIG_UPDATE permission.',
+			responseSchema: InstanceConfigResponse,
+			statusCode: 200,
+			security: 'adminApiKey',
+			tags: 'Admin',
+		}),
+		async (ctx) => {
+			const {kind, image} = ctx.req.valid('json');
+			const prepared = await ctx.get('entityAssetService').prepareAssetUpload({
+				assetType: 'branding',
+				entityType: 'instance',
+				entityId: INSTANCE_BRANDING_ENTITY_ID,
+				previousHash: null,
+				base64Image: image ?? null,
+				errorPath: 'image',
+			});
+			const brandingPatch: Partial<InstanceBranding> = {[`${kind}_url`]: prepared.newCdnUrl};
+			await instanceConfigRepository.setAppPublicConfig({branding: brandingPatch});
+			await recordAdminWrite(ctx, {
+				targetType: 'instance_config',
+				targetId: 0n,
+				action: 'upload_branding_asset',
+				metadata: {kind, cleared: prepared.newCdnUrl === null},
+			});
+			return ctx.json(await buildInstanceConfigResponse());
+		},
+	);
+	app.post(
+		'/admin/instance/config/smtp-tests',
+		RateLimitMiddleware(RateLimitConfigs.ADMIN_USER_MODIFY),
+		requireAdminACL(AdminACLs.INSTANCE_CONFIG_UPDATE),
+		Validator('json', InstanceEmailSmtpTestRequest),
+		OpenAPI({
+			operationId: 'create_admin_instance_smtp_test',
+			summary: 'Run an SMTP configuration test',
+			description:
+				'Validates that an SMTP configuration can authenticate and accept a connection. Fields left out of the body come from the saved configuration, and the saved password is reused only for the saved host and username. An empty body tests what outgoing email uses and fails when email is off or incomplete. Requires INSTANCE_CONFIG_UPDATE permission.',
+			responseSchema: InstanceEmailSmtpTestResponse,
+			statusCode: 200,
+			security: 'adminApiKey',
+			tags: 'Admin',
+		}),
+		async (ctx) => {
+			const {smtp, problem} = await instanceConfigRepository.getSmtpTestConfig(ctx.req.valid('json'));
+			let result: InstanceEmailSmtpTestResponse;
+			try {
+				if (problem) throw new Error(problem);
+				const provider = new SmtpEmailProvider({
+					...smtp,
+					connectionTimeoutMs: 10000,
+					greetingTimeoutMs: 10000,
+					socketTimeoutMs: 10000,
+				});
+				await provider.verify();
+				result = {ok: true, error: null};
+			} catch (error) {
+				result = {ok: false, error: error instanceof Error ? error.message : String(error)};
+			}
+			await recordAdminWrite(ctx, {
+				targetType: 'instance_config',
+				targetId: 0n,
+				action: 'test_smtp_connection',
+				metadata: {port: smtp.port, tls_mode: resolveSmtpTlsMode(smtp.tlsMode, smtp.port), ok: result.ok},
+			});
+			return ctx.json(result);
+		},
+	);
+	app.post(
+		'/admin/instance/registration-urls',
+		RateLimitMiddleware(RateLimitConfigs.ADMIN_USER_MODIFY),
+		requireAdminACL(AdminACLs.INSTANCE_CONFIG_UPDATE),
+		Validator('json', CreateRegistrationUrlRequest),
+		OpenAPI({
+			operationId: 'create_admin_registration_url',
+			summary: 'Create an admin-issued registration URL',
+			description:
+				'Creates a one-time-display registration URL that can be sent manually by an administrator. Requires INSTANCE_CONFIG_UPDATE permission.',
+			responseSchema: CreateRegistrationUrlResponse,
+			statusCode: 200,
+			security: 'adminApiKey',
+			tags: 'Admin',
+		}),
+		async (ctx) => {
+			const data = ctx.req.valid('json');
+			const created = await instanceConfigRepository.createRegistrationUrl({
+				label: data.label?.trim() || null,
+				createdByUserId: ctx.get('adminUserId').toString(),
+				expiresAt: data.expires_at ? new Date(data.expires_at) : null,
+				maxUses: data.max_uses ?? null,
+				approvalRequired: data.approval_required,
+			});
+			await recordAdminWrite(ctx, {
+				targetType: 'registration_url',
+				targetId: 0n,
+				action: 'create_registration_url',
+				metadata: {approval_required: data.approval_required, max_uses: data.max_uses},
+			});
+			return ctx.json({
+				registration_url: created.registrationUrl,
+				code: created.code,
+				url: buildAdminIssuedRegistrationUrl(created.code),
+			});
+		},
+	);
+	app.delete(
+		'/admin/instance/registration-urls/:registration_url_id',
+		RateLimitMiddleware(RateLimitConfigs.ADMIN_USER_MODIFY),
+		requireAdminACL(AdminACLs.INSTANCE_CONFIG_UPDATE),
+		Validator('param', RegistrationUrlIdParam),
+		OpenAPI({
+			operationId: 'revoke_admin_registration_url',
+			summary: 'Revoke an admin-issued registration URL',
+			description:
+				'Revokes an admin-issued registration URL so it can no longer be used. Requires INSTANCE_CONFIG_UPDATE permission.',
+			responseSchema: InstanceConfigResponse,
+			statusCode: 200,
+			security: 'adminApiKey',
+			tags: 'Admin',
+		}),
+		async (ctx) => {
+			await instanceConfigRepository.revokeRegistrationUrl(ctx.req.valid('param').registration_url_id);
+			await recordAdminWrite(ctx, {
+				targetType: 'registration_url',
+				targetId: 0n,
+				action: 'revoke_registration_url',
+			});
+			return ctx.json(await buildInstanceConfigResponse());
+		},
+	);
+	app.patch(
+		'/admin/instance/pending-registrations/:user_id',
+		RateLimitMiddleware(RateLimitConfigs.ADMIN_USER_MODIFY),
+		requireAdminACL(AdminACLs.INSTANCE_CONFIG_UPDATE),
+		Validator('param', UserIdParam),
+		Validator('json', PendingRegistrationActionRequest),
+		OpenAPI({
+			operationId: 'update_admin_pending_registration',
+			summary: 'Approve or reject a pending registration',
+			description:
+				'Decides a registration waiting for manual review. Approving removes its pending registration trait, rejecting also prevents the account from logging in. Requires INSTANCE_CONFIG_UPDATE permission.',
+			responseSchema: InstanceConfigResponse,
+			statusCode: 200,
+			security: 'adminApiKey',
+			tags: 'Admin',
+		}),
+		async (ctx) => {
+			const userId = ctx.req.valid('param').user_id.toString();
+			const decision = ctx.req.valid('json').status === 'approved' ? 'approve' : 'reject';
+			await updatePendingRegistrationUser(ctx, userId, decision);
+			await instanceConfigRepository.removePendingRegistration(userId);
+			return ctx.json(await buildInstanceConfigResponse());
+		},
+	);
+}
+
+async function applyInstancePolicyUpdate(
+	ctx: Context<HonoEnv>,
+	policy: NonNullable<InstanceConfigUpdateRequest['policy']>,
+	requestedBillingEnabled: boolean | null | undefined,
+): Promise<void> {
+	const instanceConfigRepository = getInstanceConfigRepository();
+	const appPublic = await instanceConfigRepository.getAppPublicConfig();
+	const adminUser =
+		policy.single_community_enabled === true
+			? await ctx.get('userRepository').findUnique(ctx.get('adminUserId'))
+			: null;
+	if (policy.premium_mode === 'everyone') {
+		await assertPremiumModeCompatibleWithStoredBilling(requestedBillingEnabled);
+	}
+	let enablesSingleCommunity = false;
+	await instanceConfigRepository.updateInstancePolicyConfig((current) => {
+		const planned = planInstancePolicyPatch(policy, current, {
+			setupConfigured: appPublic.setup.configured,
+			adminUserFound: adminUser !== null,
+		});
+		enablesSingleCommunity = planned.enablesSingleCommunity;
+		return planned.patch;
+	});
+	if (enablesSingleCommunity && adminUser) {
+		await ctx.get('singleCommunityService').ensureStockCommunity({
+			owner: adminUser,
+			name: policy.single_community_name?.trim() || appPublic.branding.product_name,
+		});
+	}
+	if (policy.premium_mode !== undefined) {
+		await ctx.get('limitConfigService').updatePolicyConfig({premium_mode: policy.premium_mode});
+	}
+}
+
+function planInstancePolicyPatch(
+	policy: NonNullable<InstanceConfigUpdateRequest['policy']>,
+	current: InstancePolicyConfig,
+	context: {setupConfigured: boolean; adminUserFound: boolean},
+): {patch: Partial<InstancePolicyConfig>; enablesSingleCommunity: boolean} {
+	const patch: Partial<InstancePolicyConfig> = {};
+	let enablesSingleCommunity = false;
+	if (
+		policy.single_community_enabled !== undefined &&
+		policy.single_community_enabled !== current.single_community_enabled
+	) {
+		if (policy.single_community_enabled) {
+			if ((context.setupConfigured && current.single_community_guild_id == null) || !context.adminUserFound) {
+				throw new InstancePolicyTransitionNotAllowedError();
+			}
+			enablesSingleCommunity = true;
+		} else {
+			patch.single_community_enabled = false;
+		}
+	}
+	const unlockDirectMessages = policy.direct_messages_locked === false;
+	if (unlockDirectMessages && current.direct_messages_locked) {
+		patch.direct_messages_locked = false;
+	}
+	if (
+		policy.direct_messages_disabled !== undefined &&
+		policy.direct_messages_disabled !== current.direct_messages_disabled
+	) {
+		if (current.direct_messages_locked && !unlockDirectMessages) {
+			throw new InstancePolicyTransitionNotAllowedError();
+		}
+		patch.direct_messages_disabled = policy.direct_messages_disabled;
+		if (!policy.direct_messages_disabled) {
+			patch.direct_messages_locked = true;
+		}
+	}
+	if (policy.guild_create_access !== undefined && policy.guild_create_access !== current.guild_create_access) {
+		patch.guild_create_access = policy.guild_create_access;
+	}
+	if (policy.services) {
+		if (policy.services.gif_enabled !== undefined) {
+			patch.gif_enabled = policy.services.gif_enabled ?? null;
+		}
+		if (policy.services.youtube_enabled !== undefined) {
+			patch.youtube_enabled = policy.services.youtube_enabled ?? null;
+		}
+		if (policy.services.bluesky_enabled !== undefined) {
+			patch.bluesky_enabled = policy.services.bluesky_enabled ?? null;
+		}
+	}
+	return {patch, enablesSingleCommunity};
+}
+
+async function updatePendingRegistrationUser(
+	ctx: Context<HonoEnv>,
+	userId: string,
+	decision: 'approve' | 'reject',
+): Promise<void> {
+	const userRepository = ctx.get('userRepository');
+	const user = await userRepository.findUnique(createUserID(BigInt(userId)));
+	if (!user) {
+		await recordAdminWrite(ctx, {
+			targetType: 'user',
+			targetId: BigInt(userId),
+			action: decision === 'approve' ? 'approve_registration' : 'reject_registration',
+			metadata: {account_found: false},
+		});
+		return;
+	}
+	const traits = new Set(user.traits);
+	const wasPendingApproval = traits.delete(REGISTRATION_PENDING_APPROVAL_TRAIT);
+	if (decision === 'reject') {
+		traits.add(REGISTRATION_REJECTED_TRAIT);
+	} else {
+		traits.delete(REGISTRATION_REJECTED_TRAIT);
+	}
+	await userRepository.patchUpsert(user.id, {traits: traits.size > 0 ? traits : null}, user.toRow());
+	if (decision === 'approve' && wasPendingApproval) {
+		await ctx.get('singleCommunityService').joinStockCommunity(user.id, ctx.get('requestCache'));
+	}
+	await recordAdminWrite(ctx, {
+		targetType: 'user',
+		targetId: user.id,
+		action: decision === 'approve' ? 'approve_registration' : 'reject_registration',
+	});
+}

@@ -1,0 +1,7 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.searchResultsContainer {
+	display: flex;
+	height: 100%;
+	flex-direction: column;
+}

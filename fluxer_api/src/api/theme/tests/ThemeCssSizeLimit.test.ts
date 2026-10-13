@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {createTestAccount} from '@app/api/auth/tests/AuthTestUtils';
+import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
+import {HTTP_STATUS} from '@app/api/test/TestConstants';
+import {createBuilder} from '@app/api/test/TestRequestBuilder';
+import {setThemeCssMaxBytesForTesting, THEME_CSS_MAX_BYTES} from '@app/api/theme/ThemeService';
+import {afterAll, beforeAll, beforeEach, describe, expect, it} from 'vitest';
+
+interface ThemeCreateResponse {
+	id: string;
+}
+
+const TEST_MAX_CSS_BYTES = 4096;
+
+describe('Theme CSS size limits', () => {
+	let harness: ApiTestHarness;
+	beforeAll(async () => {
+		harness = await createApiTestHarness();
+	});
+	beforeEach(async () => {
+		await harness.reset();
+		setThemeCssMaxBytesForTesting(TEST_MAX_CSS_BYTES);
+	});
+	afterAll(async () => {
+		setThemeCssMaxBytesForTesting(undefined);
+		await harness?.shutdown();
+	});
+	it('accepts CSS at exactly the real 8MB limit through the full HTTP stack', async () => {
+		setThemeCssMaxBytesForTesting(undefined);
+		const user = await createTestAccount(harness);
+		const maxCss = 'a'.repeat(THEME_CSS_MAX_BYTES);
+		const theme = await createBuilder<ThemeCreateResponse>(harness, user.token)
+			.post('/users/@me/themes')
+			.body({css: maxCss})
+			.expect(HTTP_STATUS.CREATED)
+			.execute();
+		expect(theme.id).toBeDefined();
+	});
+	it('rejects CSS that exceeds the limit', async () => {
+		const user = await createTestAccount(harness);
+		const oversizedCss = 'a'.repeat(TEST_MAX_CSS_BYTES + 1);
+		await createBuilder(harness, user.token)
+			.post('/users/@me/themes')
+			.body({css: oversizedCss})
+			.expect(HTTP_STATUS.BAD_REQUEST, 'FILE_SIZE_TOO_LARGE')
+			.execute();
+	});
+	it('rejects CSS whose byte length exceeds the limit even when the character count does not', async () => {
+		const user = await createTestAccount(harness);
+		const unicodeChar = '\u{1F600}';
+		const bytesPerChar = Buffer.from(unicodeChar, 'utf-8').length;
+		const charsNeeded = Math.ceil((TEST_MAX_CSS_BYTES + 1) / bytesPerChar);
+		const oversizedUnicodeCss = unicodeChar.repeat(charsNeeded);
+		expect(oversizedUnicodeCss.length).toBeLessThanOrEqual(TEST_MAX_CSS_BYTES);
+		expect(Buffer.byteLength(oversizedUnicodeCss, 'utf-8')).toBeGreaterThan(TEST_MAX_CSS_BYTES);
+		await createBuilder(harness, user.token)
+			.post('/users/@me/themes')
+			.body({css: oversizedUnicodeCss})
+			.expect(HTTP_STATUS.BAD_REQUEST, 'FILE_SIZE_TOO_LARGE')
+			.execute();
+	});
+});

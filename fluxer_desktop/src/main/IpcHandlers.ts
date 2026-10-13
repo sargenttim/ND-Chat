@@ -1,0 +1,612 @@
+import {isObjectLike as isRecord} from '@fluxer/record_utils/src/RecordGuards';
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {APP_PROTOCOL, DESKTOP_APP_ORIGIN, DESKTOP_PREBOOT_THEME_CHANNEL} from '@electron/common/Constants';
+import {
+	type DesktopTroubleshootingSettings,
+	type DesktopWindowBehaviorSettings,
+	getDesktopWindowBehaviorSettings,
+	setDesktopWindowBehaviorSettings,
+	setPrebootTheme,
+} from '@electron/common/DesktopConfig';
+import type {
+	ClipboardWriteFileResult,
+	DownloadFileResult,
+	MediaAccessType,
+	TrayPresenceStatus,
+} from '@electron/common/Types';
+import {DesktopBrowserHandoff} from '@electron/main/BrowserHandoff';
+import {hasEnabledBlinkFeature, MIDDLE_CLICK_AUTOSCROLL_BLINK_FEATURE} from '@electron/main/ChromiumRuntime';
+import {setHandoffReturnLinkSink} from '@electron/main/DeepLinks';
+import {getDesktopAppStorage} from '@electron/main/DesktopAppStorage';
+import {createDesktopAppStorageIpcRoutes} from '@electron/main/DesktopAppStorageIpc';
+import {getLaunchDesktopTroubleshootingSettings} from '@electron/main/DesktopDebugInfo';
+import {cleanupDesktopRuntimeConfigHandlers} from '@electron/main/DesktopRuntimeConfigIpc';
+import {
+	applyDesktopWindowBehaviorSettings,
+	desktopTrayChangePendingRestart,
+	hasActiveDesktopTray,
+	updateTrayRuntimeState,
+} from '@electron/main/DesktopTray';
+import {getDesktopUpdateState, observeDesktopUpdateState, startDesktopUpdate} from '@electron/main/DesktopUpdateGate';
+import {DownloadChecksumError, downloadFile} from '@electron/main/FileDownloads';
+import {getGatewayOriginRegistry} from '@electron/main/GatewayOriginRegistry';
+import {retryBlockedGlobalShortcutHooks} from '@electron/main/GlobalShortcutsIpc';
+import {
+	type LinuxAppearanceSnapshot,
+	type LinuxAppearanceSubscription,
+	readLinuxAppearance,
+	subscribeLinuxAppearance,
+} from '@electron/main/LinuxAppearance';
+import {refreshTccStatus, registerMacTccIpcHandlers} from '@electron/main/MacTcc';
+import {setNativeStrings} from '@electron/main/MainI18n';
+import {copyRemoteFileToClipboard, parseClipboardWriteFileOptions} from '@electron/main/MediaClipboard';
+import {signalRendererLaunchConfirmed} from '@electron/main/ModuleBootHandoff';
+import {ensureDesktopModule} from '@electron/main/ModuleOnDemand';
+import {
+	createDesktopNativeGatewayTransport,
+	type DesktopNativeGatewayTransport,
+} from '@electron/main/NativeGatewayTransport';
+import {registerNotificationIpcHandlers} from '@electron/main/NotificationsIpc';
+import {openExternalDeduped} from '@electron/main/OpenExternal';
+import {registerPasskeyHandlers} from '@electron/main/Passkeys';
+import {getAppMetricsSnapshot, getDesktopInfo, getGpuInfo} from '@electron/main/PlatformInfo';
+import {
+	createPrivilegedRendererDocumentOwners,
+	requirePrivilegedRendererDocumentSender,
+} from '@electron/main/PrivilegedRendererDocuments';
+import {getDesktopSelectedInstanceClient} from '@electron/main/SelectedInstanceFetch';
+import {getStreamerModeCaptureAppStatus} from '@electron/main/StreamerModeProcessDetection';
+import {
+	acquireStreamingPriority,
+	getStreamingPriorityDiagnostics,
+	releaseStreamingPriority,
+} from '@electron/main/StreamingPriority';
+import {registerThemeLocalFileHandlers} from '@electron/main/ThemeLocalFiles';
+import {
+	relaunchAndExit,
+	setHardwareAccelerationDisabled,
+	setHardwareAccelerationDisabledAndRestart,
+} from '@electron/main/Troubleshooting';
+import {registerVoiceBackgroundMediaCacheHandlers} from '@electron/main/VoiceBackgroundMediaCache';
+import {
+	focusVoiceDebugEventSinkPopout,
+	registerVoiceDebugEventSinkPopoutIpcHandlers,
+	setVoiceDebugEventSinkAlwaysOnTop,
+	VOICE_DEBUG_EVENT_SINK_POPOUT_KEY,
+} from '@electron/main/VoiceDebugEventSinkPopout';
+import {
+	clearSavedWindowBounds,
+	desktopTransparencyPendingRestart,
+	desktopUseNativeTitleBarPendingRestart,
+	focusThemeStudioPopoutWindow,
+	focusVoicePopoutWindow,
+	getActiveAllowTransparency,
+	getActiveUseNativeTitleBar,
+	getMainWindow,
+	setThemeStudioPopoutAlwaysOnTop,
+	setVoicePopoutAlwaysOnTop,
+	showWindow,
+	THEME_STUDIO_POPOUT_KEY,
+} from '@electron/main/Window';
+import {setWindowsBadgeOverlay} from '@electron/main/WindowsBadge';
+import {
+	DESKTOP_MODULE_CHANNELS,
+	DESKTOP_UPDATE_CHANNELS,
+	DESKTOP_UPDATE_EVENTS,
+} from '@fluxer/desktop_ipc/src/ModuleContract';
+import {app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, shell, systemPreferences} from 'electron';
+import log from 'electron-log';
+
+interface TrayRuntimeStateUpdate {
+	voiceConnected?: boolean;
+	voiceChannelLabel?: string | null;
+	selfMute?: boolean;
+	selfDeaf?: boolean;
+	presenceStatus?: TrayPresenceStatus | null;
+	buildInfo?: string | null;
+}
+
+function normalizeDesktopWindowBehaviorUpdate(value: unknown): Partial<DesktopWindowBehaviorSettings> {
+	if (!isRecord(value)) {
+		return {};
+	}
+	const update: Partial<DesktopWindowBehaviorSettings> = {};
+	if (typeof value.showTrayIcon === 'boolean') {
+		update.showTrayIcon = value.showTrayIcon;
+	}
+	if (typeof value.minimizeToTray === 'boolean') {
+		update.minimizeToTray = value.minimizeToTray;
+	}
+	if (typeof value.closeToTray === 'boolean') {
+		update.closeToTray = value.closeToTray;
+	}
+	if (typeof value.startMinimized === 'boolean') {
+		update.startMinimized = value.startMinimized;
+	}
+	if (typeof value.useNativeTitleBar === 'boolean') {
+		update.useNativeTitleBar = value.useNativeTitleBar;
+	}
+	if (typeof value.rememberWindowState === 'boolean') {
+		update.rememberWindowState = value.rememberWindowState;
+	}
+	if (typeof value.allowTransparency === 'boolean') {
+		update.allowTransparency = value.allowTransparency;
+	}
+	if (typeof value.smoothScrolling === 'boolean') {
+		update.smoothScrolling = value.smoothScrolling;
+	}
+	if (typeof value.middleClickAutoscroll === 'boolean') {
+		update.middleClickAutoscroll = value.middleClickAutoscroll;
+	}
+	return update;
+}
+
+function getActiveSmoothScrolling(): boolean {
+	return !app.commandLine.hasSwitch('disable-smooth-scrolling');
+}
+
+function getActiveMiddleClickAutoscroll(): boolean {
+	return process.platform === 'linux' && hasEnabledBlinkFeature(MIDDLE_CLICK_AUTOSCROLL_BLINK_FEATURE);
+}
+
+export function registerIpcHandlers(): void {
+	registerVoiceDebugEventSinkPopoutIpcHandlers();
+	registerVoiceBackgroundMediaCacheHandlers();
+	ipcMain.handle(DESKTOP_MODULE_CHANNELS.ensure, (event, moduleName: unknown) => {
+		requirePrivilegedRendererDocumentSender(event, DESKTOP_MODULE_CHANNELS.ensure);
+		return ensureDesktopModule(moduleName);
+	});
+	ipcMain.handle(DESKTOP_UPDATE_CHANNELS.state, (event) => {
+		requirePrivilegedRendererDocumentSender(event, DESKTOP_UPDATE_CHANNELS.state);
+		return getDesktopUpdateState();
+	});
+	ipcMain.handle(DESKTOP_UPDATE_CHANNELS.start, (event) => {
+		requirePrivilegedRendererDocumentSender(event, DESKTOP_UPDATE_CHANNELS.start);
+		startDesktopUpdate();
+	});
+	ipcMain.handle(DESKTOP_MODULE_CHANNELS.confirmLaunch, (event) => {
+		requirePrivilegedRendererDocumentSender(event, DESKTOP_MODULE_CHANNELS.confirmLaunch);
+		const mainWindow = getMainWindow();
+		if (
+			mainWindow == null ||
+			mainWindow.isDestroyed() ||
+			event.sender !== mainWindow.webContents ||
+			event.senderFrame?.origin !== DESKTOP_APP_ORIGIN
+		) {
+			return;
+		}
+		signalRendererLaunchConfirmed();
+	});
+	observeDesktopUpdateState((state) => {
+		const mainWindow = getMainWindow();
+		if (mainWindow == null || mainWindow.isDestroyed()) {
+			return;
+		}
+		mainWindow.webContents.send(DESKTOP_UPDATE_EVENTS.stateChanged, state);
+	});
+	ipcMain.handle('get-desktop-info', () => getDesktopInfo());
+	ipcMain.handle('get-gpu-info', () => getGpuInfo());
+	ipcMain.handle('get-app-metrics', () => getAppMetricsSnapshot());
+	ipcMain.handle('streamer-mode:get-capture-app-status', () => getStreamerModeCaptureAppStatus());
+	ipcMain.handle('system-idle-time-ms', (): number => {
+		return Math.max(0, powerMonitor.getSystemIdleTime() * 1000);
+	});
+	ipcMain.handle('desktop-window-behavior-get', (): DesktopWindowBehaviorSettings => {
+		return {
+			...getDesktopWindowBehaviorSettings(),
+			activeUseNativeTitleBar: getActiveUseNativeTitleBar(),
+			activeAllowTransparency: getActiveAllowTransparency(),
+			activeSmoothScrolling: getActiveSmoothScrolling(),
+			activeMiddleClickAutoscroll: getActiveMiddleClickAutoscroll(),
+		};
+	});
+	ipcMain.handle('desktop-troubleshooting-get', (): DesktopTroubleshootingSettings => {
+		return getLaunchDesktopTroubleshootingSettings();
+	});
+	ipcMain.handle(
+		'desktop-troubleshooting-set-disable-hardware-acceleration',
+		(
+			_event,
+			payload: {
+				disable: boolean;
+				restart?: boolean;
+			},
+		): DesktopTroubleshootingSettings => {
+			const disable = Boolean(payload?.disable);
+			if (payload?.restart) {
+				setHardwareAccelerationDisabledAndRestart(disable);
+			} else {
+				setHardwareAccelerationDisabled(disable);
+			}
+			return getLaunchDesktopTroubleshootingSettings();
+		},
+	);
+	ipcMain.on('streaming-priority-acquire', (event) => {
+		acquireStreamingPriority(event.sender);
+	});
+	ipcMain.on('streaming-priority-release', () => {
+		releaseStreamingPriority();
+	});
+	ipcMain.handle('streaming-priority-get-diagnostics', () => getStreamingPriorityDiagnostics());
+	ipcMain.on('tray-runtime-state-update', (event, state: unknown) => {
+		if (!state || typeof state !== 'object') return;
+		const update = state as TrayRuntimeStateUpdate;
+		updateTrayRuntimeState(update, event.sender.id);
+	});
+	ipcMain.on('native-locale-set', (_event, payload: unknown) => {
+		if (!payload || typeof payload !== 'object') return;
+		const {locale, strings} = payload as {
+			locale?: unknown;
+			strings?: unknown;
+		};
+		if (typeof locale !== 'string' || !strings || typeof strings !== 'object') return;
+		const sanitized: Record<string, string> = {};
+		for (const [key, value] of Object.entries(strings)) {
+			if (typeof key === 'string' && typeof value === 'string') {
+				sanitized[key] = value;
+			}
+		}
+		setNativeStrings(locale, sanitized);
+	});
+	ipcMain.on('window-flash', (_event, persistent: unknown) => {
+		flashWindowForAttention(persistent === true);
+	});
+	ipcMain.on('window-stop-flash', () => {
+		stopFlashingWindow();
+	});
+	ipcMain.on('taskbar-progress-set', (_event, payload: unknown) => {
+		if (!payload || typeof payload !== 'object') return;
+		const {fraction, mode} = payload as {
+			fraction?: unknown;
+			mode?: unknown;
+		};
+		const numericFraction = typeof fraction === 'number' ? fraction : -1;
+		const validModes: ReadonlyArray<TaskbarProgressMode> = ['normal', 'indeterminate', 'error', 'paused', 'none'];
+		const resolvedMode: TaskbarProgressMode =
+			typeof mode === 'string' && (validModes as ReadonlyArray<string>).includes(mode)
+				? (mode as TaskbarProgressMode)
+				: 'normal';
+		setTaskbarProgress(numericFraction, resolvedMode);
+	});
+	ipcMain.on(DESKTOP_PREBOOT_THEME_CHANNEL, (event, theme: unknown) => {
+		if (event.senderFrame?.origin === DESKTOP_APP_ORIGIN && typeof theme === 'string') {
+			setPrebootTheme(theme);
+		}
+	});
+	ipcMain.handle('desktop-window-behavior-pending-restart', (): boolean => {
+		return (
+			desktopTrayChangePendingRestart() ||
+			desktopUseNativeTitleBarPendingRestart() ||
+			desktopTransparencyPendingRestart()
+		);
+	});
+	ipcMain.handle('desktop-app-relaunch', (): void => {
+		relaunchAndExit();
+	});
+	registerThemeLocalFileHandlers(getMainWindow);
+	ipcMain.handle('desktop-window-behavior-set', (_event, settings: unknown): DesktopWindowBehaviorSettings => {
+		const nextSettings = setDesktopWindowBehaviorSettings(normalizeDesktopWindowBehaviorUpdate(settings));
+		applyDesktopWindowBehaviorSettings();
+		if (!nextSettings.showTrayIcon) {
+			const mainWindow = getMainWindow();
+			if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+				showWindow();
+			}
+		}
+		if (!nextSettings.rememberWindowState) {
+			clearSavedWindowBounds();
+		}
+		return {
+			...nextSettings,
+			activeUseNativeTitleBar: getActiveUseNativeTitleBar(),
+			activeAllowTransparency: getActiveAllowTransparency(),
+			activeSmoothScrolling: getActiveSmoothScrolling(),
+			activeMiddleClickAutoscroll: getActiveMiddleClickAutoscroll(),
+		};
+	});
+	ipcMain.on('window-minimize', (event) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (!win) return;
+		const settings = getDesktopWindowBehaviorSettings();
+		if (win === getMainWindow() && hasActiveDesktopTray() && settings.showTrayIcon && settings.minimizeToTray) {
+			win.hide();
+			return;
+		}
+		win.minimize();
+	});
+	ipcMain.on('window-maximize', (event) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (win) {
+			if (win.isMaximized()) {
+				win.unmaximize();
+			} else {
+				win.maximize();
+			}
+		}
+	});
+	ipcMain.on('window-close', (event) => {
+		BrowserWindow.fromWebContents(event.sender)?.close();
+	});
+	ipcMain.handle('window-is-maximized', (event): boolean => {
+		return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false;
+	});
+	ipcMain.handle('theme-studio-popout-focus', (): boolean => {
+		return focusThemeStudioPopoutWindow();
+	});
+
+	ipcMain.handle('popout:set-always-on-top', (_event, key: unknown, flag: unknown): boolean => {
+		if (typeof key !== 'string' || typeof flag !== 'boolean') {
+			return false;
+		}
+		if (key === THEME_STUDIO_POPOUT_KEY) {
+			return setThemeStudioPopoutAlwaysOnTop(flag);
+		}
+		if (key === VOICE_DEBUG_EVENT_SINK_POPOUT_KEY) {
+			return setVoiceDebugEventSinkAlwaysOnTop(flag);
+		}
+		return setVoicePopoutAlwaysOnTop(key, flag);
+	});
+	ipcMain.handle('popout:focus', (_event, key: unknown): boolean => {
+		if (typeof key !== 'string') {
+			return false;
+		}
+		if (key === THEME_STUDIO_POPOUT_KEY) {
+			return focusThemeStudioPopoutWindow();
+		}
+		if (key === VOICE_DEBUG_EVENT_SINK_POPOUT_KEY) {
+			return focusVoiceDebugEventSinkPopout();
+		}
+		return focusVoicePopoutWindow(key);
+	});
+	ipcMain.handle('open-external', async (_event, url: string): Promise<void> => {
+		if (typeof url !== 'string') {
+			throw new Error('Invalid URL');
+		}
+		await openExternalDeduped(url);
+	});
+	ipcMain.handle('clipboard-write-text', async (_event, text: string): Promise<void> => {
+		await clipboard.writeText(text);
+	});
+	ipcMain.handle('clipboard-read-text', (): Promise<string> => {
+		return clipboard.readText();
+	});
+	ipcMain.handle('clipboard-write-file', async (event, rawOptions: unknown): Promise<ClipboardWriteFileResult> => {
+		requirePrivilegedRendererDocumentSender(event, 'clipboard-write-file');
+		try {
+			return await copyRemoteFileToClipboard(parseClipboardWriteFileOptions(rawOptions));
+		} catch (error) {
+			return {success: false, error: error instanceof Error ? error.message : 'Invalid clipboard file payload'};
+		}
+	});
+	ipcMain.handle('clipboard-paste', (event): void => {
+		requirePrivilegedRendererDocumentSender(event, 'clipboard-paste');
+		event.sender.paste();
+	});
+	ipcMain.handle(
+		'download-file',
+		async (
+			event,
+			options: {
+				url: string;
+				defaultPath: string;
+				sha256?: string | null;
+			},
+		): Promise<DownloadFileResult> => {
+			requirePrivilegedRendererDocumentSender(event, 'download-file');
+			const win = BrowserWindow.fromWebContents(event.sender);
+			if (!win) {
+				return {success: false, error: 'No window found'};
+			}
+			try {
+				const result = await dialog.showSaveDialog(win, {
+					defaultPath: options.defaultPath,
+				});
+				if (result.canceled || !result.filePath) {
+					return {success: false, canceled: true};
+				}
+				await downloadFile(options.url, result.filePath, {sha256: options.sha256});
+				return {success: true, path: result.filePath};
+			} catch (error) {
+				if (error instanceof DownloadChecksumError) {
+					return {success: false, checksumMismatch: true, error: error.message};
+				}
+				return {success: false, error: error instanceof Error ? error.message : 'Unknown error'};
+			}
+		},
+	);
+	ipcMain.handle('check-media-access', async (_event, type: MediaAccessType): Promise<string> => {
+		if (process.platform !== 'darwin') {
+			return 'granted';
+		}
+		if (type === 'audio-capture') {
+			return 'not-determined';
+		}
+		if (type === 'screen') {
+			return refreshTccStatus('screen-recording');
+		}
+		return systemPreferences.getMediaAccessStatus(type);
+	});
+	ipcMain.handle('request-media-access', async (_event, type: MediaAccessType): Promise<boolean> => {
+		if (process.platform !== 'darwin') {
+			return true;
+		}
+		if (type === 'audio-capture') {
+			return false;
+		}
+		if (type === 'screen') {
+			return (await refreshTccStatus('screen-recording')) === 'granted';
+		}
+		return systemPreferences.askForMediaAccess(type);
+	});
+	ipcMain.handle('open-media-access-settings', async (_event, type: MediaAccessType): Promise<void> => {
+		if (process.platform !== 'darwin') {
+			return;
+		}
+		const privacyKeys: Record<MediaAccessType, string> = {
+			microphone: 'Privacy_Microphone',
+			camera: 'Privacy_Camera',
+			screen: 'Privacy_ScreenCapture',
+			'audio-capture': 'Privacy_AudioCapture',
+		};
+		await shell.openExternal(`x-apple.systempreferences:com.apple.preference.security?${privacyKeys[type]}`);
+	});
+	ipcMain.handle('open-input-monitoring-settings', async (): Promise<void> => {
+		if (process.platform !== 'darwin') {
+			return;
+		}
+		await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_ListenEvent');
+	});
+	registerNotificationIpcHandlers(getMainWindow);
+	registerMacTccIpcHandlers({
+		onStatus: (surface, status) => {
+			if (surface === 'input-monitoring' && status === 'granted') retryBlockedGlobalShortcutHooks();
+		},
+	});
+	ipcMain.on('set-badge-count', (_event, count: number) => {
+		if (process.platform === 'darwin') {
+			app.setBadgeCount(count);
+		} else if (process.platform === 'win32') {
+			setWindowsBadgeOverlay(getMainWindow(), count);
+		} else {
+			app.setBadgeCount(count);
+		}
+	});
+	ipcMain.on('set-zoom-factor', (event, factor: number) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (win && factor > 0) {
+			win.webContents.setZoomFactor(factor);
+		}
+	});
+	ipcMain.handle('get-accessibility-support-enabled', (): boolean => app.accessibilitySupportEnabled);
+	app.on('accessibility-support-changed', (_event, accessibilitySupportEnabled) => {
+		const mainWindow = getMainWindow();
+		if (!mainWindow || mainWindow.isDestroyed()) return;
+		mainWindow.webContents.send('accessibility-support-changed', Boolean(accessibilitySupportEnabled));
+	});
+	registerPasskeyHandlers();
+	registerLinuxAppearanceHandlers();
+	registerBrowserHandoffHandlers();
+}
+
+let linuxAppearanceSubscription: LinuxAppearanceSubscription | null = null;
+
+function broadcastLinuxAppearance(snapshot: LinuxAppearanceSnapshot): void {
+	for (const window of BrowserWindow.getAllWindows()) {
+		if (window.isDestroyed()) continue;
+		window.webContents.send('linux-appearance-changed', snapshot);
+	}
+}
+
+function registerLinuxAppearanceHandlers(): void {
+	ipcMain.handle('linux-appearance-get', (): LinuxAppearanceSnapshot => {
+		if (process.platform !== 'linux') {
+			return {colorScheme: 'no-preference', contrast: 'no-preference', accent: null};
+		}
+		return readLinuxAppearance();
+	});
+	if (process.platform !== 'linux') return;
+	if (linuxAppearanceSubscription) return;
+	linuxAppearanceSubscription = subscribeLinuxAppearance((snapshot) => {
+		broadcastLinuxAppearance(snapshot);
+	});
+}
+
+export function registerDesktopAppStorageHandlers(): void {
+	const storage = getDesktopAppStorage();
+	if (storage === null) {
+		return;
+	}
+	for (const [channel, handler] of Object.entries(createDesktopAppStorageIpcRoutes(storage))) {
+		ipcMain.handle(channel, (event, ...args: Array<unknown>) => {
+			requirePrivilegedRendererDocumentSender(event, channel);
+			return handler(...args);
+		});
+	}
+}
+
+let browserHandoff: DesktopBrowserHandoff | null = null;
+
+function registerBrowserHandoffHandlers(): void {
+	if (browserHandoff !== null) {
+		return;
+	}
+	const handoff = new DesktopBrowserHandoff({
+		logger: log,
+		rendererDocumentOwners: createPrivilegedRendererDocumentOwners('BrowserHandoff'),
+		selectedInstanceClient: getDesktopSelectedInstanceClient(),
+		returnUri: () => (app.isDefaultProtocolClient(APP_PROTOCOL) ? `${APP_PROTOCOL}://handoff` : null),
+	});
+	browserHandoff = handoff;
+	setHandoffReturnLinkSink((url) => handoff.acceptReturnLink(url));
+	for (const [channel, handler] of Object.entries(handoff.ipcRoutes())) {
+		ipcMain.handle(channel, handler);
+	}
+}
+
+let nativeGatewayTransport: DesktopNativeGatewayTransport | null = null;
+
+export function registerGatewayTransportHandlers(): void {
+	if (nativeGatewayTransport !== null) {
+		return;
+	}
+	nativeGatewayTransport = createDesktopNativeGatewayTransport({
+		logger: log,
+		originRegistry: getGatewayOriginRegistry(),
+		rendererDocumentOwners: createPrivilegedRendererDocumentOwners('NativeGateway'),
+	});
+	for (const [channel, handler] of Object.entries(nativeGatewayTransport.ipcRoutes())) {
+		ipcMain.handle(channel, handler);
+	}
+}
+
+export function cleanupGatewayTransportHandlers(): void {
+	nativeGatewayTransport?.cleanup();
+	nativeGatewayTransport = null;
+}
+
+export function cleanupIpcHandlers(_options: {quitting?: boolean} = {}): void {
+	cleanupDesktopRuntimeConfigHandlers();
+	browserHandoff?.cleanup();
+	browserHandoff = null;
+	setHandoffReturnLinkSink(null);
+	if (linuxAppearanceSubscription) {
+		try {
+			linuxAppearanceSubscription.close();
+		} catch {}
+		linuxAppearanceSubscription = null;
+	}
+}
+
+type TaskbarProgressMode = 'normal' | 'indeterminate' | 'error' | 'paused' | 'none';
+
+function setTaskbarProgress(fraction: number, mode: TaskbarProgressMode = 'normal'): void {
+	const mainWindow = getMainWindow();
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+	try {
+		if (mode === 'none' || fraction < 0) {
+			mainWindow.setProgressBar(-1);
+			return;
+		}
+		const clamped = Math.max(0, Math.min(1, fraction));
+		mainWindow.setProgressBar(clamped, {mode});
+	} catch {}
+}
+
+function flashWindowForAttention(persistent: boolean): void {
+	if (process.platform === 'darwin') return;
+	const mainWindow = getMainWindow();
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+	if (mainWindow.isFocused()) return;
+	try {
+		mainWindow.flashFrame(persistent);
+	} catch {}
+}
+
+function stopFlashingWindow(): void {
+	const mainWindow = getMainWindow();
+	if (!mainWindow || mainWindow.isDestroyed()) return;
+	try {
+		mainWindow.flashFrame(false);
+	} catch {}
+}

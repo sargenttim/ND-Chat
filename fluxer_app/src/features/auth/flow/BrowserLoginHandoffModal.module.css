@@ -1,0 +1,9 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.content {
+	gap: 1.25rem;
+}
+
+.prefillHint {
+	text-align: center;
+}

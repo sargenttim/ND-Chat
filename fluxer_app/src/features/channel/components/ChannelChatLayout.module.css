@@ -1,0 +1,40 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.container {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	width: 100%;
+	max-width: 100%;
+	min-width: 0;
+	overflow: hidden;
+	background-color: var(--composer-surface-color);
+	contain: layout style;
+}
+
+.messagesArea {
+	display: flex;
+	flex: 1 1 0%;
+	min-height: 0;
+	min-width: 0;
+	position: relative;
+	z-index: 0;
+	overflow: hidden;
+	contain: strict;
+}
+
+.textareaArea {
+	flex: 0 1 auto;
+	min-height: 0;
+	display: flex;
+	flex-direction: column;
+	position: relative;
+	z-index: 1;
+	padding: 0;
+	overflow: visible;
+	width: 100%;
+	max-width: 100%;
+	box-sizing: border-box;
+	contain: inline-size layout;
+}

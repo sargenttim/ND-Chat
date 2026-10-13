@@ -1,0 +1,23 @@
+{
+	"name": "@pkgs/geoip",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./*": "./*"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@aws-sdk/client-s3": "catalog:",
+		"@fluxer/geo_utils": "workspace:*",
+		"@fluxer/instance_bootstrap": "workspace:*",
+		"@fluxer/ip_utils": "workspace:*",
+		"maxmind": "catalog:"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:ts7"
+	}
+}

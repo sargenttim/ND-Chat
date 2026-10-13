@@ -1,0 +1,307 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.topDragRegion {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	height: var(--layout-header-height);
+	z-index: var(--z-index-titlebar);
+	pointer-events: none;
+}
+
+:global(html.platform-native.platform-macos) .topDragRegion {
+	pointer-events: auto;
+}
+
+.nagbarHost {
+	position: fixed;
+	top: 0;
+	left: 0;
+	right: 0;
+	z-index: var(--z-index-titlebar);
+}
+
+.scrollerWrapper {
+	position: fixed;
+	inset: 0;
+	display: flex;
+	background:
+		radial-gradient(ellipse 54rem 30rem at 50% -8%, rgb(138 98 209 / 0.18), transparent 68%),
+		linear-gradient(145deg, #05040d 0%, #080616 48%, #0d0a1c 100%);
+}
+
+.container {
+	position: relative;
+	min-height: 100svh;
+	width: 100%;
+	background-color: #080616;
+}
+
+:global(.auth-page),
+:global(.auth-page *) {
+	user-select: none;
+	-webkit-user-select: none;
+	-moz-user-select: none;
+	-ms-user-select: none;
+}
+
+.characterBackground {
+	composes: spaceBackground from '@app/features/ui/space_background/SpaceBackground.module.css';
+	--starfield-position: fixed;
+	min-height: 100svh;
+	overflow: auto;
+	width: 100%;
+}
+
+.leftSplit {
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	align-items: center;
+	min-height: 100svh;
+	position: relative;
+	width: 100%;
+	z-index: 1;
+}
+
+.leftSplitWrapper {
+	align-items: center;
+	display: flex;
+	justify-content: center;
+	position: relative;
+	width: 100%;
+	flex: 1;
+}
+
+.leftSplitAnimated {
+	width: 100%;
+	display: flex;
+	justify-content: center;
+}
+
+.cardMotionWrap {
+	box-sizing: border-box;
+	display: grid;
+	place-items: center;
+	min-height: 100svh;
+	width: 100%;
+	padding: clamp(1.5rem, 4vw, 3rem);
+	overflow: hidden;
+	transform-origin: center;
+}
+
+.fullscreenContent {
+	position: relative;
+	z-index: 10;
+	display: flex;
+	width: 100%;
+	min-height: 100svh;
+	align-items: center;
+	justify-content: center;
+}
+
+.fullscreenPassthrough {
+	display: contents;
+}
+
+.presentationProbe {
+	position: absolute;
+	inset: 0;
+	width: 100%;
+	min-height: 100svh;
+	overflow: hidden;
+	pointer-events: none;
+	visibility: hidden;
+}
+
+.splashBackdrop {
+	position: fixed;
+	inset: 0;
+	pointer-events: none;
+	overflow: hidden;
+	z-index: 0;
+}
+
+.splashOverlay {
+	pointer-events: none;
+	position: absolute;
+	inset: 0;
+}
+
+.patternHost {
+	position: fixed;
+	inset: 0;
+	opacity: 0.06;
+	pointer-events: none;
+	z-index: 0;
+	background-repeat: repeat;
+	background-size: 16.25rem 16.25rem;
+	filter: invert(1);
+}
+
+.cardContainer {
+	position: relative;
+	z-index: 10;
+	display: flex;
+	flex: 1;
+	min-height: 100svh;
+	width: 100%;
+	align-items: center;
+	justify-content: center;
+	padding: clamp(1.5rem, 4vw, 3rem);
+	box-sizing: border-box;
+}
+
+.cardContainerInMotion {
+	flex: 0 1 auto;
+	min-height: 0;
+	padding: 0;
+	width: min(100%, 38rem);
+	max-width: 100%;
+}
+
+.card {
+	position: relative;
+	margin: 0;
+	display: flex;
+	height: auto;
+	min-height: auto;
+	width: 100%;
+	max-width: 32rem;
+	overflow: hidden;
+	border: 0.0625rem solid rgb(255 255 255 / 0.08);
+	border-radius: 0.5rem;
+	background-color: var(--background-secondary);
+	box-shadow: 0 1.25rem 4rem -1.5rem rgb(0 0 0 / 0.7);
+	transition:
+		max-width 180ms ease,
+		box-shadow 180ms ease;
+}
+
+.cardStandard {
+	max-width: 32rem;
+}
+
+.cardCompact {
+	max-width: 27rem;
+}
+
+.formSide {
+	display: flex;
+	width: 100%;
+	flex-direction: column;
+	justify-content: center;
+	padding: clamp(2rem, 4vw, 2.75rem);
+	background: var(--background-secondary);
+}
+
+.formSideStandard {
+	padding: 2.5rem;
+}
+
+.formSideCompact {
+	padding: 2rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.card {
+		transition: none;
+	}
+}
+
+@media (max-width: 640px) {
+	.cardMotionWrap {
+		padding: 1rem;
+	}
+
+	.cardContainer {
+		padding: 1rem;
+	}
+
+	.formSide {
+		padding: 1.5rem;
+	}
+
+	.formSideStandard,
+	.formSideCompact {
+		padding: 1.5rem;
+	}
+}
+
+.mobileContainer {
+	composes: starfield from '@app/features/ui/space_background/SpaceBackground.module.css';
+	--starfield-position: fixed;
+	min-height: 100dvh;
+	background:
+		radial-gradient(ellipse 28rem 18rem at 32% 0%, rgb(122 87 191 / 0.16), transparent 74%),
+		radial-gradient(ellipse 22rem 18rem at 88% 92%, rgb(91 65 151 / 0.12), transparent 72%),
+		linear-gradient(145deg, #05040d 0%, #080616 46%, #0d0a1c 100%);
+	padding: calc(2rem + env(safe-area-inset-top, 0px)) 1.5rem calc(2.5rem + env(safe-area-inset-bottom, 0px));
+	overflow-y: auto;
+	overflow-x: hidden;
+	-webkit-overflow-scrolling: touch;
+}
+
+.mobileContent {
+	position: relative;
+	z-index: 1;
+	margin-left: auto;
+	margin-right: auto;
+	width: 100%;
+	max-width: 28rem;
+}
+
+.mobileFullscreenContent {
+	position: relative;
+	z-index: 1;
+	display: flex;
+	width: 100%;
+	min-height: calc(100dvh - 4.5rem - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+	align-items: center;
+	justify-content: center;
+}
+
+@media (min-width: 1600px) {
+	.leftSplit.alignLeft {
+		align-items: flex-start;
+		padding-left: clamp(10rem, 18vw, 22rem);
+	}
+
+	.alignLeft .leftSplitWrapper,
+	.alignLeft .leftSplitAnimated,
+	.alignLeft .cardContainer {
+		justify-content: flex-start;
+	}
+
+	.leftSplit.alignRight {
+		align-items: flex-end;
+		padding-right: clamp(10rem, 18vw, 22rem);
+	}
+
+	.alignRight .leftSplitWrapper,
+	.alignRight .leftSplitAnimated,
+	.alignRight .cardContainer {
+		justify-content: flex-end;
+	}
+}
+
+:global(html:not(.auth-page) body),
+:global(html.auth-page body) {
+	overflow: hidden;
+}
+
+:global(html.auth-page),
+:global(html.auth-page body) {
+	height: 100%;
+	background-color: #080616;
+}
+
+@supports (padding: env(safe-area-inset-top)) {
+	:global(.auth-page body.is-standalone) {
+		padding-top: env(safe-area-inset-top);
+		padding-right: env(safe-area-inset-right);
+		padding-bottom: env(safe-area-inset-bottom);
+		padding-left: env(safe-area-inset-left);
+	}
+}

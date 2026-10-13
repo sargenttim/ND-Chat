@@ -1,0 +1,1367 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {Routes} from '@app/app/Routes';
+import * as Modal from '@app/features/app/components/dialogs/Modal';
+import styles from '@app/features/app/components/setup/SelfHostedSetupWizardGate.module.css';
+import {
+	classifySetupUnauthorized,
+	fetchInstanceConfig,
+	type SetupBrandingAssetKind,
+	setSetupAccountIdentity,
+	testSmtpConfig,
+	updateInstanceConfig,
+	uploadBrandingAsset,
+} from '@app/features/app/components/setup/SetupWizardClient';
+import {
+	createSetupWizardSnapshot,
+	selectSetupWizardModel,
+	transitionSetupWizardSnapshot,
+	type WizardStep,
+} from '@app/features/app/components/setup/SetupWizardStateMachine';
+import {
+	AdminAccountStep,
+	AdminIntroStep,
+	AdminRecoveryKitStep,
+	type BrandingAssetState,
+	BrandingStep,
+	CommunityStep,
+	FinishStep,
+	IntegrationStep,
+	type IntegrationStepKind,
+	LoadingStep,
+	type MediaExpiryDraft,
+	MediaExpiryStep,
+	type PremiumMode,
+	PremiumStep,
+	PushRelayConsentStep,
+	type RegistrationMode,
+	RegistrationStep,
+	type ServiceAvailability,
+	type ServiceIntegrationDraft,
+	type ServiceSelection,
+	ServicesStep,
+	SetupTokenStep,
+	SignInMethodStep,
+	ThemeStep,
+	toSmtpTlsMode,
+	WelcomeStep,
+} from '@app/features/app/components/setup/SetupWizardSteps';
+import {resolveAppShellBranding} from '@app/features/app/state/AppShellBranding';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import Authentication from '@app/features/auth/state/Authentication';
+import {AuthRegisterDraftContext, type AuthRegisterFormDraft} from '@app/features/auth/state/AuthRegisterDraftContext';
+import {BACK_DESCRIPTOR, SIGN_OUT_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {openFilePicker} from '@app/features/messaging/utils/FilePickerUtils';
+import * as RouterUtils from '@app/features/navigation/utils/RouterUtils';
+import {AccountScopedWork} from '@app/features/platform/state/AccountScopedWork';
+import {isAccountTransitionAbortError} from '@app/features/platform/state/AccountTransitionAbort';
+import SessionManager from '@app/features/platform/state/AuthSession';
+import {HttpError} from '@app/features/platform/types/EndpointError';
+import {Logger} from '@app/features/platform/utils/AppLogger';
+import {readBlobAsDataUrl as fileToBase64} from '@app/features/platform/utils/BlobDataUrl';
+import {failureCode, failureValidationErrors} from '@app/features/platform/utils/ResponseInspection';
+import Theme from '@app/features/theme/state/Theme';
+import {Button} from '@app/features/ui/button/Button';
+import FocusRingManager from '@app/features/ui/focus_ring/FocusRingManager';
+import {PortalHostContext} from '@app/features/ui/overlay/PortalHostContext';
+import KeyboardMode from '@app/features/ui/state/KeyboardMode';
+import ModalState from '@app/features/ui/state/Modal';
+import {SteppedCarousel} from '@app/features/ui/stepped_carousel/SteppedCarousel';
+import {
+	ModalStackContext,
+	type ModalStackContextValue,
+	UNSTACKED_MODAL_CONTEXT,
+} from '@app/features/ui/utils/ModalStackContext';
+import * as RecoveryKitCommands from '@app/features/user/commands/RecoveryKitCommands';
+import {confirmNewRecoveryKit} from '@app/features/user/components/modals/tabs/account_security_tab/RecoveryKitSettings';
+import RecoveryKitStatus from '@app/features/user/state/RecoveryKitStatus';
+import * as FormUtils from '@app/lib/forms';
+import {
+	type AccountIdentityMode,
+	AccountIdentityModes,
+	type TagStyle,
+	TagStyles,
+} from '@fluxer/constants/src/AccountIdentityConstants';
+import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
+import {getAcceptString} from '@fluxer/constants/src/AssetFormatPolicy';
+import type {SmtpTlsMode} from '@fluxer/constants/src/SmtpConstants';
+import {type ThemeType, ThemeTypes} from '@fluxer/constants/src/UserConstants';
+import type {InstanceConfigResponse} from '@fluxer/schema/src/domains/admin/AdminSchemas';
+import type {MessageDescriptor} from '@lingui/core';
+import {msg} from '@lingui/core/macro';
+import {useLingui} from '@lingui/react/macro';
+import {ArrowLeftIcon, ArrowRightIcon, CheckIcon, WrenchIcon} from '@phosphor-icons/react';
+import {AnimatePresence, motion, type Transition, useReducedMotion} from 'framer-motion';
+import {observer} from 'mobx-react-lite';
+import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+
+const logger = new Logger('SelfHostedSetupWizardGate');
+
+const BEHIND_STACKED_MODAL_PLACEMENT: ModalStackContextValue = {...UNSTACKED_MODAL_CONTEXT, isTopmost: false};
+
+const SETUP_WIZARD_DESCRIPTOR = msg({
+	message: 'Self-host setup',
+	comment: 'Accessible label for the self-host setup wizard carousel.',
+});
+const HEADER_DESCRIPTOR = msg({
+	message: 'Set up {productName}',
+	comment: 'Title for the self-host setup wizard modal.',
+});
+const NEXT_DESCRIPTOR = msg({
+	message: 'Next',
+	comment: 'Button that moves to the next setup wizard step.',
+});
+const FINISH_DESCRIPTOR = msg({
+	message: 'Finish setup',
+	comment: 'Button that saves the configuration and completes the setup wizard.',
+});
+const SIGN_IN_METHOD_LOCKED_USERNAME_DESCRIPTOR = msg({
+	message: 'This instance already uses usernames to sign in. This can no longer change.',
+	comment: 'Setup wizard error when the operator picks email sign-in but the instance is already fixed to usernames.',
+});
+const USERNAME_STYLE_LOCKED_DESCRIPTOR = msg({
+	message: 'The username tags on this instance are already set. They can no longer change.',
+	comment: 'Setup wizard error when the username style was already fixed because an account exists.',
+});
+const SIGN_IN_METHOD_LOCKED_EMAIL_DESCRIPTOR = msg({
+	message: 'This instance already uses email to sign in. This can no longer change.',
+	comment: 'Setup wizard error when the operator picks username sign-in but the instance is already fixed to email.',
+});
+const LOADING_DESCRIPTOR = msg({
+	message: 'Loading instance configuration',
+	comment: 'Accessible status while the setup wizard loads the instance configuration.',
+});
+const LOAD_ERROR_DESCRIPTOR = msg({
+	message: 'Could not load the instance configuration. Try reloading the page.',
+	comment: 'Error shown when the setup wizard fails to load the instance configuration.',
+});
+const NOT_ADMIN_DESCRIPTOR = msg({
+	message: 'This account is not an admin of this instance. Sign in with an admin account to finish setup.',
+	comment:
+		'Error shown in the setup wizard when the signed-in account lacks admin access to the unconfigured instance. A sign out button follows.',
+});
+const ORIGIN_MISMATCH_DESCRIPTOR = msg({
+	message:
+		'The API is on a different origin than this page, so setup requests are sent without your session. Check the public origin and port this instance is configured with, then reload.',
+	comment: 'Error shown when the setup wizard cannot load because the API origin differs from the page origin.',
+});
+const ASSET_UPLOAD_ERROR_DESCRIPTOR = msg({
+	message: 'That image could not be used. Try a different file.',
+	comment: 'Error shown when a branding image fails to upload in the setup wizard.',
+});
+
+const footerRevealTransition: Transition = {
+	type: 'spring',
+	stiffness: 460,
+	damping: 40,
+	mass: 0.7,
+};
+const footerButtonTransition: Transition = {
+	type: 'spring',
+	stiffness: 520,
+	damping: 42,
+	mass: 0.7,
+};
+const instantTransition: Transition = {
+	duration: 0,
+};
+const STEP_NAVIGATION_LOCK_MS = 320;
+
+const BRANDING_ASSET_KINDS: ReadonlyArray<SetupBrandingAssetKind> = ['icon', 'symbol', 'logo', 'wordmark', 'favicon'];
+
+function hexToNumber(value: string | null): number | null {
+	if (!value) return null;
+	const match = /^#?([0-9a-fA-F]{6})$/.exec(value.trim());
+	if (!match) return null;
+	return parseInt(match[1], 16) >>> 0;
+}
+
+function numberToHexColor(value: number): string {
+	return `#${(value >>> 0).toString(16).padStart(6, '0').slice(-6)}`;
+}
+
+function brandingAssetUrl(config: InstanceConfigResponse, kind: SetupBrandingAssetKind): string | null {
+	const branding = config.app_public.branding;
+	switch (kind) {
+		case 'icon':
+			return branding.icon_url;
+		case 'symbol':
+			return branding.symbol_url;
+		case 'logo':
+			return branding.logo_url;
+		case 'wordmark':
+			return branding.wordmark_url;
+		case 'favicon':
+			return branding.favicon_url;
+	}
+}
+
+const DEFAULT_INTEGRATION_DRAFT: ServiceIntegrationDraft = {
+	gifMode: 'later',
+	klipyApiKey: '',
+	youtubeMode: 'later',
+	youtubeApiKey: '',
+	emailMode: 'later',
+	emailEnabled: true,
+	emailFromEmail: '',
+	emailFromName: '',
+	smtpHost: '',
+	smtpPort: '587',
+	smtpUsername: '',
+	smtpPassword: '',
+	smtpTlsMode: 'auto',
+	blueskyMode: 'later',
+	blueskyEnabled: true,
+	blueskyClientName: '',
+	blueskyClientUri: '',
+	blueskyLogoUri: '',
+	blueskyTosUri: '',
+	blueskyPolicyUri: '',
+	blueskyKeyId: '',
+	blueskyPrivateKey: '',
+};
+
+const DEFAULT_MEDIA_EXPIRY_DRAFT: MediaExpiryDraft = {
+	enabled: false,
+	minSizeMb: '5',
+	maxSizeMb: '500',
+	maxEligibleSizeMb: '500',
+	minLifetimeDays: '14',
+	maxLifetimeDays: '1095',
+	curve: '0.5',
+	renewThresholdDays: '30',
+	renewWindowDays: '30',
+};
+
+function wizardStepToIntegrationKind(step: WizardStep): IntegrationStepKind | null {
+	switch (step) {
+		case 'integration_gif':
+			return 'gif';
+		case 'integration_youtube':
+			return 'youtube';
+		case 'integration_email':
+			return 'email';
+		case 'integration_bluesky':
+			return 'bluesky';
+		default:
+			return null;
+	}
+}
+
+function parsePort(value: string): number | null {
+	const parsed = Number.parseInt(value, 10);
+	return Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535 ? parsed : null;
+}
+
+function parsePositiveNumber(value: string): number | null {
+	const parsed = Number.parseFloat(value);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parsePositiveInteger(value: string): number | null {
+	const parsed = Number.parseInt(value, 10);
+	return Number.isInteger(parsed) && parsed >= 1 ? parsed : null;
+}
+
+function parseDecayCurve(value: string): number | null {
+	const parsed = Number.parseFloat(value);
+	return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : null;
+}
+
+function parseMediaExpiryDraft(draft: MediaExpiryDraft) {
+	const minSizeMb = parsePositiveNumber(draft.minSizeMb);
+	const maxSizeMb = parsePositiveNumber(draft.maxSizeMb);
+	const maxEligibleSizeMb = parsePositiveNumber(draft.maxEligibleSizeMb);
+	const minLifetimeDays = parsePositiveInteger(draft.minLifetimeDays);
+	const maxLifetimeDays = parsePositiveInteger(draft.maxLifetimeDays);
+	const curve = parseDecayCurve(draft.curve);
+	const renewThresholdDays = parsePositiveInteger(draft.renewThresholdDays);
+	const renewWindowDays = parsePositiveInteger(draft.renewWindowDays);
+	if (
+		minSizeMb === null ||
+		maxSizeMb === null ||
+		maxEligibleSizeMb === null ||
+		minLifetimeDays === null ||
+		maxLifetimeDays === null ||
+		curve === null ||
+		renewThresholdDays === null ||
+		renewWindowDays === null ||
+		maxSizeMb <= minSizeMb ||
+		maxEligibleSizeMb < maxSizeMb ||
+		maxLifetimeDays < minLifetimeDays
+	) {
+		return null;
+	}
+	return {
+		minSizeMb,
+		maxSizeMb,
+		maxEligibleSizeMb,
+		minLifetimeDays,
+		maxLifetimeDays,
+		curve,
+		renewThresholdDays,
+		renewWindowDays,
+	};
+}
+
+function isMediaExpiryStepValid(draft: MediaExpiryDraft): boolean {
+	return !draft.enabled || parseMediaExpiryDraft(draft) !== null;
+}
+
+function isIntegrationStepValid(kind: IntegrationStepKind, draft: ServiceIntegrationDraft): boolean {
+	switch (kind) {
+		case 'gif':
+			if (draft.gifMode === 'later') return true;
+			return draft.klipyApiKey.trim().length > 0;
+		case 'youtube':
+			return draft.youtubeMode === 'later' || draft.youtubeApiKey.trim().length > 0;
+		case 'email':
+			if (draft.emailMode === 'later' || !draft.emailEnabled) return true;
+			return (
+				draft.emailFromEmail.trim().length > 0 &&
+				draft.emailFromName.trim().length > 0 &&
+				draft.smtpHost.trim().length > 0 &&
+				parsePort(draft.smtpPort) !== null &&
+				draft.smtpUsername.trim().length > 0 &&
+				draft.smtpPassword.trim().length > 0
+			);
+		case 'bluesky':
+			if (draft.blueskyMode === 'later' || !draft.blueskyEnabled) return true;
+			return (
+				draft.blueskyClientName.trim().length > 0 &&
+				draft.blueskyClientUri.trim().length > 0 &&
+				draft.blueskyKeyId.trim().length > 0 &&
+				draft.blueskyPrivateKey.trim().length > 0
+			);
+	}
+}
+
+function buildIntegrationsPatch(draft: ServiceIntegrationDraft, accountIdentity: AccountIdentityMode) {
+	const integrations: {
+		gif?: {
+			provider: 'klipy';
+			klipy_api_key?: string;
+		};
+		youtube?: {
+			api_key: string;
+		};
+		email?: {
+			enabled: boolean;
+			provider: 'smtp';
+			from_email: string;
+			from_name: string;
+			smtp: {
+				host: string;
+				port: number;
+				username: string;
+				password: string;
+				tls_mode: SmtpTlsMode;
+			};
+		};
+		bluesky?: {
+			enabled: boolean;
+			client_name: string;
+			client_uri: string;
+			logo_uri?: string;
+			tos_uri?: string;
+			policy_uri?: string;
+			keys?: Array<{kid: string; private_key: string}>;
+		};
+	} = {};
+	if (draft.gifMode === 'configure') {
+		integrations.gif = {provider: 'klipy', klipy_api_key: draft.klipyApiKey.trim()};
+	}
+	if (draft.youtubeMode === 'configure') {
+		integrations.youtube = {api_key: draft.youtubeApiKey.trim()};
+	}
+	if (draft.emailMode === 'configure' && accountIdentity === AccountIdentityModes.EMAIL) {
+		const smtpPort = parsePort(draft.smtpPort) ?? 587;
+		integrations.email = {
+			enabled: draft.emailEnabled,
+			provider: 'smtp',
+			from_email: draft.emailFromEmail.trim(),
+			from_name: draft.emailFromName.trim(),
+			smtp: {
+				host: draft.smtpHost.trim(),
+				port: smtpPort,
+				username: draft.smtpUsername.trim(),
+				password: draft.smtpPassword.trim(),
+				tls_mode: toSmtpTlsMode(draft.smtpTlsMode, smtpPort),
+			},
+		};
+	}
+	if (draft.blueskyMode === 'configure') {
+		integrations.bluesky = {
+			enabled: draft.blueskyEnabled,
+			client_name: draft.blueskyClientName.trim(),
+			client_uri: draft.blueskyClientUri.trim(),
+			logo_uri: draft.blueskyLogoUri.trim() || undefined,
+			tos_uri: draft.blueskyTosUri.trim() || undefined,
+			policy_uri: draft.blueskyPolicyUri.trim() || undefined,
+			keys:
+				draft.blueskyKeyId.trim() && draft.blueskyPrivateKey.trim()
+					? [{kid: draft.blueskyKeyId.trim(), private_key: draft.blueskyPrivateKey.trim()}]
+					: undefined,
+		};
+	}
+	return Object.keys(integrations).length > 0 ? integrations : undefined;
+}
+
+function buildMediaPatch(draft: MediaExpiryDraft) {
+	if (!draft.enabled) {
+		return {
+			attachment_decay: {
+				enabled: false,
+			},
+		};
+	}
+	const parsed = parseMediaExpiryDraft(draft);
+	return {
+		attachment_decay: {
+			enabled: true,
+			min_size_mb: parsed?.minSizeMb ?? Number.parseFloat(DEFAULT_MEDIA_EXPIRY_DRAFT.minSizeMb),
+			max_size_mb: parsed?.maxSizeMb ?? Number.parseFloat(DEFAULT_MEDIA_EXPIRY_DRAFT.maxSizeMb),
+			max_eligible_size_mb:
+				parsed?.maxEligibleSizeMb ?? Number.parseFloat(DEFAULT_MEDIA_EXPIRY_DRAFT.maxEligibleSizeMb),
+			min_lifetime_days: parsed?.minLifetimeDays ?? Number.parseInt(DEFAULT_MEDIA_EXPIRY_DRAFT.minLifetimeDays, 10),
+			max_lifetime_days: parsed?.maxLifetimeDays ?? Number.parseInt(DEFAULT_MEDIA_EXPIRY_DRAFT.maxLifetimeDays, 10),
+			curve: parsed?.curve ?? Number.parseFloat(DEFAULT_MEDIA_EXPIRY_DRAFT.curve),
+			renew_threshold_days:
+				parsed?.renewThresholdDays ?? Number.parseInt(DEFAULT_MEDIA_EXPIRY_DRAFT.renewThresholdDays, 10),
+			renew_window_days: parsed?.renewWindowDays ?? Number.parseInt(DEFAULT_MEDIA_EXPIRY_DRAFT.renewWindowDays, 10),
+		},
+	};
+}
+
+export const SelfHostedSetupWizardGate = observer(() => {
+	const {i18n} = useLingui();
+	const shouldReduceMotion = useReducedMotion();
+	const authStoreAuthenticated = Authentication.isAuthenticated;
+	const accountWorkAdmitted = !AccountScopedWork.isSuspended;
+	const themeHydrated = Theme.isHydrated;
+	const fallbackProductName = resolveAppShellBranding(RuntimeConfig.getSnapshotOrNull()).productName;
+	const welcomeInitialFocusRef = useRef<HTMLElement | null>(null);
+	const registerFormDraftsRef = useRef<Map<string, AuthRegisterFormDraft>>(new Map());
+	const stepNavigationLockedRef = useRef(false);
+	const stepNavigationUnlockTimerRef = useRef<number | null>(null);
+	const [layerHost, setLayerHost] = useState<HTMLDivElement | null>(null);
+	const modalStackPlacement = ModalState.hasModalOpen() ? BEHIND_STACKED_MODAL_PLACEMENT : UNSTACKED_MODAL_CONTEXT;
+
+	const [config, setConfig] = useState<InstanceConfigResponse | null>(null);
+	const accountIdentity = config?.account_identity.mode ?? RuntimeConfig.accountIdentity;
+	const [loadError, setLoadError] = useState<MessageDescriptor | null>(null);
+	const [submitting, setSubmitting] = useState(false);
+	const [submitError, setSubmitError] = useState<string | null>(null);
+	const [stepNavigationLocked, setStepNavigationLocked] = useState(false);
+	const [wizardSnapshot, setWizardSnapshot] = useState(createSetupWizardSnapshot);
+	const [setupTheme, setSetupTheme] = useState<ThemeType>(ThemeTypes.DARK);
+	const [forceUnauthenticatedSetup, setForceUnauthenticatedSetup] = useState(false);
+	const [integrationDraft, setIntegrationDraft] = useState<ServiceIntegrationDraft>(() => ({
+		...DEFAULT_INTEGRATION_DRAFT,
+	}));
+	const [mediaExpiryDraft, setMediaExpiryDraft] = useState<MediaExpiryDraft>(() => ({
+		...DEFAULT_MEDIA_EXPIRY_DRAFT,
+	}));
+	const [smtpTesting, setSmtpTesting] = useState(false);
+	const [smtpTestResult, setSmtpTestResult] = useState<string | null>(null);
+	const [signInMethod, setSignInMethod] = useState<AccountIdentityMode>(() => RuntimeConfig.accountIdentity);
+	const [tagStyleChoice, setTagStyleChoice] = useState<TagStyle>(() => RuntimeConfig.tagStyle);
+	const [savingSignInMethod, setSavingSignInMethod] = useState(false);
+	const [signInMethodError, setSignInMethodError] = useState<string | null>(null);
+	const [setupToken, setSetupToken] = useState('');
+	const [setupTokenError, setSetupTokenError] = useState<string | null>(null);
+	const [creatingRecoveryKit, setCreatingRecoveryKit] = useState(false);
+
+	const [productName, setProductName] = useState('');
+	const [themeColor, setThemeColor] = useState<number | null>(null);
+	const [registrationMode, setRegistrationMode] = useState<RegistrationMode>('open');
+	const [singleCommunityEnabled, setSingleCommunityEnabled] = useState(false);
+	const [singleCommunityName, setSingleCommunityName] = useState('');
+	const [directMessagesDisabled, setDirectMessagesDisabled] = useState(false);
+	const [serviceSelection, setServiceSelection] = useState<ServiceSelection>({
+		gif: false,
+		youtube: false,
+		bluesky: false,
+	});
+	const [pushRelayConsentAccepted, setPushRelayConsentAccepted] = useState(false);
+	const [premiumMode, setPremiumMode] = useState<PremiumMode>('mirror');
+	const [assets, setAssets] = useState<ReadonlyArray<BrandingAssetState>>(() =>
+		BRANDING_ASSET_KINDS.map((kind) => ({kind, url: null, preview: null})),
+	);
+
+	const getRegisterFormDraft = useCallback((draftKey: string): AuthRegisterFormDraft | undefined => {
+		const draft = registerFormDraftsRef.current.get(draftKey);
+		if (!draft) {
+			return undefined;
+		}
+		return {
+			...draft,
+			formValues: {...draft.formValues},
+		};
+	}, []);
+
+	const setRegisterFormDraft = useCallback((draftKey: string, draft: AuthRegisterFormDraft) => {
+		registerFormDraftsRef.current.set(draftKey, {
+			...draft,
+			formValues: {...draft.formValues},
+		});
+	}, []);
+
+	const clearRegisterFormDraft = useCallback((draftKey: string) => {
+		registerFormDraftsRef.current.delete(draftKey);
+	}, []);
+
+	const authRegisterDraftContextValue = useMemo(
+		() => ({
+			getRegisterFormDraft,
+			setRegisterFormDraft,
+			clearRegisterFormDraft,
+		}),
+		[clearRegisterFormDraft, getRegisterFormDraft, setRegisterFormDraft],
+	);
+
+	const isAuthenticated = authStoreAuthenticated && !forceUnauthenticatedSetup;
+
+	const clearStepNavigationLock = useCallback(() => {
+		if (stepNavigationUnlockTimerRef.current !== null) {
+			window.clearTimeout(stepNavigationUnlockTimerRef.current);
+			stepNavigationUnlockTimerRef.current = null;
+		}
+		stepNavigationLockedRef.current = false;
+		setStepNavigationLocked(false);
+	}, []);
+
+	const beginStepNavigation = useCallback(() => {
+		if (stepNavigationLockedRef.current) return false;
+		stepNavigationLockedRef.current = true;
+		setStepNavigationLocked(true);
+		if (stepNavigationUnlockTimerRef.current !== null) {
+			window.clearTimeout(stepNavigationUnlockTimerRef.current);
+		}
+		stepNavigationUnlockTimerRef.current = window.setTimeout(() => {
+			stepNavigationUnlockTimerRef.current = null;
+			stepNavigationLockedRef.current = false;
+			setStepNavigationLocked(false);
+		}, STEP_NAVIGATION_LOCK_MS);
+		return true;
+	}, []);
+
+	useEffect(
+		() => () => {
+			if (stepNavigationUnlockTimerRef.current !== null) {
+				window.clearTimeout(stepNavigationUnlockTimerRef.current);
+				stepNavigationUnlockTimerRef.current = null;
+			}
+			stepNavigationLockedRef.current = false;
+		},
+		[],
+	);
+
+	useEffect(() => {
+		if (authStoreAuthenticated || !forceUnauthenticatedSetup) return;
+		setForceUnauthenticatedSetup(false);
+	}, [authStoreAuthenticated, forceUnauthenticatedSetup]);
+
+	const resetSetupSession = useCallback(async () => {
+		setForceUnauthenticatedSetup(true);
+		registerFormDraftsRef.current.clear();
+		setConfig(null);
+		setLoadError(null);
+		setSubmitError(null);
+		setSubmitting(false);
+		setWizardSnapshot(createSetupWizardSnapshot());
+		clearStepNavigationLock();
+		setIntegrationDraft({...DEFAULT_INTEGRATION_DRAFT});
+		setMediaExpiryDraft({...DEFAULT_MEDIA_EXPIRY_DRAFT});
+		setPushRelayConsentAccepted(false);
+		setSmtpTesting(false);
+		setSmtpTestResult(null);
+		setSignInMethodError(null);
+		setSavingSignInMethod(false);
+		setSetupToken('');
+		setSetupTokenError(null);
+		setCreatingRecoveryKit(false);
+		try {
+			await SessionManager.logout();
+		} catch (error) {
+			logger.warn('Failed to fully clear the setup session', error);
+			Authentication.handleSessionStart({token: null});
+			SessionManager.setUserId(null);
+		}
+		Authentication.handleLogout({skipRedirect: true});
+	}, [clearStepNavigationLock]);
+
+	const signOutOfSetup = useCallback(async () => {
+		await resetSetupSession();
+		if (RuntimeConfig.appPublic.setup.setup_token_required !== true) RouterUtils.replaceWith(Routes.LOGIN);
+	}, [resetSetupSession]);
+
+	const hydrateFromConfig = useCallback((next: InstanceConfigResponse) => {
+		setConfig(next);
+		setProductName(next.app_public.branding.product_name);
+		setThemeColor(hexToNumber(next.app_public.branding.theme_color));
+		setRegistrationMode(next.registration.mode);
+		setSingleCommunityEnabled(next.policy.single_community_enabled);
+		setDirectMessagesDisabled(next.policy.direct_messages_disabled);
+		setPremiumMode(next.policy.premium_mode);
+		setPushRelayConsentAccepted(next.push_relay.relay_consent_accepted);
+		setServiceSelection({
+			gif: next.policy.services_resolved.gif_enabled,
+			youtube: next.policy.services_resolved.youtube_enabled,
+			bluesky: next.policy.services_resolved.bluesky_enabled,
+		});
+		setIntegrationDraft((current) => ({
+			...current,
+			emailEnabled: next.integrations.email.effective_enabled || next.integrations.email.enabled !== false,
+			emailFromEmail: next.integrations.email.from_email ?? current.emailFromEmail,
+			emailFromName: next.integrations.email.from_name ?? current.emailFromName,
+			smtpHost: next.integrations.email.smtp.host ?? current.smtpHost,
+			smtpPort: next.integrations.email.smtp.port ? String(next.integrations.email.smtp.port) : current.smtpPort,
+			smtpUsername: next.integrations.email.smtp.username ?? current.smtpUsername,
+			smtpTlsMode: next.integrations.email.smtp.tls_mode ?? current.smtpTlsMode,
+			blueskyEnabled: next.integrations.bluesky.effective_enabled || next.integrations.bluesky.enabled !== false,
+			blueskyClientName: next.integrations.bluesky.client_name ?? current.blueskyClientName,
+			blueskyClientUri: next.integrations.bluesky.client_uri ?? current.blueskyClientUri,
+			blueskyLogoUri: next.integrations.bluesky.logo_uri ?? current.blueskyLogoUri,
+			blueskyTosUri: next.integrations.bluesky.tos_uri ?? current.blueskyTosUri,
+			blueskyPolicyUri: next.integrations.bluesky.policy_uri ?? current.blueskyPolicyUri,
+		}));
+		setMediaExpiryDraft(() => {
+			const attachmentDecay = next.media.attachment_decay;
+			const effective = attachmentDecay.effective;
+			return {
+				enabled: attachmentDecay.enabled ?? false,
+				minSizeMb: String(attachmentDecay.min_size_mb ?? effective.min_size_mb),
+				maxSizeMb: String(attachmentDecay.max_size_mb ?? effective.max_size_mb),
+				maxEligibleSizeMb: String(attachmentDecay.max_eligible_size_mb ?? effective.max_eligible_size_mb),
+				minLifetimeDays: String(attachmentDecay.min_lifetime_days ?? effective.min_lifetime_days),
+				maxLifetimeDays: String(attachmentDecay.max_lifetime_days ?? effective.max_lifetime_days),
+				curve: String(attachmentDecay.curve ?? effective.curve),
+				renewThresholdDays: String(attachmentDecay.renew_threshold_days ?? effective.renew_threshold_days),
+				renewWindowDays: String(attachmentDecay.renew_window_days ?? effective.renew_window_days),
+			};
+		});
+		setAssets(BRANDING_ASSET_KINDS.map((kind) => ({kind, url: brandingAssetUrl(next, kind), preview: null})));
+	}, []);
+
+	useEffect(() => {
+		if (!isAuthenticated || config || !accountWorkAdmitted) return;
+		let cancelled = false;
+		setLoadError(null);
+		void (async () => {
+			try {
+				const next = await fetchInstanceConfig();
+				if (cancelled) return;
+				hydrateFromConfig(next);
+			} catch (error) {
+				if (cancelled || isAccountTransitionAbortError(error)) return;
+				const cause =
+					error instanceof HttpError && error.status === 401 ? await classifySetupUnauthorized() : 'unknown';
+				if (cancelled) return;
+				if (cause === 'stale_session') {
+					logger.warn('The setup session token was rejected. Clearing the stale local setup session.');
+					await resetSetupSession();
+					return;
+				}
+				if (error instanceof HttpError && error.status === 403) {
+					setLoadError(NOT_ADMIN_DESCRIPTOR);
+					return;
+				}
+				logger.error('Failed to load instance configuration', error);
+				setLoadError(cause === 'origin_mismatch' ? ORIGIN_MISMATCH_DESCRIPTOR : LOAD_ERROR_DESCRIPTOR);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [isAuthenticated, config, accountWorkAdmitted, hydrateFromConfig, resetSetupSession]);
+
+	const serviceAvailability: ServiceAvailability = useMemo(
+		() => ({
+			gif:
+				(config?.policy.services_available.gif ?? false) ||
+				(integrationDraft.gifMode === 'configure' && integrationDraft.klipyApiKey.trim().length > 0),
+			youtube:
+				(config?.policy.services_available.youtube ?? false) ||
+				(integrationDraft.youtubeMode === 'configure' && integrationDraft.youtubeApiKey.trim().length > 0),
+			bluesky:
+				(config?.policy.services_available.bluesky ?? false) ||
+				(integrationDraft.blueskyMode === 'configure' &&
+					integrationDraft.blueskyEnabled &&
+					integrationDraft.blueskyKeyId.trim().length > 0 &&
+					integrationDraft.blueskyPrivateKey.trim().length > 0),
+		}),
+		[config, integrationDraft],
+	);
+
+	const hasConfig = Boolean(config);
+	const identityLocked = RuntimeConfig.appPublic.setup.account_identity_locked === true;
+	const setupTokenRequired = RuntimeConfig.appPublic.setup.setup_token_required === true;
+	const syncedSnapshot =
+		wizardSnapshot.context.isAuthenticated !== isAuthenticated ||
+		wizardSnapshot.context.hasConfig !== hasConfig ||
+		wizardSnapshot.context.accountIdentity !== accountIdentity ||
+		wizardSnapshot.context.identityLocked !== identityLocked ||
+		wizardSnapshot.context.setupTokenRequired !== setupTokenRequired
+			? transitionSetupWizardSnapshot(wizardSnapshot, {
+					type: 'wizard.sync',
+					isAuthenticated,
+					hasConfig,
+					accountIdentity,
+					identityLocked,
+					setupTokenRequired,
+				})
+			: wizardSnapshot;
+	if (syncedSnapshot !== wizardSnapshot) {
+		setWizardSnapshot(syncedSnapshot);
+	}
+	const wizardModel = selectSetupWizardModel(syncedSnapshot);
+	const {step, steps, direction} = wizardModel;
+	const currentUserId = Authentication.currentUserId;
+	const hasRecoveryKit = currentUserId ? (RecoveryKitStatus.get(currentUserId)?.hasRecoveryKit ?? false) : false;
+
+	useEffect(() => {
+		if (step !== 'admin_recovery_kit') return;
+		void RecoveryKitCommands.fetchRecoveryKitStatus().catch((error) => {
+			logger.warn('Failed to load recovery kit status', error);
+		});
+	}, [step]);
+
+	const productNameTrimmed = productName.trim();
+	const productNameError = productNameTrimmed.length < 1 || productNameTrimmed.length > 80;
+	const singleCommunityNameTrimmed = singleCommunityName.trim();
+	const singleCommunityNameError =
+		singleCommunityEnabled && (singleCommunityNameTrimmed.length < 1 || singleCommunityNameTrimmed.length > 100);
+
+	const canAdvance = useMemo(() => {
+		if (step === 'welcome') return !isAuthenticated || Boolean(config);
+		if (step === 'admin_account' || step === 'loading') return false;
+		if (step === 'setup_token') return setupToken.trim().length > 0;
+		if (step === 'sign_in_method') return !savingSignInMethod;
+		if (step === 'admin_recovery_kit') return hasRecoveryKit;
+		if (step === 'branding') return !productNameError;
+		if (step === 'community') return !singleCommunityNameError;
+		if (step === 'media_expiry') return isMediaExpiryStepValid(mediaExpiryDraft);
+		if (step === 'push_relay_consent') return true;
+		const integrationKind = wizardStepToIntegrationKind(step);
+		if (integrationKind) return isIntegrationStepValid(integrationKind, integrationDraft);
+		return true;
+	}, [
+		step,
+		isAuthenticated,
+		config,
+		productNameError,
+		singleCommunityNameError,
+		mediaExpiryDraft,
+		integrationDraft,
+		savingSignInMethod,
+		hasRecoveryKit,
+		setupToken,
+	]);
+
+	const goNext = useCallback(() => {
+		if (!beginStepNavigation()) return;
+		setSubmitError(null);
+		setWizardSnapshot((current) => transitionSetupWizardSnapshot(current, {type: 'wizard.next'}));
+	}, [beginStepNavigation]);
+
+	const goBack = useCallback(() => {
+		if (!beginStepNavigation()) return;
+		setSubmitError(null);
+		setWizardSnapshot((current) => transitionSetupWizardSnapshot(current, {type: 'wizard.back'}));
+	}, [beginStepNavigation]);
+
+	const handleSetupTokenChange = useCallback((value: string) => {
+		setSetupToken(value);
+		setSetupTokenError(null);
+	}, []);
+
+	const submittedSetupToken = setupToken.trim() || undefined;
+
+	const handleSetupTokenRejected = useCallback((message: string) => {
+		setSetupTokenError(message);
+		setWizardSnapshot((current) => transitionSetupWizardSnapshot(current, {type: 'wizard.setupTokenRejected'}));
+	}, []);
+
+	const submitSignInMethod = useCallback(async () => {
+		if (savingSignInMethod) return;
+		setSavingSignInMethod(true);
+		setSignInMethodError(null);
+		let locked = false;
+		const effectiveTagStyle = signInMethod === AccountIdentityModes.USERNAME ? TagStyles.NONE : tagStyleChoice;
+		try {
+			let saved: Awaited<ReturnType<typeof setSetupAccountIdentity>> | null = null;
+			try {
+				saved = await setSetupAccountIdentity(signInMethod, effectiveTagStyle, submittedSetupToken);
+			} catch (error) {
+				const setupTokenViolation = failureValidationErrors(error)?.find(
+					(violation) => violation.path === 'setup_token',
+				);
+				if (setupTokenViolation) {
+					handleSetupTokenRejected(setupTokenViolation.message);
+					setSavingSignInMethod(false);
+					return;
+				}
+				if (failureCode(error) !== APIErrorCodes.ACCOUNT_IDENTITY_LOCKED) {
+					throw error;
+				}
+				locked = true;
+				logger.info('The sign-in method is already locked');
+			}
+			await RuntimeConfig.refreshDiscovery();
+			if (saved) {
+				RuntimeConfig.applyAccountIdentity(saved.mode, saved.tag_style);
+			}
+		} catch (error) {
+			logger.error('Failed to save the sign-in method', error);
+			setSignInMethodError(FormUtils.extractErrorMessage(i18n, error));
+			setSavingSignInMethod(false);
+			return;
+		}
+		const lockedMode = RuntimeConfig.accountIdentity;
+		const lockedTagStyle = RuntimeConfig.tagStyle;
+		const modeDiffers = lockedMode !== signInMethod;
+		if (locked && (modeDiffers || lockedTagStyle !== effectiveTagStyle)) {
+			setSignInMethod(lockedMode);
+			setTagStyleChoice(lockedTagStyle);
+			setSignInMethodError(
+				i18n._(
+					!modeDiffers
+						? USERNAME_STYLE_LOCKED_DESCRIPTOR
+						: lockedMode === AccountIdentityModes.USERNAME
+							? SIGN_IN_METHOD_LOCKED_USERNAME_DESCRIPTOR
+							: SIGN_IN_METHOD_LOCKED_EMAIL_DESCRIPTOR,
+				),
+			);
+			setSavingSignInMethod(false);
+			return;
+		}
+		setSavingSignInMethod(false);
+		goNext();
+	}, [savingSignInMethod, signInMethod, tagStyleChoice, submittedSetupToken, handleSetupTokenRejected, i18n, goNext]);
+
+	const handleSignInMethodChange = useCallback((mode: AccountIdentityMode) => {
+		setSignInMethod(mode);
+		setSignInMethodError(null);
+	}, []);
+
+	const createRecoveryKit = useCallback(async () => {
+		setCreatingRecoveryKit(true);
+		try {
+			await RecoveryKitCommands.createAndShowRecoveryKit();
+		} catch (error) {
+			logger.error('Failed to create the administrator recovery kit', error);
+			FormUtils.pushApiErrorModal(i18n, error);
+		} finally {
+			setCreatingRecoveryKit(false);
+		}
+	}, [i18n]);
+
+	const knownWithoutRecoveryKit = currentUserId
+		? RecoveryKitStatus.get(currentUserId)?.hasRecoveryKit === false
+		: false;
+	const handleCreateRecoveryKit = useCallback(() => {
+		if (knownWithoutRecoveryKit) {
+			void createRecoveryKit();
+			return;
+		}
+		confirmNewRecoveryKit(i18n, createRecoveryKit);
+	}, [knownWithoutRecoveryKit, i18n, createRecoveryKit]);
+
+	const handleUploadAsset = useCallback(
+		async (kind: SetupBrandingAssetKind) => {
+			try {
+				const [file] = await openFilePicker({accept: getAcceptString('guild_icon')});
+				if (!file) return;
+				const dataUrl = await fileToBase64(file);
+				setAssets((current) => current.map((asset) => (asset.kind === kind ? {...asset, preview: dataUrl} : asset)));
+			} catch (error) {
+				logger.error('Failed to read branding asset file', error);
+				setSubmitError(i18n._(ASSET_UPLOAD_ERROR_DESCRIPTOR));
+			}
+		},
+		[i18n],
+	);
+
+	const handleClearAsset = useCallback((kind: SetupBrandingAssetKind) => {
+		setAssets((current) =>
+			current.map((asset) => (asset.kind === kind ? {...asset, preview: null, url: null} : asset)),
+		);
+	}, []);
+
+	const handleToggleService = useCallback((service: keyof ServiceSelection, value: boolean) => {
+		setServiceSelection((current) => ({...current, [service]: value}));
+	}, []);
+
+	const handleIntegrationDraftChange = useCallback((patch: Partial<ServiceIntegrationDraft>) => {
+		setIntegrationDraft((current) => ({...current, ...patch}));
+		setSmtpTestResult(null);
+	}, []);
+
+	const handleMediaExpiryDraftChange = useCallback((patch: Partial<MediaExpiryDraft>) => {
+		setMediaExpiryDraft((current) => ({...current, ...patch}));
+	}, []);
+
+	const handleTestSmtp = useCallback(async () => {
+		const port = parsePort(integrationDraft.smtpPort);
+		if (port === null) return;
+		setSmtpTesting(true);
+		setSmtpTestResult(null);
+		try {
+			const result = await testSmtpConfig({
+				host: integrationDraft.smtpHost.trim(),
+				port,
+				username: integrationDraft.smtpUsername.trim(),
+				password: integrationDraft.smtpPassword,
+				tls_mode: toSmtpTlsMode(integrationDraft.smtpTlsMode, port),
+			});
+			setSmtpTestResult(result.ok ? 'ok' : (result.error ?? 'failed'));
+		} catch (error) {
+			logger.error('Failed to validate SMTP configuration', error);
+			setSmtpTestResult(FormUtils.extractErrorMessage(i18n, error));
+		} finally {
+			setSmtpTesting(false);
+		}
+	}, [integrationDraft, i18n]);
+
+	const submit = useCallback(async () => {
+		if (!config) return;
+		setSubmitting(true);
+		setSubmitError(null);
+		try {
+			for (const asset of assets) {
+				const original = brandingAssetUrl(config, asset.kind);
+				if (asset.preview) {
+					await uploadBrandingAsset(asset.kind, asset.preview);
+				} else if (asset.url === null && original !== null) {
+					await uploadBrandingAsset(asset.kind, null);
+				}
+			}
+			const nextConfig = await updateInstanceConfig({
+				integrations: buildIntegrationsPatch(integrationDraft, accountIdentity),
+				media: buildMediaPatch(mediaExpiryDraft),
+				push_relay:
+					config.push_relay.relay_consent_accepted === pushRelayConsentAccepted
+						? undefined
+						: {relay_consent_accepted: pushRelayConsentAccepted},
+				registration: {mode: registrationMode},
+				app_public: {
+					branding: {
+						product_name: productNameTrimmed,
+						theme_color: themeColor === null ? null : numberToHexColor(themeColor),
+					},
+					setup: {configured: true},
+				},
+				policy: {
+					single_community_enabled: singleCommunityEnabled,
+					single_community_name: singleCommunityEnabled ? singleCommunityNameTrimmed : undefined,
+					direct_messages_disabled: directMessagesDisabled,
+					premium_mode: premiumMode,
+					services: {
+						gif_enabled: serviceAvailability.gif ? serviceSelection.gif : undefined,
+						youtube_enabled: serviceAvailability.youtube ? serviceSelection.youtube : undefined,
+						bluesky_enabled: serviceAvailability.bluesky ? serviceSelection.bluesky : undefined,
+					},
+				},
+			});
+			hydrateFromConfig(nextConfig);
+			RuntimeConfig.applyAdminInstanceConfig(nextConfig);
+		} catch (error) {
+			logger.error('Failed to complete instance setup', error);
+			setSubmitError(FormUtils.extractErrorMessage(i18n, error));
+			setSubmitting(false);
+		}
+	}, [
+		config,
+		assets,
+		accountIdentity,
+		registrationMode,
+		integrationDraft,
+		mediaExpiryDraft,
+		productNameTrimmed,
+		themeColor,
+		singleCommunityEnabled,
+		singleCommunityNameTrimmed,
+		directMessagesDisabled,
+		pushRelayConsentAccepted,
+		premiumMode,
+		serviceAvailability,
+		serviceSelection,
+		hydrateFromConfig,
+		i18n,
+	]);
+
+	const isLoading = isAuthenticated && !config && !loadError;
+	const canGoBack = wizardModel.stepIndex > 0 && !submitting && step !== 'loading';
+	const isFinish = step === 'finish';
+	const showBackButton = canGoBack;
+	const showPrimaryButton = !loadError && step !== 'admin_account' && step !== 'loading';
+	const showFooter = !loadError && (showBackButton || showPrimaryButton);
+	const primaryButtonLabel = isLoading ? i18n._(LOADING_DESCRIPTOR) : i18n._(NEXT_DESCRIPTOR);
+	const primaryButtonDisabled = !canAdvance || stepNavigationLocked;
+	const primaryButtonSubmitting = isLoading || savingSignInMethod;
+	const handlePrimaryButton = step === 'sign_in_method' ? submitSignInMethod : goNext;
+	const footerButtonInitial = shouldReduceMotion ? {opacity: 0} : {opacity: 0, y: 4, scale: 0.98};
+	const footerButtonAnimate = shouldReduceMotion ? {opacity: 1} : {opacity: 1, y: 0, scale: 1};
+	const footerButtonExit = shouldReduceMotion ? {opacity: 0} : {opacity: 0, y: -4, scale: 0.98};
+
+	useEffect(() => {
+		if (isAuthenticated) return;
+		Theme.setTheme(setupTheme);
+	}, [isAuthenticated, setupTheme, themeHydrated]);
+
+	useEffect(() => {
+		const handleKeyDown = (event: KeyboardEvent) => {
+			if (event.key !== 'Tab') return;
+			KeyboardMode.enterKeyboardMode(false);
+			FocusRingManager.setRingsEnabled(true);
+		};
+		const handlePointer = () => {
+			KeyboardMode.exitKeyboardMode();
+			FocusRingManager.setRingsEnabled(false);
+		};
+		window.addEventListener('keydown', handleKeyDown, true);
+		window.addEventListener('pointerdown', handlePointer, true);
+		window.addEventListener('mousedown', handlePointer, true);
+		return () => {
+			window.removeEventListener('keydown', handleKeyDown, true);
+			window.removeEventListener('pointerdown', handlePointer, true);
+			window.removeEventListener('mousedown', handlePointer, true);
+		};
+	}, []);
+
+	return (
+		<AuthRegisterDraftContext.Provider value={authRegisterDraftContextValue}>
+			<div ref={setLayerHost} className={styles.backdrop} data-flx="app.self-hosted-setup-wizard-gate.backdrop">
+				{layerHost && (
+					<PortalHostContext.Provider value={layerHost}>
+						<ModalStackContext.Provider value={modalStackPlacement}>
+							<Modal.Root
+								size="medium"
+								centered
+								disableHistoryManagement
+								className={styles.modal}
+								initialFocusRef={welcomeInitialFocusRef}
+								backdropSlot={
+									<div className={styles.backdropVisual} data-flx="app.self-hosted-setup-wizard-gate.backdrop-visual" />
+								}
+								data-flx="app.self-hosted-setup-wizard-gate.modal"
+							>
+								<Modal.Header
+									title={i18n._(HEADER_DESCRIPTOR, {productName: fallbackProductName})}
+									icon={<WrenchIcon size={22} weight="bold" data-flx="app.self-hosted-setup-wizard-gate.header-icon" />}
+									hideCloseButton
+									data-flx="app.self-hosted-setup-wizard-gate.header"
+								/>
+								<Modal.Content
+									className={styles.contentScroller}
+									contentClassName={styles.contentFrame}
+									data-flx="app.self-hosted-setup-wizard-gate.content"
+								>
+									<div className={styles.content} data-flx="app.self-hosted-setup-wizard-gate.content-inner">
+										{loadError ? (
+											<div className={styles.centeredStep} data-flx="app.self-hosted-setup-wizard-gate.load-error-wrap">
+												<p
+													className={styles.submitError}
+													role="alert"
+													data-flx="app.self-hosted-setup-wizard-gate.load-error"
+												>
+													{i18n._(loadError)}
+												</p>
+												{loadError === NOT_ADMIN_DESCRIPTOR && (
+													<Button
+														variant="secondary"
+														onClick={signOutOfSetup}
+														data-flx="app.self-hosted-setup-wizard-gate.load-error-sign-out"
+													>
+														{i18n._(SIGN_OUT_DESCRIPTOR)}
+													</Button>
+												)}
+											</div>
+										) : (
+											<SteppedCarousel
+												step={step}
+												steps={steps}
+												direction={direction}
+												focusOnStepChange
+												ariaLabel={i18n._(SETUP_WIZARD_DESCRIPTOR)}
+												data-flx="app.self-hosted-setup-wizard-gate.carousel"
+											>
+												{step === 'welcome' && (
+													<WelcomeStep
+														productName={fallbackProductName}
+														isAuthenticated={isAuthenticated}
+														initialFocusRef={welcomeInitialFocusRef}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.welcome-step"
+													/>
+												)}
+												{step === 'setup_token' && (
+													<SetupTokenStep
+														value={setupToken}
+														onChange={handleSetupTokenChange}
+														error={setupTokenError}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.setup-token-step"
+													/>
+												)}
+												{step === 'theme' && (
+													<ThemeStep
+														theme={setupTheme}
+														onThemeChange={setSetupTheme}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.theme-step"
+													/>
+												)}
+												{step === 'sign_in_method' && (
+													<SignInMethodStep
+														mode={signInMethod}
+														tagStyle={tagStyleChoice}
+														onTagStyleChange={(value) => {
+															setTagStyleChoice(value);
+															setSignInMethodError(null);
+														}}
+														disabled={savingSignInMethod}
+														error={signInMethodError}
+														onChange={handleSignInMethodChange}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.sign-in-method-step"
+													/>
+												)}
+												{step === 'admin_intro' && (
+													<AdminIntroStep data-flx="app.setup.self-hosted-setup-wizard-gate.admin-intro-step" />
+												)}
+												{step === 'admin_account' && (
+													<AdminAccountStep
+														theme={setupTheme}
+														usernameSignIn={accountIdentity === AccountIdentityModes.USERNAME}
+														setupToken={submittedSetupToken}
+														onSetupTokenRejected={handleSetupTokenRejected}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.admin-account-step"
+													/>
+												)}
+												{step === 'admin_recovery_kit' && (
+													<AdminRecoveryKitStep
+														hasRecoveryKit={hasRecoveryKit}
+														creating={creatingRecoveryKit}
+														onCreate={handleCreateRecoveryKit}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.admin-recovery-kit-step"
+													/>
+												)}
+												{step === 'loading' && (
+													<LoadingStep data-flx="app.setup.self-hosted-setup-wizard-gate.loading-step" />
+												)}
+												{step === 'branding' && (
+													<BrandingStep
+														productName={productName}
+														productNameError={productNameError}
+														themeColor={themeColor}
+														assets={assets}
+														disabled={submitting}
+														onProductNameChange={setProductName}
+														onThemeColorChange={setThemeColor}
+														onUploadAsset={handleUploadAsset}
+														onClearAsset={handleClearAsset}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.branding-step"
+													/>
+												)}
+												{step === 'registration' && (
+													<RegistrationStep
+														mode={registrationMode}
+														disabled={submitting}
+														onChange={setRegistrationMode}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.registration-step.set-registration-mode"
+													/>
+												)}
+												{step === 'community' && (
+													<CommunityStep
+														singleCommunityEnabled={singleCommunityEnabled}
+														singleCommunityName={singleCommunityName}
+														singleCommunityNameError={singleCommunityNameError}
+														directMessagesDisabled={directMessagesDisabled}
+														disabled={submitting}
+														onToggleSingleCommunity={setSingleCommunityEnabled}
+														onSingleCommunityNameChange={setSingleCommunityName}
+														onToggleDirectMessages={setDirectMessagesDisabled}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.community-step"
+													/>
+												)}
+												{step === 'media_expiry' && (
+													<MediaExpiryStep
+														draft={mediaExpiryDraft}
+														disabled={submitting}
+														onDraftChange={handleMediaExpiryDraftChange}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.media-expiry-step"
+													/>
+												)}
+												{wizardStepToIntegrationKind(step) && (
+													<IntegrationStep
+														kind={wizardStepToIntegrationKind(step)!}
+														draft={integrationDraft}
+														disabled={submitting}
+														smtpTesting={smtpTesting}
+														smtpTestResult={smtpTestResult}
+														onDraftChange={handleIntegrationDraftChange}
+														onTestSmtp={handleTestSmtp}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.integration-step"
+													/>
+												)}
+												{step === 'push_relay_consent' && (
+													<PushRelayConsentStep
+														accepted={pushRelayConsentAccepted}
+														disabled={submitting}
+														onChange={setPushRelayConsentAccepted}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.push-relay-consent-step"
+													/>
+												)}
+												{step === 'services' && (
+													<ServicesStep
+														available={serviceAvailability}
+														selection={serviceSelection}
+														disabled={submitting}
+														onToggle={handleToggleService}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.services-step"
+													/>
+												)}
+												{step === 'premium' && (
+													<PremiumStep
+														mode={premiumMode}
+														disabled={submitting}
+														onChange={setPremiumMode}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.premium-step.set-premium-mode"
+													/>
+												)}
+												{step === 'finish' && (
+													<FinishStep
+														productName={productNameTrimmed}
+														accountIdentity={accountIdentity}
+														tagStyle={config?.account_identity.tag_style ?? RuntimeConfig.tagStyle}
+														registrationMode={registrationMode}
+														singleCommunityEnabled={singleCommunityEnabled}
+														directMessagesDisabled={directMessagesDisabled}
+														attachmentExpiryEnabled={mediaExpiryDraft.enabled}
+														pushRelayConsentAccepted={pushRelayConsentAccepted}
+														premiumMode={premiumMode}
+														submitError={submitError}
+														data-flx="app.setup.self-hosted-setup-wizard-gate.finish-step"
+													/>
+												)}
+											</SteppedCarousel>
+										)}
+									</div>
+								</Modal.Content>
+								<AnimatePresence initial={false} data-flx="app.self-hosted-setup-wizard-gate.footer-presence">
+									{showFooter && (
+										<motion.div
+											key="footer"
+											className={styles.footerReveal}
+											initial={{height: 0, opacity: 0}}
+											animate={{height: 'auto', opacity: 1}}
+											exit={{height: 0, opacity: 0}}
+											transition={shouldReduceMotion ? instantTransition : footerRevealTransition}
+											data-flx="app.self-hosted-setup-wizard-gate.footer-reveal"
+										>
+											<Modal.Footer className={styles.footer} data-flx="app.self-hosted-setup-wizard-gate.footer">
+												<div
+													className={styles.footerActions}
+													data-flx="app.self-hosted-setup-wizard-gate.footer-actions"
+												>
+													<AnimatePresence initial={false} data-flx="app.self-hosted-setup-wizard-gate.back-presence">
+														{showBackButton && (
+															<motion.div
+																key="back"
+																initial={footerButtonInitial}
+																animate={footerButtonAnimate}
+																exit={footerButtonExit}
+																transition={shouldReduceMotion ? instantTransition : footerButtonTransition}
+																data-flx="app.self-hosted-setup-wizard-gate.back-button-wrap"
+															>
+																<Button
+																	variant="secondary"
+																	disabled={stepNavigationLocked}
+																	leftIcon={
+																		<ArrowLeftIcon
+																			size={18}
+																			weight="bold"
+																			data-flx="app.setup.self-hosted-setup-wizard-gate.arrow-left-icon"
+																		/>
+																	}
+																	onClick={goBack}
+																	data-flx="app.self-hosted-setup-wizard-gate.back-button"
+																>
+																	{i18n._(BACK_DESCRIPTOR)}
+																</Button>
+															</motion.div>
+														)}
+													</AnimatePresence>
+													<div
+														className={styles.footerPrimary}
+														data-flx="app.self-hosted-setup-wizard-gate.footer-primary"
+													>
+														<AnimatePresence
+															mode="wait"
+															initial={false}
+															data-flx="app.self-hosted-setup-wizard-gate.primary-presence"
+														>
+															{showPrimaryButton && isFinish && (
+																<motion.div
+																	key="finish"
+																	initial={footerButtonInitial}
+																	animate={footerButtonAnimate}
+																	exit={footerButtonExit}
+																	transition={shouldReduceMotion ? instantTransition : footerButtonTransition}
+																	data-flx="app.self-hosted-setup-wizard-gate.finish-button-wrap"
+																>
+																	<Button
+																		submitting={submitting}
+																		rightIcon={
+																			<CheckIcon
+																				size={18}
+																				weight="bold"
+																				data-flx="app.setup.self-hosted-setup-wizard-gate.check-icon"
+																			/>
+																		}
+																		onClick={submit}
+																		data-flx="app.self-hosted-setup-wizard-gate.finish-button"
+																	>
+																		{i18n._(FINISH_DESCRIPTOR)}
+																	</Button>
+																</motion.div>
+															)}
+															{showPrimaryButton && !isFinish && (
+																<motion.div
+																	key="next"
+																	initial={footerButtonInitial}
+																	animate={footerButtonAnimate}
+																	exit={footerButtonExit}
+																	transition={shouldReduceMotion ? instantTransition : footerButtonTransition}
+																	data-flx="app.self-hosted-setup-wizard-gate.next-button-wrap"
+																>
+																	<Button
+																		disabled={primaryButtonDisabled}
+																		submitting={primaryButtonSubmitting}
+																		rightIcon={
+																			<ArrowRightIcon
+																				size={18}
+																				weight="bold"
+																				data-flx="app.setup.self-hosted-setup-wizard-gate.arrow-right-icon"
+																			/>
+																		}
+																		onClick={handlePrimaryButton}
+																		data-flx="app.self-hosted-setup-wizard-gate.next-button"
+																	>
+																		{primaryButtonLabel}
+																	</Button>
+																</motion.div>
+															)}
+														</AnimatePresence>
+													</div>
+												</div>
+											</Modal.Footer>
+										</motion.div>
+									)}
+								</AnimatePresence>
+							</Modal.Root>
+						</ModalStackContext.Provider>
+					</PortalHostContext.Provider>
+				)}
+			</div>
+		</AuthRegisterDraftContext.Provider>
+	);
+});

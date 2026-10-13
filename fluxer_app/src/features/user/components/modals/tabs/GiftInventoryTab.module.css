@@ -1,0 +1,154 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.redeemForm {
+	display: flex;
+	gap: 0.5rem;
+}
+
+.redeemInput {
+	min-width: 0;
+	flex: 1;
+}
+
+.redeemButton {
+	flex-shrink: 0;
+}
+
+.loadingContainer {
+	display: flex;
+	justify-content: center;
+	padding-top: 2rem;
+	padding-bottom: 2rem;
+}
+
+.giftsList {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.giftCard {
+	overflow: hidden;
+	border-radius: 0.5rem;
+	border: 0.0625rem solid var(--background-header-secondary);
+	background-color: var(--background-secondary);
+}
+
+.giftCardHeader {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	gap: 0.75rem;
+	padding: 1rem;
+	text-align: left;
+	transition: background-color 0.15s;
+	cursor: pointer;
+}
+
+.giftCardHeader:hover {
+	background-color: var(--background-tertiary);
+}
+
+.giftIcon {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 2.5rem;
+	width: 2.5rem;
+	flex-shrink: 0;
+	border-radius: 624.9375rem;
+}
+
+.giftIconRedeemed {
+	background-color: var(--background-tertiary);
+}
+
+.giftIconActive {
+	background: linear-gradient(to bottom right, #a855f7, #ec4899);
+}
+
+.giftIconImage {
+	height: 1.25rem;
+	width: 1.25rem;
+}
+
+.giftIconRedeemed .giftIconImage {
+	color: var(--text-tertiary);
+}
+
+.giftIconActive .giftIconImage {
+	color: white;
+}
+
+.giftInfo {
+	min-width: 0;
+	flex: 1;
+}
+
+.giftTitle {
+	font-size: 0.875rem;
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.giftDate {
+	font-size: 0.75rem;
+	color: var(--text-primary-muted);
+}
+
+.expandIcon {
+	height: 1.25rem;
+	width: 1.25rem;
+	flex-shrink: 0;
+	color: var(--text-primary-muted);
+	transition: transform 0.15s;
+}
+
+.expandIconRotated {
+	transform: rotate(180deg);
+}
+
+.giftCardContent {
+	padding: 1rem;
+	border-top: 0.0625rem solid var(--background-header-secondary);
+}
+
+.giftCardActions {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.giftUrlSection {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.redeemedMessage {
+	padding: 0.75rem;
+	border-radius: 0.375rem;
+	background-color: var(--background-tertiary);
+}
+
+.redeemedMessageText {
+	text-align: center;
+	font-size: 0.875rem;
+	color: var(--text-primary-muted);
+}
+
+.giftCardFooter {
+	display: flex;
+	gap: 0.5rem;
+	justify-content: flex-end;
+}
+
+@media (max-width: 480px) {
+	.giftCardFooter {
+		flex-direction: column;
+	}
+
+	.giftCardFooter > * {
+		width: 100%;
+	}
+}

@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {formatter} from '@lingui/format-po';
+
+export default {
+	locales: [
+		'ar',
+		'bg',
+		'cs',
+		'da',
+		'de',
+		'el',
+		'en-GB',
+		'en-US',
+		'es-ES',
+		'es-419',
+		'fi',
+		'fr',
+		'he',
+		'hi',
+		'hr',
+		'hu',
+		'id',
+		'it',
+		'ja',
+		'ko',
+		'lt',
+		'nl',
+		'no',
+		'pl',
+		'pt-BR',
+		'ro',
+		'ru',
+		'sv-SE',
+		'th',
+		'tr',
+		'uk',
+		'vi',
+		'zh-CN',
+		'zh-TW',
+	],
+	sourceLocale: 'en-US',
+	catalogs: [
+		{
+			path: 'src/features/i18n/locales/{locale}/messages',
+			include: ['src'],
+			exclude: ['**/node_modules/**', '**/*.d.ts', '**/*.test.*', '**/*.spec.*', '**/testing/**'],
+		},
+	],
+	format: formatter({lineNumbers: false}),
+	compileNamespace: 'es',
+};

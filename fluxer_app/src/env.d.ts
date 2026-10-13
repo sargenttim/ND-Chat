@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import MediaEngineFacade from '@app/features/voice/engine/MediaEngineFacade';
+import type {ElectronAPI} from '@app/types/electron.d';
+import {Buffer} from 'buffer';
+
+type MediaEngineInstance = typeof MediaEngineFacade;
+type NodeBufferConstructor = typeof Buffer;
+
+interface FluxerDebugApi {
+	getClientInfo?: () => Promise<string>;
+	getClientInfoSync?: () => string;
+	getClientInfoObject?: () => Promise<unknown>;
+	getClientInfoObjectSync?: () => unknown;
+	getVoiceSubscriptionDebug?: () => Promise<unknown>;
+	getVoiceSubscriptionDebugJson?: () => Promise<string>;
+	getTranslationDomGuardStats?: () => unknown;
+	uninstallTranslationDomGuard?: () => boolean;
+}
+
+type FluxerDebugGlobal = Record<string, unknown> & FluxerDebugApi;
+
+declare global {
+	interface FilePickerAcceptType {
+		description?: string;
+		accept: Record<string, Array<string>>;
+	}
+	interface SaveFilePickerOptions {
+		suggestedName?: string;
+		excludeAcceptAllOption?: boolean;
+		id?: string;
+		types?: Array<FilePickerAcceptType>;
+	}
+	interface CompressionStream extends TransformStream<Uint8Array, Uint8Array> {}
+	declare var CompressionStream: {
+		prototype: CompressionStream;
+		new (format: 'deflate' | 'gzip'): CompressionStream;
+	};
+	interface DecompressionStream extends TransformStream<Uint8Array, Uint8Array> {}
+	declare var DecompressionStream: {
+		prototype: DecompressionStream;
+		new (format: 'deflate' | 'gzip'): DecompressionStream;
+	};
+	interface ImportMetaEnv {
+		readonly MODE: 'development' | 'production' | 'test';
+		readonly DEV: boolean;
+		readonly PROD: boolean;
+		readonly PUBLIC_BUILD_VERSION?: string;
+		readonly PUBLIC_RELEASE_CHANNEL?: 'stable' | 'canary' | 'development';
+	}
+	interface ImportMetaHot {
+		readonly data: Record<string, unknown>;
+		accept(deps?: string | ReadonlyArray<string> | (() => void), callback?: () => void): void;
+		dispose(callback: (data: Record<string, unknown>) => void): void;
+	}
+	interface ImportMeta {
+		readonly env: ImportMetaEnv;
+		readonly hot?: ImportMetaHot;
+	}
+	interface Navigator {
+		userAgentData?: {
+			platform?: string;
+			mobile?: boolean;
+			brands?: Array<{brand: string; version: string}>;
+		};
+	}
+	interface Window {
+		__FLUXER_DEBUG__?: FluxerDebugGlobal;
+		__notificationCleanup?: () => void;
+		_mediaEngine?: MediaEngineInstance;
+		electron?: ElectronAPI;
+		MSStream?: unknown;
+		webkitAudioContext?: typeof AudioContext;
+		styleMedia: StyleMedia;
+		showSaveFilePicker?: (options?: SaveFilePickerOptions) => Promise<FileSystemFileHandle>;
+	}
+	interface GlobalThis {
+		Buffer?: NodeBufferConstructor;
+	}
+}

@@ -15,7 +15,6 @@ import type {
 	VoiceEngineV2DisconnectReason,
 	VoiceEngineV2Error,
 	VoiceEngineV2GatewayVoiceStateWrite,
-	VoiceEngineV2HardwareEncoderCapabilities,
 	VoiceEngineV2MicrophoneOptions,
 	VoiceEngineV2NativeAudioTapOptions,
 	VoiceEngineV2NativeCaptureOptions,
@@ -163,14 +162,6 @@ export class VoiceEngineV2SimulatorDriver implements VoiceEngineV2Driver {
 		this.inventory = options.inventory;
 	}
 
-	get capturesActive(): ReadonlyArray<string> {
-		return [...this.activeCaptures];
-	}
-
-	get frameSinksActive(): ReadonlyArray<string> {
-		return [...this.activeFrameSinks];
-	}
-
 	subscribe(listener: VoiceEngineV2ExternalEventListener): () => void {
 		assert.ok(typeof listener === 'function', 'subscribe expects a listener function');
 		this.listeners.add(listener);
@@ -265,19 +256,6 @@ export class VoiceEngineV2SimulatorDriver implements VoiceEngineV2Driver {
 	async collectStats(): Promise<VoiceEngineV2Stats> {
 		this.calls.push({type: 'collectStats'});
 		return {rttMs: 0, outbound: [], inbound: []};
-	}
-
-	async getHardwareEncoderCapabilities(): Promise<VoiceEngineV2HardwareEncoderCapabilities> {
-		return {
-			available: true,
-			backend: 'none',
-			compiled: false,
-			runtime: false,
-			codecs: [],
-			zeroCopy: false,
-			nativeInputs: [],
-			reason: 'simulator',
-		};
 	}
 
 	async checkPermission(name: VoiceEngineV2PermissionName): Promise<VoiceEngineV2PermissionResult> {

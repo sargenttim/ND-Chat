@@ -1,0 +1,35 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.container {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	padding: 1rem;
+}
+
+.buttonRow {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.fullWidth {
+	width: 100%;
+	flex: 1;
+}
+
+.statusRow {
+	display: flex;
+	justify-content: center;
+}
+
+.statusLabel {
+	font-weight: 600;
+	color: var(--text-primary);
+}
+
+.callPreview {
+	background-color: #000;
+	border-radius: var(--radius-lg);
+	overflow: hidden;
+}

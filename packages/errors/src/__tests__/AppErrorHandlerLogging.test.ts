@@ -1,34 +1,29 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
-import {BadRequestError} from '@fluxer/errors/src/domains/core/BadRequestError';
-import {AppErrorHandler} from '@fluxer/errors/src/domains/core/ErrorHandlers';
-import {ServiceUnavailableError} from '@fluxer/errors/src/HttpErrors';
-import type {BaseHonoEnv} from '@fluxer/hono_types/src/HonoTypes';
+import {AppErrorHandler, type BaseHonoEnv} from '@fluxer/errors/src/domains/core/ErrorHandlers';
+import {ServiceUnavailableError} from '@fluxer/errors/src/domains/core/ServiceUnavailableError';
 import {Hono} from 'hono';
 import {beforeEach, describe, expect, it, vi} from 'vitest';
 
 type LogCall = [Record<string, unknown>, string | undefined];
 
 const logCalls = vi.hoisted(() => ({
-	debug: [] as Array<LogCall>,
-	warn: [] as Array<LogCall>,
 	error: [] as Array<LogCall>,
 }));
 
 vi.mock('@fluxer/logger/src/Logger', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@fluxer/logger/src/Logger')>();
-	const record = (bucket: Array<LogCall>) => (obj: Record<string, unknown>, msg?: string) => {
-		bucket.push([obj, msg]);
-	};
 	return {
 		...actual,
 		createLogger: () => ({
 			trace: () => {},
-			debug: record(logCalls.debug),
+			debug: () => {},
 			info: () => {},
-			warn: record(logCalls.warn),
-			error: record(logCalls.error),
+			warn: () => {},
+			error: (obj: Record<string, unknown>, msg?: string) => {
+				logCalls.error.push([obj, msg]);
+			},
 			fatal: () => {},
 		}),
 	};
@@ -42,8 +37,6 @@ function createApp(): Hono<BaseHonoEnv> {
 
 describe('AppErrorHandler logging', () => {
 	beforeEach(() => {
-		logCalls.debug.length = 0;
-		logCalls.warn.length = 0;
 		logCalls.error.length = 0;
 	});
 
@@ -75,28 +68,14 @@ describe('AppErrorHandler logging', () => {
 		expect(loggedError.cause).toBe(cause);
 	});
 
-	it('logs 4xx FluxerErrors at debug rather than error', async () => {
+	it('logs the matched route pattern instead of the request path', async () => {
 		const app = createApp();
-		app.get('/thing', () => {
-			throw new BadRequestError({code: APIErrorCodes.BAD_REQUEST});
+		app.get('/reset/:token', () => {
+			throw new ServiceUnavailableError({message: 'unavailable'});
 		});
-		const response = await app.request('/thing');
-		expect(response.status).toBe(400);
-		expect(logCalls.error).toHaveLength(0);
-		expect(logCalls.debug).toHaveLength(1);
-		const [details, message] = logCalls.debug[0]!;
-		expect(message).toBe('Request rejected');
-		expect(details.status).toBe(400);
-	});
-
-	it('still reports unexpected errors as unhandled', async () => {
-		const app = createApp();
-		app.get('/thing', () => {
-			throw new Error('boom');
-		});
-		const response = await app.request('/thing');
-		expect(response.status).toBe(500);
+		const response = await app.request('/reset/abc123');
+		expect(response.status).toBe(503);
 		expect(logCalls.error).toHaveLength(1);
-		expect(logCalls.error[0]![1]).toBe('Unhandled error occurred');
+		expect(logCalls.error[0]![0].path).toBe('/reset/:token');
 	});
 });

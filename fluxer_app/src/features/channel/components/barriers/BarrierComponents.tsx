@@ -1,0 +1,434 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {UserSettingsModal} from '@app/features/app/components/dialogs/LoadableSettingsModals';
+import {getActiveInstanceProductName} from '@app/features/app/state/ActiveInstanceProductName';
+import {openClaimAccountModal} from '@app/features/auth/components/modals/ClaimAccountModal';
+import styles from '@app/features/channel/components/barriers/BarrierComponents.module.css';
+import {openChannelFollowModal} from '@app/features/channel/components/modals/ChannelFollowModal';
+import wrapperStyles from '@app/features/channel/components/textarea/InputWrapper.module.css';
+import textareaStyles from '@app/features/channel/components/textarea/TextareaInput.module.css';
+import {FOLLOW_DESCRIPTOR} from '@app/features/channel/utils/ChannelFollowUtils';
+import {CLAIM_ACCOUNT_DESCRIPTOR, VERIFY_EMAIL_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {getCachedNumberFormat} from '@app/features/i18n/utils/IntlCache';
+import {unblockUser} from '@app/features/relationship/utils/RelationshipActionUtils';
+import {remFromPx} from '@app/features/theme/layout/RemFromPx';
+import {Button} from '@app/features/ui/button/Button';
+import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
+import {modal} from '@app/features/ui/commands/ModalCommands';
+import {BouncedEmailChangeModal} from '@app/features/user/components/modals/BouncedEmailChangeModal';
+import Users from '@app/features/user/state/Users';
+import {ACCOUNT_LIMITED_NOTICE_DESCRIPTOR} from '@app/features/user/utils/AccountLimitUtils';
+import {msg} from '@lingui/core/macro';
+import {Trans, useLingui} from '@lingui/react/macro';
+import {
+	ClockIcon,
+	EnvelopeSimpleIcon,
+	InfoIcon,
+	MegaphoneSimpleIcon,
+	ProhibitIcon,
+	ShieldWarningIcon,
+	TimerIcon,
+	WarningCircleIcon,
+} from '@phosphor-icons/react';
+import {clsx} from 'clsx';
+import {observer} from 'mobx-react-lite';
+import {useEffect, useState} from 'react';
+
+interface BarrierProps {
+	onAction?: () => void;
+}
+
+interface TimedBarrierProps extends BarrierProps {
+	initialTimeRemaining?: number;
+}
+
+interface BarrierBaseProps {
+	message: React.ReactNode;
+	action?: React.ReactNode;
+	icon: React.ReactElement;
+}
+
+const SYSTEM_ANNOUNCEMENTS_FROM_STAFF_DESCRIPTOR = msg({
+	message: "System announcements from {productName} staff. You can't reply here.",
+	comment: 'Read-only system DM barrier message. productName is the Fluxer product name.',
+});
+export const BarrierBase = observer(({message, action, icon}: BarrierBaseProps) => {
+	const hasAction = Boolean(action);
+	return (
+		<div
+			className={clsx(
+				wrapperStyles.box,
+				wrapperStyles.wrapperSides,
+				textareaStyles.textareaOuter,
+				textareaStyles.textareaOuterRow,
+				wrapperStyles.roundedAll,
+			)}
+			data-flx="channel.barriers.barrier-components.barrier-base.div"
+		>
+			<div
+				className={clsx(styles.barrierLayout, !hasAction && styles.barrierLayoutNoAction)}
+				data-flx="channel.barriers.barrier-components.barrier-base.barrier-layout"
+			>
+				<div
+					className={clsx(textareaStyles.uploadButtonColumn, textareaStyles.sideButtonPadding)}
+					data-flx="channel.barriers.barrier-components.barrier-base.div--2"
+				>
+					<div
+						aria-hidden={true}
+						className={styles.icon}
+						data-flx="channel.barriers.barrier-components.barrier-base.icon"
+					>
+						{icon}
+					</div>
+				</div>
+				<div
+					className={clsx(textareaStyles.contentAreaDense, styles.messageArea)}
+					data-flx="channel.barriers.barrier-components.barrier-base.message-area"
+				>
+					<div className={styles.message} data-flx="channel.barriers.barrier-components.barrier-base.message">
+						{message}
+					</div>
+				</div>
+				{hasAction && (
+					<div
+						className={clsx(textareaStyles.buttonContainerDense, textareaStyles.sideButtonPadding, styles.actionArea)}
+						data-flx="channel.barriers.barrier-components.barrier-base.action-area"
+					>
+						{action}
+					</div>
+				)}
+			</div>
+		</div>
+	);
+});
+const CountdownTimer = observer(({initialTime}: {initialTime: number}) => {
+	const {i18n} = useLingui();
+	const [timeRemaining, setTimeRemaining] = useState<number>(initialTime);
+	useEffect(() => {
+		if (timeRemaining <= 0) return;
+		const interval = setInterval(() => {
+			setTimeRemaining((prev) => {
+				if (prev <= 1000) {
+					clearInterval(interval);
+					return 0;
+				}
+				return prev - 1000;
+			});
+		}, 1000);
+		return () => clearInterval(interval);
+	}, []);
+	const formatTime = (ms: number): string => {
+		const totalSeconds = Math.ceil(ms / 1000);
+		const minutes = Math.floor(totalSeconds / 60);
+		const seconds = totalSeconds % 60;
+		const minutesLabel = getCachedNumberFormat(i18n.locale, {useGrouping: false}).format(minutes);
+		const secondsLabel = getCachedNumberFormat(i18n.locale, {
+			minimumIntegerDigits: 2,
+			useGrouping: false,
+		}).format(seconds);
+		return `${minutesLabel}:${secondsLabel}`;
+	};
+	if (timeRemaining <= 0) {
+		return null;
+	}
+	return (
+		<div className={styles.timer} data-flx="channel.barriers.barrier-components.countdown-timer.timer">
+			{formatTime(timeRemaining)}
+		</div>
+	);
+});
+export const UnclaimedAccountBarrier = observer(() => {
+	const {i18n} = useLingui();
+	return (
+		<BarrierBase
+			message={<Trans>You need to claim your account to send messages in this community.</Trans>}
+			icon={
+				<ShieldWarningIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.unclaimed-account-barrier.shield-warning-icon"
+				/>
+			}
+			action={
+				<Button
+					small={true}
+					onClick={() => {
+						openClaimAccountModal({force: true});
+					}}
+					data-flx="channel.barriers.barrier-components.unclaimed-account-barrier.button.action"
+				>
+					{i18n._(CLAIM_ACCOUNT_DESCRIPTOR)}
+				</Button>
+			}
+			data-flx="channel.barriers.barrier-components.unclaimed-account-barrier.barrier-base"
+		/>
+	);
+});
+export const UnverifiedEmailBarrier = observer(() => {
+	const {i18n} = useLingui();
+	return (
+		<BarrierBase
+			message={<Trans>You need to verify your email to send messages in this community.</Trans>}
+			icon={
+				<EnvelopeSimpleIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.unverified-email-barrier.envelope-simple-icon"
+				/>
+			}
+			action={
+				<Button
+					small={true}
+					onClick={() => {
+						const bounced = Users.currentUser?.emailBounced === true;
+						ModalCommands.push(
+							modal(
+								() =>
+									bounced ? (
+										<BouncedEmailChangeModal data-flx="channel.barriers.barrier-components.unverified-email-barrier.bounced-email-change-modal" />
+									) : (
+										<UserSettingsModal
+											initialTab="account_security"
+											data-flx="channel.barriers.barrier-components.unverified-email-barrier.user-settings-modal"
+										/>
+									),
+								bounced ? undefined : 'user-settings',
+							),
+						);
+					}}
+					data-flx="channel.barriers.barrier-components.unverified-email-barrier.button.action"
+				>
+					{i18n._(VERIFY_EMAIL_DESCRIPTOR)}
+				</Button>
+			}
+			data-flx="channel.barriers.barrier-components.unverified-email-barrier.barrier-base"
+		/>
+	);
+});
+export const AccountTooNewBarrier = observer(({initialTimeRemaining = 5 * 60 * 1000}: TimedBarrierProps) => {
+	return (
+		<BarrierBase
+			message={<Trans>Your account is too new to send messages in this community.</Trans>}
+			icon={
+				<ClockIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.account-too-new-barrier.clock-icon"
+				/>
+			}
+			action={
+				initialTimeRemaining > 0 ? (
+					<CountdownTimer
+						initialTime={initialTimeRemaining}
+						data-flx="channel.barriers.barrier-components.account-too-new-barrier.countdown-timer"
+					/>
+				) : null
+			}
+			data-flx="channel.barriers.barrier-components.account-too-new-barrier.barrier-base"
+		/>
+	);
+});
+export const NotMemberLongEnoughBarrier = observer(({initialTimeRemaining = 10 * 60 * 1000}: TimedBarrierProps) => {
+	return (
+		<BarrierBase
+			message={<Trans>You haven't been a member of this community long enough to send messages.</Trans>}
+			icon={
+				<ClockIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.not-member-long-enough-barrier.clock-icon"
+				/>
+			}
+			action={
+				initialTimeRemaining > 0 ? (
+					<CountdownTimer
+						initialTime={initialTimeRemaining}
+						data-flx="channel.barriers.barrier-components.not-member-long-enough-barrier.countdown-timer"
+					/>
+				) : null
+			}
+			data-flx="channel.barriers.barrier-components.not-member-long-enough-barrier.barrier-base"
+		/>
+	);
+});
+export const AccountLimitedBarrier = observer(() => {
+	const {i18n} = useLingui();
+	return (
+		<BarrierBase
+			message={i18n._(ACCOUNT_LIMITED_NOTICE_DESCRIPTOR)}
+			icon={
+				<InfoIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.account-limited-barrier.info-icon"
+				/>
+			}
+			action={null}
+			data-flx="channel.barriers.barrier-components.account-limited-barrier.barrier-base"
+		/>
+	);
+});
+export const SendMessageDisabledBarrier = observer(() => {
+	return (
+		<BarrierBase
+			message={<Trans>Messaging is temporarily paused in this community.</Trans>}
+			icon={
+				<WarningCircleIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.send-message-disabled-barrier.warning-circle-icon"
+				/>
+			}
+			action={null}
+			data-flx="channel.barriers.barrier-components.send-message-disabled-barrier.barrier-base"
+		/>
+	);
+});
+export const TimeoutBarrier = observer(({initialTimeRemaining = 0}: TimedBarrierProps) => {
+	return (
+		<BarrierBase
+			message={<Trans>You're timed out. Messaging, reactions, and voice are paused until the timeout expires.</Trans>}
+			icon={
+				<TimerIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.timeout-barrier.timer-icon"
+				/>
+			}
+			action={
+				initialTimeRemaining > 0 ? (
+					<CountdownTimer
+						initialTime={initialTimeRemaining}
+						data-flx="channel.barriers.barrier-components.timeout-barrier.countdown-timer"
+					/>
+				) : null
+			}
+			data-flx="channel.barriers.barrier-components.timeout-barrier.barrier-base"
+		/>
+	);
+});
+export const AnnouncementFollowBarrier = observer(({channelId}: {channelId: string}) => {
+	const {i18n} = useLingui();
+	return (
+		<BarrierBase
+			message={
+				<Trans comment="Shown instead of the message composer in an announcement channel where the user cannot send messages.">
+					Follow to get these announcements in a channel you choose.
+				</Trans>
+			}
+			icon={
+				<MegaphoneSimpleIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.announcement-follow-barrier.megaphone-simple-icon"
+				/>
+			}
+			action={
+				<Button
+					variant="secondary"
+					small={true}
+					onClick={() => openChannelFollowModal(channelId)}
+					data-flx="channel.barriers.barrier-components.announcement-follow-barrier.button.follow"
+				>
+					{i18n._(FOLLOW_DESCRIPTOR)}
+				</Button>
+			}
+			data-flx="channel.barriers.barrier-components.announcement-follow-barrier.barrier-base"
+		/>
+	);
+});
+export const DefaultBarrier = observer(() => {
+	return (
+		<BarrierBase
+			message={<Trans>You can't send messages in this community.</Trans>}
+			icon={
+				<InfoIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.default-barrier.info-icon"
+				/>
+			}
+			action={null}
+			data-flx="channel.barriers.barrier-components.default-barrier.barrier-base"
+		/>
+	);
+});
+export const SystemDmBarrier = observer(() => {
+	const {i18n} = useLingui();
+	return (
+		<BarrierBase
+			message={i18n._(SYSTEM_ANNOUNCEMENTS_FROM_STAFF_DESCRIPTOR, {productName: getActiveInstanceProductName()})}
+			icon={
+				<InfoIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.system-dm-barrier.info-icon"
+				/>
+			}
+			action={null}
+			data-flx="channel.barriers.barrier-components.system-dm-barrier.barrier-base"
+		/>
+	);
+});
+
+interface BlockedUserBarrierProps extends BarrierProps {
+	userId: string;
+	username: string;
+}
+
+export const BlockedUserBarrier = observer(({userId, username, onAction}: BlockedUserBarrierProps) => {
+	const {i18n} = useLingui();
+	const handleUnblock = async () => {
+		await unblockUser(i18n, userId);
+		onAction?.();
+	};
+	return (
+		<BarrierBase
+			message={<Trans>You have blocked {username}. Unblock them to send messages.</Trans>}
+			icon={
+				<ProhibitIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.blocked-user-barrier.prohibit-icon"
+				/>
+			}
+			action={
+				<Button
+					small={true}
+					onClick={handleUnblock}
+					data-flx="channel.barriers.barrier-components.blocked-user-barrier.button.unblock"
+				>
+					<Trans>Unblock</Trans>
+				</Button>
+			}
+			data-flx="channel.barriers.barrier-components.blocked-user-barrier.barrier-base"
+		/>
+	);
+});
+export const UnclaimedDMBarrier = observer(() => {
+	const {i18n} = useLingui();
+	return (
+		<BarrierBase
+			message={<Trans>You need to claim your account to send direct messages.</Trans>}
+			icon={
+				<ShieldWarningIcon
+					size={remFromPx(18)}
+					weight="fill"
+					data-flx="channel.barriers.barrier-components.unclaimed-dm-barrier.shield-warning-icon"
+				/>
+			}
+			action={
+				<Button
+					small={true}
+					onClick={() => {
+						openClaimAccountModal({force: true});
+					}}
+					data-flx="channel.barriers.barrier-components.unclaimed-dm-barrier.button.action"
+				>
+					{i18n._(CLAIM_ACCOUNT_DESCRIPTOR)}
+				</Button>
+			}
+			data-flx="channel.barriers.barrier-components.unclaimed-dm-barrier.barrier-base"
+		/>
+	);
+});

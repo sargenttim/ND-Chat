@@ -1,0 +1,502 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {requireEmailVerified} from '@app/api/auth/EmailVerificationUtils';
+import {createEmojiID, type MessageID, type UserID} from '@app/api/BrandedTypes';
+import type {ChannelRepository} from '@app/api/channel/ChannelRepository';
+import type {AuthenticatedChannel} from '@app/api/channel/services/AuthenticatedChannel';
+import {dispatchChannelEvent} from '@app/api/channel/services/ChannelGatewayDispatch';
+import {ensureTextChannel, isOperationDisabled} from '@app/api/channel/services/message/MessageHelpers';
+import {assertThreadInteractionAllowed} from '@app/api/channel/services/thread/ThreadInteractionGuards';
+import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
+import type {LimitConfigService} from '@app/api/limits/LimitConfigService';
+import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder';
+import type {Channel} from '@app/api/models/Channel';
+import type {MessageReaction} from '@app/api/models/MessageReaction';
+import type {User} from '@app/api/models/User';
+import {assertAccountNotLimited} from '@app/api/user/AccountLimit';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import {mapUserToPartialResponse} from '@app/api/user/UserMappers';
+import {checkUserGlobalExpressions} from '@app/api/utils/EmojiUtils';
+import {assertGuildMemberCanCommunicate} from '@app/api/utils/GuildCommunicationUtils';
+import {Permissions} from '@fluxer/constants/src/ChannelConstants';
+import {GuildOperations} from '@fluxer/constants/src/GuildConstants';
+import type {LimitKey} from '@fluxer/constants/src/LimitConfigMetadata';
+import {MAX_REACTIONS_PER_MESSAGE, MAX_USERS_PER_MESSAGE_REACTION} from '@fluxer/constants/src/LimitConstants';
+import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
+import {MaxReactionsPerMessageError} from '@fluxer/errors/src/domains/channel/MaxReactionsPerMessageError';
+import {MaxUsersPerMessageReactionError} from '@fluxer/errors/src/domains/channel/MaxUsersPerMessageReactionError';
+import {UnknownMessageError} from '@fluxer/errors/src/domains/channel/UnknownMessageError';
+import {FeatureTemporarilyDisabledError} from '@fluxer/errors/src/domains/core/FeatureTemporarilyDisabledError';
+import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
+import {MissingPermissionsError} from '@fluxer/errors/src/domains/core/MissingPermissionsError';
+import {resolveLimit} from '@fluxer/limits/src/LimitResolver';
+import type {UserPartialResponse} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
+import {isValidSingleUnicodeEmoji} from '@fluxer/schema/src/primitives/EmojiValidators';
+import {snowflakeToDate} from '@fluxer/snowflake/src/Snowflake';
+
+interface ParsedEmoji {
+	id?: string;
+	name: string;
+	animated?: boolean;
+}
+
+const REACTION_CUSTOM_EMOJI_REGEX = /^(.+):(\d+)$/;
+
+export class MessageReactionService {
+	private async assertReactionRemovalAllowed(authChannel: AuthenticatedChannel, messageId: MessageID): Promise<void> {
+		const {channel, guild} = authChannel;
+		ensureTextChannel(channel);
+		assertThreadInteractionAllowed(authChannel, 'react', {ignoreTimeout: true});
+		await this.assertMessageHistoryAccess({authChannel, messageId});
+		if (isOperationDisabled(guild, GuildOperations.REACTIONS)) {
+			throw new FeatureTemporarilyDisabledError();
+		}
+	}
+	constructor(
+		private gatewayService: IGatewayService,
+		private channelRepository: ChannelRepository,
+		private userRepository: UserRepository,
+		private guildRepository: GuildRepository,
+		private limitConfigService: LimitConfigService,
+	) {}
+
+	private resolveLimitForUser(params: {
+		user: User | null;
+		guildFeatures?: Iterable<string> | null;
+		key: LimitKey;
+		fallback: number;
+	}): number {
+		const ctx = createLimitMatchContext({user: params.user, guildFeatures: params.guildFeatures});
+		const limitValue = resolveLimit(this.limitConfigService.getConfigSnapshot(), ctx, params.key);
+		if (!Number.isFinite(limitValue) || limitValue < 0) {
+			return Math.max(0, Math.floor(params.fallback));
+		}
+		return Math.floor(limitValue);
+	}
+
+	private async assertMessageHistoryAccess({
+		authChannel,
+		messageId,
+	}: {
+		authChannel: AuthenticatedChannel;
+		messageId: MessageID;
+	}): Promise<void> {
+		const {guild, hasPermission} = authChannel;
+		if (!guild) {
+			return;
+		}
+		if (await hasPermission(Permissions.READ_MESSAGE_HISTORY)) {
+			return;
+		}
+		const cutoff = guild.message_history_cutoff;
+		if (!cutoff || snowflakeToDate(messageId).getTime() < new Date(cutoff).getTime()) {
+			throw new UnknownMessageError();
+		}
+	}
+
+	async getUsersForReaction({
+		authChannel,
+		messageId,
+		emoji,
+		limit,
+		after,
+		userId,
+	}: {
+		authChannel: AuthenticatedChannel;
+		messageId: MessageID;
+		emoji: string;
+		limit?: number;
+		after?: UserID;
+		userId: UserID;
+	}): Promise<{
+		users: Array<UserPartialResponse>;
+		has_more: boolean;
+		next_after: string | null;
+	}> {
+		const {channel, guild} = authChannel;
+		ensureTextChannel(channel);
+		await this.assertMessageHistoryAccess({authChannel, messageId});
+		const requestingUser = await this.userRepository.findUnique(userId);
+		const guildFeatures = guild?.features ?? null;
+		const runtimeMaxUsers = this.resolveLimitForUser({
+			user: requestingUser ?? null,
+			guildFeatures,
+			key: 'max_users_per_message_reaction',
+			fallback: MAX_USERS_PER_MESSAGE_REACTION,
+		});
+		const limitCap = runtimeMaxUsers > 0 ? runtimeMaxUsers : Number.MAX_SAFE_INTEGER;
+		const defaultLimit = Math.min(limitCap, 25);
+		const requestedLimit = limit !== undefined && Number.isFinite(limit) ? Math.floor(limit) : defaultLimit;
+		const validatedLimit = Math.min(Math.max(requestedLimit, 1), limitCap);
+		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
+		if (!message) throw new UnknownMessageError();
+		const parsedEmoji = this.parseEmojiWithoutValidation(emoji);
+		const afterUserId = after;
+		const fetchLimit = validatedLimit + 1;
+		const reactions = await this.channelRepository.messageInteractions.listReactionUsers(
+			channel.id,
+			messageId,
+			parsedEmoji.name,
+			fetchLimit,
+			afterUserId,
+			parsedEmoji.id ? createEmojiID(BigInt(parsedEmoji.id)) : undefined,
+		);
+		const hasMore = reactions.length > validatedLimit;
+		const pageReactions = hasMore ? reactions.slice(0, validatedLimit) : reactions;
+		if (!pageReactions.length) return {users: [], has_more: false, next_after: null};
+		const nextAfter = hasMore ? pageReactions[pageReactions.length - 1].userId.toString() : null;
+		const userIds = pageReactions.map((reaction: MessageReaction) => reaction.userId);
+		const users = await this.userRepository.listUsers(userIds);
+		const usersById = new Map(users.map((user) => [user.id.toString(), user]));
+		const orderedUsers = pageReactions.flatMap((reaction) => {
+			const user = usersById.get(reaction.userId.toString());
+			return user ? [user] : [];
+		});
+		return {
+			users: orderedUsers.map((user) => mapUserToPartialResponse(user)),
+			has_more: hasMore,
+			next_after: nextAfter,
+		};
+	}
+
+	async addReaction({
+		authChannel,
+		messageId,
+		emoji,
+		userId,
+		sessionId,
+	}: {
+		authChannel: AuthenticatedChannel;
+		messageId: MessageID;
+		emoji: string;
+		userId: UserID;
+		sessionId?: string;
+	}): Promise<void> {
+		const channel = authChannel.channel;
+		const {guild, hasPermission, checkPermission} = authChannel;
+		ensureTextChannel(channel);
+		assertThreadInteractionAllowed(authChannel, 'react');
+		assertGuildMemberCanCommunicate(authChannel.member);
+		await this.assertMessageHistoryAccess({authChannel, messageId});
+		if (isOperationDisabled(guild, GuildOperations.REACTIONS)) {
+			throw new FeatureTemporarilyDisabledError();
+		}
+		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
+		if (!message) throw new UnknownMessageError();
+		const requestingUser = await this.userRepository.findUnique(userId);
+		if (requestingUser) {
+			requireEmailVerified(requestingUser, 'reaction');
+			assertAccountNotLimited(requestingUser);
+		}
+		const guildFeatures = guild?.features ?? null;
+		const maxUsersPerReaction = this.resolveLimitForUser({
+			user: requestingUser ?? null,
+			guildFeatures,
+			key: 'max_users_per_message_reaction',
+			fallback: MAX_USERS_PER_MESSAGE_REACTION,
+		});
+		const maxReactionsPerMessage = this.resolveLimitForUser({
+			user: requestingUser ?? null,
+			guildFeatures,
+			key: 'max_reactions_per_message',
+			fallback: MAX_REACTIONS_PER_MESSAGE,
+		});
+		const parsedEmojiBasic = this.parseEmojiWithoutValidation(emoji);
+		const emojiId = parsedEmojiBasic.id ? createEmojiID(BigInt(parsedEmojiBasic.id)) : undefined;
+		const userReactionExists = await this.channelRepository.messageInteractions.checkUserReactionExists(
+			channel.id,
+			messageId,
+			userId,
+			parsedEmojiBasic.name,
+			emojiId,
+		);
+		if (userReactionExists) {
+			return;
+		}
+		const reactionCount = await this.channelRepository.messageInteractions.countReactionUsers(
+			channel.id,
+			messageId,
+			parsedEmojiBasic.name,
+			emojiId,
+		);
+		if (reactionCount === 0 && guild) {
+			await checkPermission(Permissions.ADD_REACTIONS);
+		}
+		let parsedEmoji: ParsedEmoji;
+		if (reactionCount > 0) {
+			parsedEmoji = parsedEmojiBasic;
+		} else {
+			parsedEmoji = await this.parseAndValidateEmoji({
+				emoji,
+				guildId: channel.guildId?.toString() || undefined,
+				userId,
+				hasPermission: channel.guildId ? hasPermission : undefined,
+			});
+		}
+		if (reactionCount >= maxUsersPerReaction) {
+			throw new MaxUsersPerMessageReactionError(maxUsersPerReaction);
+		}
+		if (reactionCount === 0) {
+			const uniqueReactionCount = await this.channelRepository.messageInteractions.countUniqueReactions(
+				channel.id,
+				messageId,
+			);
+			if (uniqueReactionCount >= maxReactionsPerMessage) {
+				throw new MaxReactionsPerMessageError(maxReactionsPerMessage);
+			}
+		}
+		await this.channelRepository.messageInteractions.addReaction(
+			channel.id,
+			messageId,
+			userId,
+			parsedEmoji.name,
+			emojiId,
+			parsedEmoji.animated ?? false,
+		);
+		await this.dispatchMessageReactionAdd({
+			channel,
+			messageId,
+			emoji: parsedEmoji,
+			userId,
+			sessionId,
+		});
+	}
+
+	async removeReaction({
+		authChannel,
+		messageId,
+		emoji,
+		targetId,
+		sessionId,
+		actorId,
+	}: {
+		authChannel: AuthenticatedChannel;
+		messageId: MessageID;
+		emoji: string;
+		targetId: UserID;
+		sessionId?: string;
+		actorId: UserID;
+	}): Promise<void> {
+		const channel = authChannel.channel;
+		const {hasPermission} = authChannel;
+		await this.assertReactionRemovalAllowed(authChannel, messageId);
+		const parsedEmoji = this.parseEmojiWithoutValidation(emoji);
+		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
+		if (!message) return;
+		const isRemovingOwnReaction = targetId === actorId;
+		if (!isRemovingOwnReaction) {
+			await this.assertCanModerateMessageReactions({channel, hasPermission});
+		}
+		const emojiId = parsedEmoji.id ? createEmojiID(BigInt(parsedEmoji.id)) : undefined;
+		await this.channelRepository.messageInteractions.removeReaction(
+			channel.id,
+			messageId,
+			targetId,
+			parsedEmoji.name,
+			emojiId,
+		);
+		await this.dispatchMessageReactionRemove({
+			channel,
+			messageId,
+			emoji: parsedEmoji,
+			userId: targetId,
+			sessionId,
+		});
+	}
+
+	async removeAllReactionsForEmoji({
+		authChannel,
+		messageId,
+		emoji,
+	}: {
+		authChannel: AuthenticatedChannel;
+		messageId: MessageID;
+		emoji: string;
+	}): Promise<void> {
+		const channel = authChannel.channel;
+		const {hasPermission} = authChannel;
+		await this.assertReactionRemovalAllowed(authChannel, messageId);
+		const parsedEmoji = this.parseEmojiWithoutValidation(emoji);
+		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
+		if (!message) return;
+		await this.assertCanModerateMessageReactions({channel, hasPermission});
+		const emojiId = parsedEmoji.id ? createEmojiID(BigInt(parsedEmoji.id)) : undefined;
+		await this.channelRepository.messageInteractions.removeAllReactionsForEmoji(
+			channel.id,
+			messageId,
+			parsedEmoji.name,
+			emojiId,
+		);
+		await this.dispatchMessageReactionRemoveAllForEmoji({
+			channel,
+			messageId,
+			emoji: parsedEmoji,
+		});
+	}
+
+	async removeAllReactions({
+		authChannel,
+		messageId,
+	}: {
+		authChannel: AuthenticatedChannel;
+		messageId: MessageID;
+	}): Promise<void> {
+		const channel = authChannel.channel;
+		const {hasPermission} = authChannel;
+		await this.assertReactionRemovalAllowed(authChannel, messageId);
+		const message = await this.channelRepository.messages.getMessage(channel.id, messageId);
+		if (!message) return;
+		await this.assertCanModerateMessageReactions({channel, hasPermission});
+		await this.channelRepository.messageInteractions.removeAllReactions(channel.id, messageId);
+		await this.dispatchMessageReactionRemoveAll({channel, messageId});
+	}
+
+	private async assertCanModerateMessageReactions({
+		channel,
+		hasPermission,
+	}: {
+		channel: Channel;
+		hasPermission: (permission: bigint) => Promise<boolean>;
+	}): Promise<void> {
+		if (!channel.guildId) {
+			throw new MissingPermissionsError();
+		}
+		const canManageMessages = await hasPermission(Permissions.MANAGE_MESSAGES);
+		if (!canManageMessages) {
+			throw new MissingPermissionsError();
+		}
+	}
+
+	private parseEmojiWithoutValidation(emoji: string): {
+		name: string;
+		id?: string;
+		animated?: boolean;
+	} {
+		const decodedEmoji = decodeURIComponent(emoji);
+		const customEmojiMatch = decodedEmoji.match(REACTION_CUSTOM_EMOJI_REGEX);
+		if (customEmojiMatch) {
+			const [, name, id] = customEmojiMatch;
+			return {
+				id,
+				name: name || 'unknown',
+			};
+		}
+		return {name: decodedEmoji};
+	}
+
+	private async parseAndValidateEmoji({
+		emoji,
+		guildId,
+		userId,
+		hasPermission,
+	}: {
+		emoji: string;
+		guildId?: string | undefined;
+		userId?: UserID;
+		hasPermission?: (permission: bigint) => Promise<boolean>;
+	}): Promise<ParsedEmoji> {
+		const decodedEmoji = decodeURIComponent(emoji);
+		const customEmojiMatch = decodedEmoji.match(REACTION_CUSTOM_EMOJI_REGEX);
+		if (customEmojiMatch) {
+			const [, , id] = customEmojiMatch;
+			const emojiIdBigInt = createEmojiID(BigInt(id));
+			const hasGlobalExpressions = userId
+				? await checkUserGlobalExpressions(userId, this.userRepository, this.limitConfigService)
+				: 0;
+			const emoji = await this.guildRepository.getEmojiById(emojiIdBigInt);
+			if (!emoji) {
+				throw InputValidationError.fromCode('emoji', ValidationErrorCodes.CUSTOM_EMOJI_NOT_FOUND);
+			}
+			if (hasGlobalExpressions === 0 && emoji.guildId.toString() !== guildId) {
+				throw InputValidationError.fromCode('emoji', ValidationErrorCodes.CUSTOM_EMOJIS_REQUIRE_PREMIUM_OUTSIDE_SOURCE);
+			}
+			if (hasPermission) {
+				const canUseExternalEmojis = await hasPermission(Permissions.USE_EXTERNAL_EMOJIS);
+				if (!canUseExternalEmojis) {
+					throw new MissingPermissionsError();
+				}
+			}
+			return {
+				id,
+				name: emoji.name,
+				animated: emoji.isAnimated,
+			};
+		}
+		if (!isValidSingleUnicodeEmoji(decodedEmoji)) {
+			throw InputValidationError.fromCode('emoji', ValidationErrorCodes.NOT_A_VALID_UNICODE_EMOJI);
+		}
+		return {name: decodedEmoji};
+	}
+
+	private async dispatchMessageReactionAdd(params: {
+		channel: Channel;
+		messageId: MessageID;
+		emoji: ParsedEmoji;
+		userId: UserID;
+		sessionId?: string;
+	}): Promise<void> {
+		await dispatchChannelEvent({
+			gatewayService: this.gatewayService,
+			channel: params.channel,
+			event: 'MESSAGE_REACTION_ADD',
+			data: {
+				channel_id: params.channel.id.toString(),
+				message_id: params.messageId.toString(),
+				emoji: params.emoji,
+				user_id: params.userId.toString(),
+				session_id: params.sessionId,
+			},
+		});
+	}
+
+	private async dispatchMessageReactionRemove(params: {
+		channel: Channel;
+		messageId: MessageID;
+		emoji: ParsedEmoji;
+		userId: UserID;
+		sessionId?: string;
+	}): Promise<void> {
+		await dispatchChannelEvent({
+			gatewayService: this.gatewayService,
+			channel: params.channel,
+			event: 'MESSAGE_REACTION_REMOVE',
+			data: {
+				channel_id: params.channel.id.toString(),
+				message_id: params.messageId.toString(),
+				emoji: params.emoji,
+				user_id: params.userId.toString(),
+				session_id: params.sessionId,
+			},
+		});
+	}
+
+	private async dispatchMessageReactionRemoveAllForEmoji(params: {
+		channel: Channel;
+		messageId: MessageID;
+		emoji: ParsedEmoji;
+	}): Promise<void> {
+		await dispatchChannelEvent({
+			gatewayService: this.gatewayService,
+			channel: params.channel,
+			event: 'MESSAGE_REACTION_REMOVE_EMOJI',
+			data: {
+				channel_id: params.channel.id.toString(),
+				message_id: params.messageId.toString(),
+				emoji: params.emoji,
+			},
+		});
+	}
+
+	private async dispatchMessageReactionRemoveAll(params: {channel: Channel; messageId: MessageID}): Promise<void> {
+		await dispatchChannelEvent({
+			gatewayService: this.gatewayService,
+			channel: params.channel,
+			event: 'MESSAGE_REACTION_REMOVE_ALL',
+			data: {
+				channel_id: params.channel.id.toString(),
+				message_id: params.messageId.toString(),
+			},
+		});
+	}
+}

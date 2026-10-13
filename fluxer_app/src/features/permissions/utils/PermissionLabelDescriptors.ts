@@ -1,0 +1,709 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {EVERYONE_MENTION, HERE_MENTION, ROLES_MENTION} from '@app/features/app/config/I18nDisplayConstants';
+import {Permissions} from '@fluxer/constants/src/ChannelConstants';
+import {ThreadPermissionFlags} from '@fluxer/constants/src/ThreadPermissionUtils';
+import type {I18n, MessageDescriptor} from '@lingui/core';
+import {msg} from '@lingui/core/macro';
+
+const MENTION_EVERYONE_HERE_AND_ROLES_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Use {everyoneMention}/{hereMention} and {rolesMention}',
+	comment:
+		'Permission description in the role/permission editor. Explains the Mention Everyone permission. The three placeholders render the literal @everyone, @here, and @role mention tokens and must not be translated.',
+});
+const ADMINISTRATOR_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Grants all permissions and bypasses channel restrictions. Highly sensitive.',
+	comment:
+		'Permission description in the role/permission editor for the Administrator permission. Warns that this grants every permission and overrides per-channel restrictions. Keep the warning tone explicit.',
+});
+const VIEW_ACTIVITY_LOG_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: "Read the community's activity log of changes and moderation actions.",
+	comment:
+		'Permission description in the role/permission editor for the View Activity Log permission. Refers to the per-community audit/activity log.',
+});
+const MANAGE_COMMUNITY_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Edit global settings like name, description, and icon.',
+	comment:
+		'Permission description in the role/permission editor for the Manage Community permission. Refers to top-level community settings, not per-channel.',
+});
+const MANAGE_ROLES_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Create, edit, or delete roles below your highest role. Also allows editing channel permission overwrites.',
+	comment:
+		'Permission description in the role/permission editor for the Manage Roles permission. Notes the standard role-hierarchy rule and that it also gates channel permission overwrites.',
+});
+const MANAGE_CHANNELS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Create, edit, or delete channels and categories.',
+	comment:
+		'Permission description in the role/permission editor for the Manage Channels permission. Covers channel and category lifecycle operations.',
+});
+const CHANGE_OWN_NICKNAME_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Update your own nickname.',
+	comment:
+		'Permission description in the role/permission editor for the Change Own Nickname permission. The user can rename only themselves in this community.',
+});
+const MANAGE_NICKNAMES_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: "Change other members' nicknames.",
+	comment:
+		'Permission description in the role/permission editor for the Manage Nicknames permission. The user can rename other members in this community.',
+});
+const CREATE_EMOJI_AND_STICKERS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Upload new emoji and stickers, and manage your own creations.',
+	comment:
+		'Permission description in the role/permission editor for the Create Emoji & Stickers permission. Lets the member upload new custom expressions and edit the ones they uploaded.',
+});
+const MANAGE_EMOJI_AND_STICKERS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Edit or delete emoji and stickers created by other members.',
+	comment:
+		'Permission description in the role/permission editor for the Manage Emoji & Stickers permission. Lets the member moderate expressions uploaded by anyone in the community.',
+});
+const MANAGE_WEBHOOKS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Create, edit, or delete webhooks.',
+	comment:
+		'Permission description in the role/permission editor for the Manage Webhooks permission, community-wide scope. Refers to outbound integration webhooks.',
+});
+const SEND_TTS_MESSAGES_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Send text-to-speech messages with /tts. Members who turned text-to-speech on hear them read aloud.',
+	comment:
+		'Permission description in the role/permission editor for the Send TTS Messages permission. Keep "text-to-speech" spelled out for clarity. "/tts" is a literal command prefix typed in the message box and must not be translated.',
+});
+const MANAGE_MESSAGES_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: "Delete other members' messages. Pinning is controlled separately.",
+	comment:
+		'Permission description in the role/permission editor for the Manage Messages permission. Notes that pinning has its own permission.',
+});
+const MENTION_EVERYONE_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: "Mention everyone or any role (even if the role isn't set to be mentionable).",
+	comment:
+		'Permission description in the role/permission editor for the Mention Everyone permission. Notes that this overrides the per-role "mentionable" flag.',
+});
+const USE_EXTERNAL_EMOJI_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Use emoji from other communities.',
+	comment:
+		'Permission description in the role/permission editor for the Use External Emoji permission. "Other communities" means custom emoji uploaded in a different Fluxer community.',
+});
+const ADD_REACTIONS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Add new reactions to messages.',
+	comment:
+		'Permission description in the role/permission editor for the Add Reactions permission. "New" reaction means starting a new reaction emoji on a message (not stacking onto an existing one).',
+});
+const BYPASS_SLOWMODE_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Ignore per-channel message rate limits.',
+	comment:
+		'Permission description in the role/permission editor for the Bypass Slowmode permission. Slowmode is the per-channel cooldown between messages.',
+});
+const TIME_OUT_MEMBERS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Prevent members from sending messages, reacting, and joining voice for a duration.',
+	comment:
+		'Permission description in the role/permission editor for the Time Out Members permission. Time out is a temporary moderation restriction.',
+});
+const VIEW_CHANNEL_MEMBERS_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'See the member list for channels in this community.',
+	comment:
+		'Permission description in the role/permission editor for the View Channel Members permission at community scope. Covers all channels in the community.',
+});
+const USE_VOICE_ACTIVITY_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Without this permission, push-to-talk is required.',
+	comment:
+		'Permission description in the role/permission editor for the Use Voice Activity permission. Explains the inverse: without it, the user must use push-to-talk in voice channels.',
+});
+const MOVE_MEMBERS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Drag members between voice channels they can access, and disconnect them from voice.',
+	comment:
+		'Permission description in the role/permission editor for the Move Members permission. The target channel must already be accessible to the member being moved. This permission also covers forcing a member out of voice entirely.',
+});
+const CREATE_INVITE_LINKS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Invite new people to the community with an invite link.',
+	comment:
+		'Permission description in the role/permission editor for the Create Invite Links permission. Covers links that let someone outside the community join it.',
+});
+const KICK_MEMBERS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Remove members from the community. They can rejoin with a new invite.',
+	comment:
+		'Permission description in the role/permission editor for the Kick Members permission. Note that a kick is not permanent, unlike a ban.',
+});
+const BAN_MEMBERS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Ban members from the community, with the option to delete their recent messages.',
+	comment:
+		'Permission description in the role/permission editor for the Ban Members permission. A ban keeps the member out until it is lifted, and the moderator chooses how much recent message history to delete.',
+});
+const VIEW_CHANNEL_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'See channels by default. Channels that deny it stay hidden.',
+	comment:
+		'Permission description in the role/permission editor for the View Channel permission at community scope. Per-channel overwrites still decide access for individual channels.',
+});
+const SEND_MESSAGES_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Send messages in channels.',
+	comment: 'Permission description in the role/permission editor for the Send Messages permission at community scope.',
+});
+const PIN_MESSAGES_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Pin or unpin any message.',
+	comment:
+		'Permission description in the role/permission editor for the Pin Messages permission at community scope. Covers messages from anyone, not only their own.',
+});
+const EMBED_LINKS_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Show embedded previews for links sent.',
+	comment:
+		'Permission description in the role/permission editor for the Embed Links permission at community scope. The preview is the card rendered under a message that contains a link.',
+});
+const ATTACH_FILES_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Upload files and media in messages.',
+	comment: 'Permission description in the role/permission editor for the Attach Files permission at community scope.',
+});
+const READ_MESSAGE_HISTORY_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message:
+		'Read messages sent before opening a channel. Without this permission, members only see messages that arrive while they have the channel open.',
+	comment:
+		'Permission description in the role/permission editor for the Read Message History permission at community scope. Without the permission the member sees only messages that arrive while the channel is open in front of them.',
+});
+const USE_EXTERNAL_STICKERS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Use stickers from other communities.',
+	comment:
+		'Permission description in the role/permission editor for the Use External Stickers permission. "Other communities" means stickers uploaded in a different Fluxer community.',
+});
+const CONNECT_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Join voice channels and hear others.',
+	comment: 'Permission description in the role/permission editor for the Connect permission at community scope.',
+});
+const SPEAK_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message:
+		'Talk in voice channels. Without this permission, members stay muted until someone with the "Mute members" permission unmutes them.',
+	comment:
+		'Permission description in the role/permission editor for the Speak permission at community scope. "Mute members" is another permission in this same editor, so match the wording used for its name.',
+});
+const STREAM_VIDEO_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Turn on a camera or share a screen in voice channels.',
+	comment:
+		'Permission description in the role/permission editor for the Stream Video permission at community scope. Covers both the webcam and screen sharing.',
+});
+const PRIORITY_SPEAKER_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Be heard over other members while holding the push to talk (priority) keybind.',
+	comment:
+		'Permission description in the role/permission editor for the Priority Speaker permission at community scope. "Push to talk (priority)" is the name of a keybind in the keybind settings, so match the wording used there.',
+});
+const MUTE_MEMBERS_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Mute other members in voice channels for everyone.',
+	comment:
+		'Permission description in the role/permission editor for the Mute Members permission at community scope. The mute applies for every listener, not only for the moderator.',
+});
+const DEAFEN_MEMBERS_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Deafen other members in voice channels, so they cannot hear or speak.',
+	comment: 'Permission description in the role/permission editor for the Deafen Members permission at community scope.',
+});
+const SET_VOICE_REGION_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Change which voice region a voice channel uses.',
+	comment:
+		'Permission description in the role/permission editor for the Set Voice Region permission at community scope. The region is the geographic location of the voice server.',
+});
+const MANAGE_CHANNEL_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: "Rename and edit this channel's settings.",
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Manage Channel permission. "This channel" refers to the channel currently being edited.',
+});
+const MANAGE_PERMISSIONS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Edit overwrites for roles and members in this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Manage Permissions permission. "Overwrites" are per-channel permission overrides.',
+});
+const MANAGE_WEBHOOKS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Create, edit, or delete webhooks for this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Manage Webhooks permission. Scoped to a single channel.',
+});
+const VIEW_CHANNEL_MEMBERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'See the member list for this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the View Channel Members permission. Scoped to a single channel.',
+});
+const CREATE_INVITE_LINKS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Invite new people to the community with a link to this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Create Invite Links permission. The invite drops the new member into this channel.',
+});
+const VIEW_CHANNEL_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'See this channel. Denying it for {everyoneMention} makes the channel private.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the View Channel permission. The placeholder renders the literal @everyone role name and must not be translated.',
+});
+const SEND_MESSAGES_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Send messages in this channel.',
+	comment: 'Permission description in the channel-scoped permissions editor for the Send Messages permission.',
+});
+const MANAGE_MESSAGES_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: "Delete other members' messages in this channel. Pinning is controlled separately.",
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Manage Messages permission. Notes that pinning has its own permission.',
+});
+const PIN_MESSAGES_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Pin or unpin any message in this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Pin Messages permission. Covers messages from anyone, not only their own.',
+});
+const EMBED_LINKS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Show embedded previews for links sent in this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Embed Links permission. The preview is the card rendered under a message that contains a link.',
+});
+const ATTACH_FILES_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Upload files and media in this channel.',
+	comment: 'Permission description in the channel-scoped permissions editor for the Attach Files permission.',
+});
+const READ_MESSAGE_HISTORY_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message:
+		'Read messages sent in this channel before opening it. Without this permission, members only see messages that arrive while they have it open.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Read Message History permission. Without the permission the member sees only messages that arrive while the channel is open in front of them.',
+});
+const MENTION_EVERYONE_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: "Mention everyone or any role in this channel (even if the role isn't set to be mentionable).",
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Mention Everyone permission. Notes that this overrides the per-role "mentionable" flag.',
+});
+const USE_EXTERNAL_EMOJI_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Use emoji from other communities in this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Use External Emoji permission. "Other communities" means custom emoji uploaded in a different Fluxer community.',
+});
+const USE_EXTERNAL_STICKERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Use stickers from other communities in this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Use External Stickers permission. "Other communities" means stickers uploaded in a different Fluxer community.',
+});
+const ADD_REACTIONS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Add new reactions to messages in this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Add Reactions permission. "New" reaction means starting a new reaction emoji on a message (not stacking onto an existing one).',
+});
+const BYPASS_SLOWMODE_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: "Ignore this channel's slowmode cooldown.",
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Bypass Slowmode permission. Slowmode is the per-channel cooldown between messages.',
+});
+const CONNECT_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message:
+		'Join this voice channel and hear others. Denying it along with View channel for {everyoneMention} makes the channel private.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Connect permission. "View channel" is another permission in this same editor, so match the wording used for its name. The placeholder renders the literal @everyone role name and must not be translated.',
+});
+const SPEAK_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message:
+		'Talk in this voice channel. Without this permission, members stay muted until someone with the "Mute members" permission unmutes them.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Speak permission. "Mute members" is another permission in this same editor, so match the wording used for its name.',
+});
+const STREAM_VIDEO_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Turn on a camera or share a screen in this voice channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Stream Video permission. Covers both the webcam and screen sharing.',
+});
+const USE_VOICE_ACTIVITY_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Without this permission, push-to-talk is required in this channel.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Use Voice Activity permission. Explains the inverse: without it, the user must use push-to-talk in this voice channel.',
+});
+const PRIORITY_SPEAKER_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Be heard over other members in this channel while holding the push to talk (priority) keybind.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Priority Speaker permission. "Push to talk (priority)" is the name of a keybind in the keybind settings, so match the wording used there.',
+});
+const MUTE_MEMBERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Mute other members in this voice channel for everyone.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Mute Members permission. The mute applies for every listener, not only for the moderator.',
+});
+const DEAFEN_MEMBERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Deafen other members in this voice channel, so they cannot hear or speak.',
+	comment: 'Permission description in the channel-scoped permissions editor for the Deafen Members permission.',
+});
+const MOVE_MEMBERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Drag members out of this voice channel into channels they can access, and disconnect them from voice.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Move Members permission. The target channel must already be accessible to the member being moved. This permission also covers forcing a member out of voice entirely.',
+});
+const SET_VOICE_REGION_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Change which voice region this channel uses.',
+	comment:
+		'Permission description in the channel-scoped permissions editor for the Set Voice Region permission. The region is the geographic location of the voice server.',
+});
+const COMMUNITY_WIDE_DESCRIPTOR = msg({
+	message: 'Community-wide',
+	comment: 'Permission category for permissions that affect the whole community.',
+});
+const MESSAGES_AND_MEDIA_DESCRIPTOR = msg({
+	message: 'Messages & media',
+	comment: 'Permission category for chat messages, uploads, embeds, reactions, and media.',
+});
+const MODERATION_DESCRIPTOR = msg({
+	message: 'Moderation',
+	comment: 'Permission category for moderation actions against members or messages.',
+});
+const CHANNEL_ACCESS_DESCRIPTOR = msg({
+	message: 'Channel access',
+	comment: 'Permission category for viewing or entering channels.',
+});
+const AUDIO_AND_VIDEO_DESCRIPTOR = msg({
+	message: 'Audio & video',
+	comment: 'Permission category for voice, video, and streaming permissions.',
+});
+const CHANNEL_MANAGEMENT_DESCRIPTOR = msg({
+	message: 'Channel management',
+	comment: 'Permission category for managing channels and channel settings.',
+});
+const ADMINISTRATOR_DESCRIPTOR = msg({
+	message: 'Administrator',
+	comment: 'Permission name: grants all permissions and bypasses restrictions.',
+});
+const VIEW_ACTIVITY_LOG_DESCRIPTOR = msg({
+	message: 'View activity log',
+	comment: 'Permission name: allows viewing community audit/activity logs.',
+});
+const MANAGE_COMMUNITY_DESCRIPTOR = msg({
+	message: 'Manage community',
+	comment: 'Permission name: allows editing global community settings.',
+});
+const MANAGE_ROLES_DESCRIPTOR = msg({
+	message: 'Manage roles',
+	comment: 'Permission name: allows role management and permission overwrite editing.',
+});
+const MANAGE_CHANNELS_DESCRIPTOR = msg({
+	message: 'Manage channels',
+	comment: 'Permission name: allows creating, editing, or deleting channels.',
+});
+const KICK_MEMBERS_DESCRIPTOR = msg({
+	message: 'Kick members',
+	comment: 'Permission name: allows removing members from a community.',
+});
+const BAN_MEMBERS_DESCRIPTOR = msg({
+	message: 'Ban members',
+	comment: 'Permission name: allows banning members from a community.',
+});
+const CREATE_INVITE_LINKS_DESCRIPTOR = msg({
+	message: 'Create invite links',
+	comment: 'Permission name: allows creating invite links.',
+});
+const CHANGE_OWN_NICKNAME_DESCRIPTOR = msg({
+	message: 'Change own nickname',
+	comment: 'Permission name: allows a member to edit their own nickname.',
+});
+const MANAGE_NICKNAMES_DESCRIPTOR = msg({
+	message: 'Manage nicknames',
+	comment: "Permission name: allows changing other members' nicknames.",
+});
+const CREATE_EMOJI_AND_STICKERS_DESCRIPTOR = msg({
+	message: 'Create emoji & stickers',
+	comment: 'Permission name: allows uploading custom emoji and stickers.',
+});
+const MANAGE_EMOJI_AND_STICKERS_DESCRIPTOR = msg({
+	message: 'Manage emoji & stickers',
+	comment: 'Permission name: allows editing or deleting custom emoji and stickers.',
+});
+const MANAGE_WEBHOOKS_DESCRIPTOR = msg({
+	message: 'Manage webhooks',
+	comment: 'Permission name: allows creating, editing, or deleting webhooks.',
+});
+const SEND_MESSAGES_DESCRIPTOR = msg({
+	message: 'Send messages',
+	comment: 'Permission name: allows sending chat messages.',
+});
+const SEND_TTS_MESSAGES_DESCRIPTOR = msg({
+	message: 'Send TTS messages',
+	comment: 'Permission name: allows sending text-to-speech messages.',
+});
+const MANAGE_MESSAGES_DESCRIPTOR = msg({
+	message: 'Manage messages',
+	comment: "Permission name: allows deleting other members' messages.",
+});
+const PIN_MESSAGES_DESCRIPTOR = msg({
+	message: 'Pin messages',
+	comment: 'Permission name: allows pinning messages in a channel.',
+});
+const EMBED_LINKS_DESCRIPTOR = msg({
+	message: 'Embed links',
+	comment: 'Permission name: allows links to unfurl/embed in messages.',
+});
+const ATTACH_FILES_DESCRIPTOR = msg({
+	message: 'Attach files',
+	comment: 'Permission name: allows uploading files to messages.',
+});
+const READ_MESSAGE_HISTORY_DESCRIPTOR = msg({
+	message: 'Read message history',
+	comment: 'Permission name: allows seeing earlier messages in a channel.',
+});
+const USE_EXTERNAL_EMOJI_DESCRIPTOR = msg({
+	message: 'Use external emoji',
+	comment: 'Permission name: allows using emoji from other communities.',
+});
+const USE_EXTERNAL_STICKERS_DESCRIPTOR = msg({
+	message: 'Use external stickers',
+	comment: 'Permission name: allows using stickers from other communities.',
+});
+const ADD_REACTIONS_DESCRIPTOR = msg({
+	message: 'Add reactions',
+	comment: 'Permission name: allows adding reactions to messages.',
+});
+const BYPASS_SLOWMODE_DESCRIPTOR = msg({
+	message: 'Bypass slowmode',
+	comment: 'Permission name: allows ignoring per-channel message rate limits.',
+});
+const TIME_OUT_MEMBERS_DESCRIPTOR = msg({
+	message: 'Time out members',
+	comment: 'Permission name: allows temporarily restricting members.',
+});
+const VIEW_CHANNEL_DESCRIPTOR = msg({
+	message: 'View channel',
+	comment: 'Permission name: allows seeing a channel.',
+});
+const VIEW_CHANNEL_MEMBERS_DESCRIPTOR = msg({
+	message: 'View channel members',
+	comment: 'Permission name: allows seeing the member list for a channel.',
+});
+const CONNECT_TO_VOICE_DESCRIPTOR = msg({
+	message: 'Connect to voice',
+	comment: 'Permission name: allows joining voice channels.',
+});
+const SPEAK_DESCRIPTOR = msg({
+	message: 'Speak',
+	context: 'voice-permission',
+	comment: 'Permission name: allows speaking in voice channels.',
+});
+const STREAM_VIDEO_DESCRIPTOR = msg({
+	message: 'Stream video',
+	comment: 'Permission name: allows video streaming or screen sharing in voice.',
+});
+const USE_VOICE_ACTIVITY_DESCRIPTOR = msg({
+	message: 'Use voice activity',
+	comment: 'Permission name: allows voice activation instead of requiring push-to-talk.',
+});
+const PRIORITY_SPEAKER_DESCRIPTOR = msg({
+	message: 'Priority speaker',
+	comment: 'Permission name: allows a voice participant to be heard over others.',
+});
+const MUTE_MEMBERS_DESCRIPTOR = msg({
+	message: 'Mute members',
+	comment: 'Permission name: allows moderators to mute other voice participants.',
+});
+const DEAFEN_MEMBERS_DESCRIPTOR = msg({
+	message: 'Deafen members',
+	comment: 'Permission name: allows moderators to deafen other voice participants.',
+});
+const MOVE_MEMBERS_DESCRIPTOR = msg({
+	message: 'Move members',
+	comment: 'Permission name: allows moving members between voice channels.',
+});
+const SET_VOICE_REGION_DESCRIPTOR = msg({
+	message: 'Set voice region',
+	comment: 'Permission name: allows changing the voice service region.',
+});
+const MANAGE_CHANNEL_DESCRIPTOR = msg({
+	message: 'Manage channel',
+	comment: 'Channel-scoped permission name: allows editing this channel.',
+});
+const MANAGE_PERMISSIONS_DESCRIPTOR = msg({
+	message: 'Manage permissions',
+	comment: 'Channel-scoped permission name: allows editing permission overwrites.',
+});
+
+export type PermissionCategory =
+	| 'communityWide'
+	| 'messagesMedia'
+	| 'moderation'
+	| 'channelAccess'
+	| 'audioVideo'
+	| 'channelManagement';
+export type PermissionScope = 'guild' | 'channel';
+
+const PERMISSION_CATEGORY_DESCRIPTORS: Record<PermissionCategory, MessageDescriptor> = {
+	communityWide: COMMUNITY_WIDE_DESCRIPTOR,
+	messagesMedia: MESSAGES_AND_MEDIA_DESCRIPTOR,
+	moderation: MODERATION_DESCRIPTOR,
+	channelAccess: CHANNEL_ACCESS_DESCRIPTOR,
+	audioVideo: AUDIO_AND_VIDEO_DESCRIPTOR,
+	channelManagement: CHANNEL_MANAGEMENT_DESCRIPTOR,
+};
+const MANAGE_THREADS_DESCRIPTOR = msg({
+	message: 'Manage threads',
+	comment: 'Permission name. Lets members rename, close, lock and delete threads and see private threads.',
+});
+const CREATE_PUBLIC_THREADS_DESCRIPTOR = msg({
+	message: 'Create public threads',
+	comment: 'Permission name. Lets members start threads everyone in the channel can see.',
+});
+const CREATE_PRIVATE_THREADS_DESCRIPTOR = msg({
+	message: 'Create private threads',
+	comment: 'Permission name. Lets members start invite-only threads.',
+});
+const SEND_MESSAGES_IN_THREADS_DESCRIPTOR = msg({
+	message: 'Send messages in threads',
+	comment: 'Permission name. Lets members send messages in threads.',
+});
+const MANAGE_THREADS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Allows members to rename, close, lock and delete threads, and to view private threads.',
+	comment: 'Description of the Manage threads permission.',
+});
+const CREATE_PUBLIC_THREADS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Allows members to start threads that everyone in the channel can see.',
+	comment: 'Description of the Create public threads permission.',
+});
+const CREATE_PRIVATE_THREADS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Allows members to start threads that only invited members and moderators can see.',
+	comment: 'Description of the Create private threads permission.',
+});
+const SEND_MESSAGES_IN_THREADS_PERMISSION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Allows members to send messages in threads.',
+	comment: 'Description of the Send messages in threads permission.',
+});
+const PERMISSION_TITLE_DESCRIPTORS = new Map<bigint, MessageDescriptor>([
+	[ThreadPermissionFlags.MANAGE_THREADS, MANAGE_THREADS_DESCRIPTOR],
+	[ThreadPermissionFlags.CREATE_PUBLIC_THREADS, CREATE_PUBLIC_THREADS_DESCRIPTOR],
+	[ThreadPermissionFlags.CREATE_PRIVATE_THREADS, CREATE_PRIVATE_THREADS_DESCRIPTOR],
+	[ThreadPermissionFlags.SEND_MESSAGES_IN_THREADS, SEND_MESSAGES_IN_THREADS_DESCRIPTOR],
+	[Permissions.ADMINISTRATOR, ADMINISTRATOR_DESCRIPTOR],
+	[Permissions.VIEW_AUDIT_LOG, VIEW_ACTIVITY_LOG_DESCRIPTOR],
+	[Permissions.MANAGE_GUILD, MANAGE_COMMUNITY_DESCRIPTOR],
+	[Permissions.MANAGE_ROLES, MANAGE_ROLES_DESCRIPTOR],
+	[Permissions.MANAGE_CHANNELS, MANAGE_CHANNELS_DESCRIPTOR],
+	[Permissions.KICK_MEMBERS, KICK_MEMBERS_DESCRIPTOR],
+	[Permissions.BAN_MEMBERS, BAN_MEMBERS_DESCRIPTOR],
+	[Permissions.CREATE_INSTANT_INVITE, CREATE_INVITE_LINKS_DESCRIPTOR],
+	[Permissions.CHANGE_NICKNAME, CHANGE_OWN_NICKNAME_DESCRIPTOR],
+	[Permissions.MANAGE_NICKNAMES, MANAGE_NICKNAMES_DESCRIPTOR],
+	[Permissions.CREATE_EXPRESSIONS, CREATE_EMOJI_AND_STICKERS_DESCRIPTOR],
+	[Permissions.MANAGE_EXPRESSIONS, MANAGE_EMOJI_AND_STICKERS_DESCRIPTOR],
+	[Permissions.MANAGE_WEBHOOKS, MANAGE_WEBHOOKS_DESCRIPTOR],
+	[Permissions.SEND_MESSAGES, SEND_MESSAGES_DESCRIPTOR],
+	[Permissions.SEND_TTS_MESSAGES, SEND_TTS_MESSAGES_DESCRIPTOR],
+	[Permissions.MANAGE_MESSAGES, MANAGE_MESSAGES_DESCRIPTOR],
+	[Permissions.PIN_MESSAGES, PIN_MESSAGES_DESCRIPTOR],
+	[Permissions.EMBED_LINKS, EMBED_LINKS_DESCRIPTOR],
+	[Permissions.ATTACH_FILES, ATTACH_FILES_DESCRIPTOR],
+	[Permissions.READ_MESSAGE_HISTORY, READ_MESSAGE_HISTORY_DESCRIPTOR],
+	[
+		Permissions.MENTION_EVERYONE,
+		{
+			...MENTION_EVERYONE_HERE_AND_ROLES_DESCRIPTION_DESCRIPTOR,
+			values: {everyoneMention: EVERYONE_MENTION, hereMention: HERE_MENTION, rolesMention: ROLES_MENTION},
+		},
+	],
+	[Permissions.USE_EXTERNAL_EMOJIS, USE_EXTERNAL_EMOJI_DESCRIPTOR],
+	[Permissions.USE_EXTERNAL_STICKERS, USE_EXTERNAL_STICKERS_DESCRIPTOR],
+	[Permissions.ADD_REACTIONS, ADD_REACTIONS_DESCRIPTOR],
+	[Permissions.BYPASS_SLOWMODE, BYPASS_SLOWMODE_DESCRIPTOR],
+	[Permissions.MODERATE_MEMBERS, TIME_OUT_MEMBERS_DESCRIPTOR],
+	[Permissions.VIEW_CHANNEL, VIEW_CHANNEL_DESCRIPTOR],
+	[Permissions.VIEW_CHANNEL_MEMBERS, VIEW_CHANNEL_MEMBERS_DESCRIPTOR],
+	[Permissions.CONNECT, CONNECT_TO_VOICE_DESCRIPTOR],
+	[Permissions.SPEAK, SPEAK_DESCRIPTOR],
+	[Permissions.STREAM, STREAM_VIDEO_DESCRIPTOR],
+	[Permissions.USE_VAD, USE_VOICE_ACTIVITY_DESCRIPTOR],
+	[Permissions.PRIORITY_SPEAKER, PRIORITY_SPEAKER_DESCRIPTOR],
+	[Permissions.MUTE_MEMBERS, MUTE_MEMBERS_DESCRIPTOR],
+	[Permissions.DEAFEN_MEMBERS, DEAFEN_MEMBERS_DESCRIPTOR],
+	[Permissions.MOVE_MEMBERS, MOVE_MEMBERS_DESCRIPTOR],
+	[Permissions.UPDATE_RTC_REGION, SET_VOICE_REGION_DESCRIPTOR],
+]);
+const PERMISSION_DESCRIPTION_DESCRIPTORS = new Map<bigint, MessageDescriptor>([
+	[ThreadPermissionFlags.MANAGE_THREADS, MANAGE_THREADS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[ThreadPermissionFlags.CREATE_PUBLIC_THREADS, CREATE_PUBLIC_THREADS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[ThreadPermissionFlags.CREATE_PRIVATE_THREADS, CREATE_PRIVATE_THREADS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[ThreadPermissionFlags.SEND_MESSAGES_IN_THREADS, SEND_MESSAGES_IN_THREADS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.ADMINISTRATOR, ADMINISTRATOR_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.VIEW_AUDIT_LOG, VIEW_ACTIVITY_LOG_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_GUILD, MANAGE_COMMUNITY_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_ROLES, MANAGE_ROLES_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_CHANNELS, MANAGE_CHANNELS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.KICK_MEMBERS, KICK_MEMBERS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.BAN_MEMBERS, BAN_MEMBERS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.CREATE_INSTANT_INVITE, CREATE_INVITE_LINKS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.CHANGE_NICKNAME, CHANGE_OWN_NICKNAME_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_NICKNAMES, MANAGE_NICKNAMES_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.CREATE_EXPRESSIONS, CREATE_EMOJI_AND_STICKERS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_EXPRESSIONS, MANAGE_EMOJI_AND_STICKERS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_WEBHOOKS, MANAGE_WEBHOOKS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.SEND_MESSAGES, SEND_MESSAGES_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.SEND_TTS_MESSAGES, SEND_TTS_MESSAGES_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_MESSAGES, MANAGE_MESSAGES_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.PIN_MESSAGES, PIN_MESSAGES_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.EMBED_LINKS, EMBED_LINKS_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.ATTACH_FILES, ATTACH_FILES_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.READ_MESSAGE_HISTORY, READ_MESSAGE_HISTORY_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MENTION_EVERYONE, MENTION_EVERYONE_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.USE_EXTERNAL_EMOJIS, USE_EXTERNAL_EMOJI_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.USE_EXTERNAL_STICKERS, USE_EXTERNAL_STICKERS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.ADD_REACTIONS, ADD_REACTIONS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.BYPASS_SLOWMODE, BYPASS_SLOWMODE_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MODERATE_MEMBERS, TIME_OUT_MEMBERS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.VIEW_CHANNEL, VIEW_CHANNEL_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.VIEW_CHANNEL_MEMBERS, VIEW_CHANNEL_MEMBERS_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.CONNECT, CONNECT_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.SPEAK, SPEAK_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.STREAM, STREAM_VIDEO_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.USE_VAD, USE_VOICE_ACTIVITY_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.PRIORITY_SPEAKER, PRIORITY_SPEAKER_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MUTE_MEMBERS, MUTE_MEMBERS_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.DEAFEN_MEMBERS, DEAFEN_MEMBERS_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MOVE_MEMBERS, MOVE_MEMBERS_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.UPDATE_RTC_REGION, SET_VOICE_REGION_GUILD_PERMISSION_DESCRIPTION_DESCRIPTOR],
+]);
+const CHANNEL_PERMISSION_TITLE_OVERRIDES = new Map<bigint, MessageDescriptor>([
+	[Permissions.MANAGE_CHANNELS, MANAGE_CHANNEL_DESCRIPTOR],
+	[Permissions.MANAGE_ROLES, MANAGE_PERMISSIONS_DESCRIPTOR],
+]);
+const CHANNEL_PERMISSION_DESCRIPTION_OVERRIDES = new Map<bigint, MessageDescriptor>([
+	[Permissions.CREATE_INSTANT_INVITE, CREATE_INVITE_LINKS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_CHANNELS, MANAGE_CHANNEL_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_ROLES, MANAGE_PERMISSIONS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_WEBHOOKS, MANAGE_WEBHOOKS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[
+		Permissions.VIEW_CHANNEL,
+		{...VIEW_CHANNEL_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR, values: {everyoneMention: EVERYONE_MENTION}},
+	],
+	[Permissions.VIEW_CHANNEL_MEMBERS, VIEW_CHANNEL_MEMBERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.SEND_MESSAGES, SEND_MESSAGES_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MANAGE_MESSAGES, MANAGE_MESSAGES_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.PIN_MESSAGES, PIN_MESSAGES_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.EMBED_LINKS, EMBED_LINKS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.ATTACH_FILES, ATTACH_FILES_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.READ_MESSAGE_HISTORY, READ_MESSAGE_HISTORY_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MENTION_EVERYONE, MENTION_EVERYONE_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.USE_EXTERNAL_EMOJIS, USE_EXTERNAL_EMOJI_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.USE_EXTERNAL_STICKERS, USE_EXTERNAL_STICKERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.ADD_REACTIONS, ADD_REACTIONS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.BYPASS_SLOWMODE, BYPASS_SLOWMODE_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[
+		Permissions.CONNECT,
+		{...CONNECT_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR, values: {everyoneMention: EVERYONE_MENTION}},
+	],
+	[Permissions.SPEAK, SPEAK_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.STREAM, STREAM_VIDEO_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.USE_VAD, USE_VOICE_ACTIVITY_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.PRIORITY_SPEAKER, PRIORITY_SPEAKER_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MUTE_MEMBERS, MUTE_MEMBERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.DEAFEN_MEMBERS, DEAFEN_MEMBERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.MOVE_MEMBERS, MOVE_MEMBERS_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+	[Permissions.UPDATE_RTC_REGION, SET_VOICE_REGION_CHANNEL_PERMISSION_DESCRIPTION_DESCRIPTOR],
+]);
+
+export function getPermissionTitleDescriptor(
+	permission: bigint,
+	scope: PermissionScope = 'guild',
+): MessageDescriptor | null {
+	if (scope === 'channel') {
+		const channelDescriptor = CHANNEL_PERMISSION_TITLE_OVERRIDES.get(permission);
+		if (channelDescriptor != null) return channelDescriptor;
+	}
+	return PERMISSION_TITLE_DESCRIPTORS.get(permission) ?? null;
+}
+
+export function getPermissionDescriptionDescriptor(
+	permission: bigint,
+	scope: PermissionScope = 'guild',
+): MessageDescriptor | null {
+	if (scope === 'channel') {
+		const channelDescriptor = CHANNEL_PERMISSION_DESCRIPTION_OVERRIDES.get(permission);
+		if (channelDescriptor != null) return channelDescriptor;
+	}
+	return PERMISSION_DESCRIPTION_DESCRIPTORS.get(permission) ?? null;
+}
+
+export function formatPermissionCategoryLabel(i18n: I18n, category: PermissionCategory): string {
+	return i18n._(PERMISSION_CATEGORY_DESCRIPTORS[category]);
+}

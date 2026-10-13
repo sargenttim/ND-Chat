@@ -1,0 +1,179 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.container {
+	text-align: center;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	width: 100%;
+}
+
+.title {
+	margin: 0 0 0.35rem;
+	text-align: center;
+	font-size: 1.125rem;
+	font-weight: 600;
+	letter-spacing: 0.025em;
+	color: var(--text-primary);
+}
+
+.description {
+	margin: 0 0 1rem;
+	text-align: center;
+	font-size: 0.875rem;
+	color: var(--text-tertiary);
+	line-height: 1.5;
+}
+
+.codeInputSection {
+	margin-bottom: 0.75rem;
+	width: 100%;
+	text-align: left;
+}
+
+.codeInput {
+	font-family: var(--font-mono);
+	font-size: 1.125rem;
+	letter-spacing: 0.08em;
+	text-align: center;
+	text-transform: uppercase;
+}
+
+.code {
+	display: inline-block;
+	padding: 0.5rem 0.75rem;
+	border: 0.0625rem solid var(--background-modifier-accent);
+	border-radius: 0.5rem;
+	background: var(--background-tertiary);
+	color: var(--text-primary);
+	font-family: var(--font-mono);
+	font-size: 1.25rem;
+	font-weight: 700;
+	letter-spacing: 0.08em;
+	line-height: 1.1;
+	overflow-wrap: anywhere;
+}
+
+.matchCheck {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0.5rem;
+	width: 100%;
+	margin: 0.25rem 0 0.75rem;
+	font-size: 0.875rem;
+	color: var(--text-secondary);
+	line-height: 1.4;
+}
+
+.accountLine {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	justify-content: center;
+	gap: 0.25rem 0.5rem;
+	width: 100%;
+	margin-bottom: 0.75rem;
+	font-size: 0.875rem;
+	color: var(--text-secondary);
+}
+
+.wrongAccount {
+	width: 100%;
+	margin: 0;
+	padding: 0.625rem 0.75rem;
+	border: 0.0625rem solid hsla(40, calc(100% * var(--saturation-factor)), 55%, 0.25);
+	border-radius: 0.5rem;
+	background-color: hsla(40, calc(100% * var(--saturation-factor)), 55%, 0.06);
+	color: var(--text-primary);
+	line-height: 1.4;
+}
+
+.textButton {
+	padding: 0.125rem 0.25rem;
+	border: none;
+	border-radius: 0.25rem;
+	background: none;
+	color: var(--text-link);
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.textButton:hover {
+	text-decoration: underline;
+}
+
+.deviceCard {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	width: 100%;
+	padding: 0.875rem 1rem;
+	background-color: var(--background-tertiary);
+	border: 0.125rem solid var(--background-modifier-accent);
+	border-radius: 0.625rem;
+	margin: 0.75rem 0 1rem;
+	text-align: left;
+}
+
+.deviceRow {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 1rem;
+}
+
+.deviceLabel {
+	font-size: 0.75rem;
+	font-weight: 600;
+	color: var(--text-tertiary);
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.deviceValue {
+	font-size: 0.875rem;
+	color: var(--text-primary);
+	font-weight: 500;
+	text-align: right;
+	overflow-wrap: anywhere;
+}
+
+.buttonRow {
+	display: flex;
+	gap: 0.5rem;
+	width: 100%;
+	margin-top: 0.25rem;
+}
+
+.buttonRow > * {
+	flex: 1;
+}
+
+.spinner {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.75rem;
+	padding: 1.5rem 0;
+}
+
+.error {
+	background-color: hsla(0, calc(100% * var(--saturation-factor)), 50%, 0.1);
+	border: 0.0625rem solid hsla(0, calc(100% * var(--saturation-factor)), 50%, 0.2);
+	border-radius: 0.5rem;
+	padding: 0.75rem;
+	font-size: 0.875rem;
+	color: var(--status-danger);
+	margin: 1rem 0;
+	text-align: center;
+}
+
+.successIcon {
+	color: var(--status-online);
+}
+
+.deniedIcon {
+	color: var(--text-tertiary);
+}

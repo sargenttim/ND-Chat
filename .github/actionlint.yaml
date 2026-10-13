@@ -1,0 +1,5 @@
+self-hosted-runner:
+  labels:
+    - fluxer-desktop-macos-arm64
+
+config-variables: null

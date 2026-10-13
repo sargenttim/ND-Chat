@@ -1,0 +1,31 @@
+{
+	"name": "@pkgs/worker",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./WorkerTask": {
+			"import": "./src/contracts/WorkerTask.ts",
+			"types": "./src/contracts/WorkerTask.ts"
+		},
+		"./IWorkerService": {
+			"import": "./src/contracts/IWorkerService.ts",
+			"types": "./src/contracts/IWorkerService.ts"
+		},
+		"./WorkerTypes": {
+			"import": "./src/contracts/WorkerTypes.ts",
+			"types": "./src/contracts/WorkerTypes.ts"
+		},
+		"./*": "./*"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@fluxer/logger": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/node": "catalog:",
+		"typescript": "catalog:ts7"
+	}
+}

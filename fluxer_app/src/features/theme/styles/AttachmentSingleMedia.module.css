@@ -1,0 +1,27 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.relativeWrapper {
+	position: relative;
+	width: 100%;
+	max-width: min(100%, var(--message-media-max-width, var(--attachment-media-max-width, 34.375rem)));
+	min-width: 0;
+}
+
+.singleMediaContainer {
+	position: relative;
+	width: 100%;
+	max-width: min(100%, var(--message-media-max-width, var(--attachment-media-max-width, 34.375rem)));
+	max-height: var(--attachment-media-max-height, 25rem);
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+}
+
+@media (max-width: 640px) {
+	.relativeWrapper,
+	.singleMediaContainer {
+		max-width: 100%;
+		max-height: min(var(--attachment-media-max-height, 25rem), 18.75rem);
+	}
+}

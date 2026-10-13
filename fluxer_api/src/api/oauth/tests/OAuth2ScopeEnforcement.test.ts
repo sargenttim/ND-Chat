@@ -1,0 +1,340 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {createAdminApiKey} from '@app/api/admin/tests/AdminTestUtils';
+import {createTestAccount, setUserACLs} from '@app/api/auth/tests/AuthTestUtils';
+import {Config} from '@app/api/Config';
+import {createGuild, createRole, getRoles} from '@app/api/guild/tests/GuildTestUtils';
+import {
+	authorizeOAuth2,
+	createOAuth2Application,
+	createOAuth2TestSetup,
+	exchangeOAuth2AuthorizationCode,
+} from '@app/api/oauth/tests/OAuthTestUtils';
+import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
+import {HTTP_STATUS} from '@app/api/test/TestConstants';
+import {createBuilder} from '@app/api/test/TestRequestBuilder';
+import {ADMIN_OAUTH2_APPLICATION_ID} from '@fluxer/constants/src/Core';
+import {afterEach, beforeEach, describe, expect, test} from 'vitest';
+
+interface OAuth2TokenResponse {
+	token: string;
+	user_id: string;
+	scopes: Array<string>;
+	application_id: string;
+}
+
+interface UserMeResponse {
+	id: string;
+	username: string;
+	email?: string | null;
+}
+
+interface UserGuildResponse {
+	id: string;
+	name: string;
+	permissions?: string;
+}
+
+interface UserGuildRoleResponse {
+	id: string;
+	name: string;
+	permissions: string;
+}
+
+async function createOAuth2Token(
+	harness: ApiTestHarness,
+	userId: string,
+	scopes: Array<string>,
+	applicationId?: string,
+): Promise<OAuth2TokenResponse> {
+	return createBuilder<OAuth2TokenResponse>(harness, '')
+		.post('/test/oauth2/access-token')
+		.body({
+			user_id: userId,
+			scopes,
+			...(applicationId ? {application_id: applicationId} : {}),
+		})
+		.execute();
+}
+
+describe('OAuth2 Scope Enforcement', () => {
+	let harness: ApiTestHarness;
+	beforeEach(async () => {
+		harness = await createApiTestHarness();
+	});
+	afterEach(() => {
+		Config.dev.validateResponses = true;
+	});
+	describe('Scope enforcement for user endpoints (/users/@me)', () => {
+		test('GET /users/@me with bearer token succeeds when user is authenticated', async () => {
+			const account = await createTestAccount(harness);
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['identify']);
+			const json = await createBuilder<UserMeResponse>(harness, `Bearer ${oauth2Token.token}`)
+				.get('/users/@me')
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(json.id).toBe(account.userId);
+			expect(json.username).toBe(account.username);
+		});
+		test('GET /users/@me with bearer token fails when identify scope is missing', async () => {
+			const account = await createTestAccount(harness);
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['guilds']);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get('/users/@me')
+				.expect(HTTP_STATUS.FORBIDDEN, 'MISSING_OAUTH_SCOPE')
+				.execute();
+		});
+		test('GET /users/@me/settings rejects OAuth2 bearer tokens on unsupported endpoints', async () => {
+			const account = await createTestAccount(harness);
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['identify', 'email']);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get('/users/@me/settings')
+				.expect(HTTP_STATUS.FORBIDDEN, 'ACCESS_DENIED')
+				.execute();
+		});
+	});
+	describe('Scope enforcement for guild endpoints (/users/@me/guilds)', () => {
+		test('GET /users/@me/guilds with guilds scope succeeds', async () => {
+			const account = await createTestAccount(harness);
+			await createGuild(harness, account.token, 'Test Guild');
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['identify', 'guilds']);
+			const json = await createBuilder<Array<UserGuildResponse>>(harness, `Bearer ${oauth2Token.token}`)
+				.get('/users/@me/guilds')
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(Array.isArray(json)).toBe(true);
+			expect(json.length).toBeGreaterThan(0);
+			expect(json[0]?.name).toBe('Test Guild');
+		});
+		test('GET /guilds/:guild_id with guilds scope succeeds', async () => {
+			const account = await createTestAccount(harness);
+			const guild = await createGuild(harness, account.token, 'Test Guild');
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['guilds']);
+			const json = await createBuilder<UserGuildResponse>(harness, `Bearer ${oauth2Token.token}`)
+				.get(`/guilds/${guild.id}`)
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(json.id).toBe(guild.id);
+			expect(json.name).toBe('Test Guild');
+		});
+		test('GET /guilds/:guild_id without guilds scope fails with MISSING_OAUTH_SCOPE', async () => {
+			const account = await createTestAccount(harness);
+			const guild = await createGuild(harness, account.token, 'Test Guild');
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['identify']);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get(`/guilds/${guild.id}`)
+				.expect(HTTP_STATUS.FORBIDDEN, 'MISSING_OAUTH_SCOPE')
+				.execute();
+		});
+		test('GET /guilds/:guild_id/roles with guilds scope succeeds', async () => {
+			const account = await createTestAccount(harness);
+			const guild = await createGuild(harness, account.token, 'Test Guild');
+			const role = await createRole(harness, account.token, guild.id, {name: 'OAuth Visible Role'});
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['guilds']);
+			const json = await getRoles(harness, `Bearer ${oauth2Token.token}`, guild.id);
+			const roles = json as Array<UserGuildRoleResponse>;
+			expect(roles.some((item) => item.id === role.id && item.name === 'OAuth Visible Role')).toBe(true);
+		});
+		test('GET /guilds/:guild_id/roles without guilds scope fails with MISSING_OAUTH_SCOPE', async () => {
+			const account = await createTestAccount(harness);
+			const guild = await createGuild(harness, account.token, 'Test Guild');
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['identify']);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get(`/guilds/${guild.id}/roles`)
+				.expect(HTTP_STATUS.FORBIDDEN, 'MISSING_OAUTH_SCOPE')
+				.execute();
+		});
+	});
+	describe('Scope enforcement for connections endpoint (/users/@me/connections)', () => {
+		test('GET /users/@me/connections with connections scope succeeds', async () => {
+			const account = await createTestAccount(harness);
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['identify', 'connections']);
+			const json = await createBuilder<Array<unknown>>(harness, `Bearer ${oauth2Token.token}`)
+				.get('/users/@me/connections')
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(Array.isArray(json)).toBe(true);
+		});
+		test('GET /users/@me/connections without connections scope fails with MISSING_OAUTH_SCOPE', async () => {
+			const account = await createTestAccount(harness);
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['identify']);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get('/users/@me/connections')
+				.expect(HTTP_STATUS.FORBIDDEN, 'MISSING_OAUTH_SCOPE')
+				.execute();
+		});
+	});
+	describe('Scope enforcement for userinfo endpoint (/oauth2/userinfo)', () => {
+		test('GET /oauth2/userinfo without identify scope fails with MISSING_OAUTH_SCOPE', async () => {
+			const account = await createTestAccount(harness);
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['guilds']);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get('/oauth2/userinfo')
+				.expect(HTTP_STATUS.FORBIDDEN, 'MISSING_OAUTH_SCOPE')
+				.execute();
+		});
+		test('GET /oauth2/userinfo omits user ACLs when response validation is disabled', async () => {
+			const {endUser, redirectURI, application} = await createOAuth2TestSetup(harness);
+			const staffUser = await setUserACLs(harness, endUser, ['admin:authenticate']);
+			const authCodeResponse = await authorizeOAuth2(harness, staffUser.token, {
+				client_id: application.id,
+				redirect_uri: redirectURI,
+				scope: 'identify',
+			});
+			const tokenResponse = await exchangeOAuth2AuthorizationCode(harness, {
+				client_id: application.id,
+				client_secret: application.client_secret,
+				code: authCodeResponse.code,
+				redirect_uri: redirectURI,
+			});
+			Config.dev.validateResponses = false;
+			const json = await createBuilder<Record<string, unknown>>(harness, `Bearer ${tokenResponse.access_token}`)
+				.get('/oauth2/userinfo')
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(json).not.toHaveProperty('acls');
+		});
+		test('GET /oauth2/userinfo with session token is unauthorized', async () => {
+			const account = await createTestAccount(harness);
+			await createBuilder(harness, account.token)
+				.get('/oauth2/userinfo')
+				.expect(HTTP_STATUS.UNAUTHORIZED, 'UNAUTHORIZED')
+				.execute();
+		});
+	});
+	describe('Multiple scope scenarios', () => {
+		test('Token with identify but not email cannot access email in response', async () => {
+			const account = await createTestAccount(harness);
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['identify']);
+			const json = await createBuilder<UserMeResponse>(harness, `Bearer ${oauth2Token.token}`)
+				.get('/users/@me')
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(json.email).toBeNull();
+		});
+		test('Token with identify and email can access both user info and email', async () => {
+			const account = await createTestAccount(harness);
+			const oauth2Token = await createOAuth2Token(harness, account.userId, ['identify', 'email']);
+			const json = await createBuilder<UserMeResponse>(harness, `Bearer ${oauth2Token.token}`)
+				.get('/users/@me')
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(json.id).toBe(account.userId);
+			expect(json.email).toBe(account.email);
+		});
+	});
+	describe('Edge cases', () => {
+		test('Token with empty scopes cannot access guilds endpoint', async () => {
+			const account = await createTestAccount(harness);
+			await createGuild(harness, account.token, 'Test Guild');
+			const oauth2Token = await createOAuth2Token(harness, account.userId, []);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get('/users/@me/guilds')
+				.expect(HTTP_STATUS.FORBIDDEN, 'MISSING_OAUTH_SCOPE')
+				.execute();
+		});
+		test('Scope checking does not affect bot tokens', async () => {
+			const appOwner = await createTestAccount(harness);
+			const application = await createOAuth2Application(harness, appOwner, {
+				name: 'Bot Scope Check Test',
+				redirect_uris: [],
+			});
+			const userJson = await createBuilder<UserMeResponse>(harness, `Bot ${application.bot.token}`)
+				.get('/users/@me')
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(userJson.id).toBe(application.bot.id);
+			const guildsJson = await createBuilder<Array<UserGuildResponse>>(harness, `Bot ${application.bot.token}`)
+				.get('/users/@me/guilds')
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(Array.isArray(guildsJson)).toBe(true);
+		});
+	});
+	describe('Admin OAuth2 application integration', () => {
+		test('built-in admin OAuth2 token can access admin endpoints when user has proper ACL', async () => {
+			const admin = await createTestAccount(harness);
+			await setUserACLs(harness, admin, ['admin:authenticate', 'user:lookup']);
+			const oauth2Token = await createOAuth2Token(
+				harness,
+				admin.userId,
+				['identify', 'email'],
+				ADMIN_OAUTH2_APPLICATION_ID.toString(),
+			);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get(`/admin/users/${admin.userId}`)
+				.expect(HTTP_STATUS.OK)
+				.execute();
+		});
+		test('third-party OAuth2 token cannot access admin endpoints even with proper user ACL', async () => {
+			const admin = await createTestAccount(harness);
+			await setUserACLs(harness, admin, ['admin:authenticate', 'user:lookup']);
+			const oauth2Token = await createOAuth2Token(harness, admin.userId, ['identify', 'email']);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get(`/admin/users/${admin.userId}`)
+				.expect(HTTP_STATUS.FORBIDDEN, 'ACCESS_DENIED')
+				.execute();
+		});
+		test('Admin API key can access admin endpoints with granted ACLs', async () => {
+			const admin = await createTestAccount(harness);
+			await setUserACLs(harness, admin, ['admin:authenticate', 'admin_api_key:manage', 'user:lookup']);
+			const apiKey = await createAdminApiKey(harness, admin, 'Test Key', ['user:lookup'], null);
+			await createBuilder(harness, apiKey.token).get(`/admin/users/${admin.userId}`).expect(HTTP_STATUS.OK).execute();
+		});
+		test('built-in admin OAuth2 token still requires proper user ACLs', async () => {
+			const admin = await createTestAccount(harness);
+			await setUserACLs(harness, admin, ['admin:authenticate']);
+			const oauth2Token = await createOAuth2Token(
+				harness,
+				admin.userId,
+				['identify', 'email'],
+				ADMIN_OAUTH2_APPLICATION_ID.toString(),
+			);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get(`/admin/users/${admin.userId}`)
+				.expect(HTTP_STATUS.FORBIDDEN, 'MISSING_ACL')
+				.execute();
+		});
+		test('built-in admin OAuth2 token without admin:authenticate ACL cannot access admin endpoints', async () => {
+			const user = await createTestAccount(harness);
+			const oauth2Token = await createOAuth2Token(
+				harness,
+				user.userId,
+				['identify', 'email'],
+				ADMIN_OAUTH2_APPLICATION_ID.toString(),
+			);
+			await createBuilder(harness, `Bearer ${oauth2Token.token}`)
+				.get(`/admin/users/${user.userId}`)
+				.expect(HTTP_STATUS.FORBIDDEN, 'MISSING_PERMISSIONS')
+				.execute();
+		});
+	});
+	describe('Real OAuth2 flow scope enforcement', () => {
+		test('OAuth2 token from real authorization flow respects scope restrictions', async () => {
+			const {endUser, redirectURI, application} = await createOAuth2TestSetup(harness);
+			await createGuild(harness, endUser.token, 'Test Guild');
+			const {authorizeOAuth2, exchangeOAuth2AuthorizationCode} = await import('@app/api/oauth/tests/OAuthTestUtils');
+			const authCodeResponse = await authorizeOAuth2(harness, endUser.token, {
+				client_id: application.id,
+				redirect_uri: redirectURI,
+				scope: 'identify',
+			});
+			const tokenResponse = await exchangeOAuth2AuthorizationCode(harness, {
+				client_id: application.id,
+				client_secret: application.client_secret,
+				code: authCodeResponse.code,
+				redirect_uri: redirectURI,
+			});
+			const userJson = await createBuilder<UserMeResponse>(harness, `Bearer ${tokenResponse.access_token}`)
+				.get('/users/@me')
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(userJson.id).toBe(endUser.userId);
+			expect(userJson.email).toBeNull();
+			await createBuilder(harness, `Bearer ${tokenResponse.access_token}`)
+				.get('/users/@me/guilds')
+				.expect(HTTP_STATUS.FORBIDDEN, 'MISSING_OAUTH_SCOPE')
+				.execute();
+		});
+	});
+});

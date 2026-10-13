@@ -1,0 +1,2799 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import assert from 'node:assert/strict';
+import {showGenericErrorModal} from '@app/features/app/components/alerts/GenericErrorModalCommands';
+import Authentication from '@app/features/auth/state/Authentication';
+import type {Channel} from '@app/features/channel/models/Channel';
+import Channels from '@app/features/channel/state/Channels';
+import GatewaySessions from '@app/features/gateway/transport/GatewaySessionPool';
+import type {GatewayErrorData} from '@app/features/gateway/transport/GatewaySocket';
+import type {GuildReadyData} from '@app/features/gateway/types/GatewayGuildTypes';
+import type {VoiceState} from '@app/features/gateway/types/GatewayVoiceTypes';
+import GuildMatureContentAgree from '@app/features/guild/state/GuildMatureContentAgree';
+import Guilds from '@app/features/guild/state/Guilds';
+import {SOMETHING_WENT_WRONG_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import Keybind from '@app/features/input/state/InputKeybind';
+import GuildMembers from '@app/features/member/state/GuildMembers';
+import * as NavigationCommands from '@app/features/navigation/commands/NavigationCommands';
+import {SoundType, setSoundOutputDeviceIdResolver} from '@app/features/notification/utils/SoundUtils';
+import MediaPermission from '@app/features/permissions/system/state/MediaPermission';
+import NativePermission from '@app/features/permissions/system/state/NativePermission';
+import {Logger} from '@app/features/platform/utils/AppLogger';
+import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
+import {modal} from '@app/features/ui/commands/ModalCommands';
+import * as SoundCommands from '@app/features/ui/commands/SoundCommands';
+import * as ToastCommands from '@app/features/ui/commands/ToastCommands';
+import Idle from '@app/features/ui/state/Idle';
+import Sound from '@app/features/ui/state/Sound';
+import {getElectronAPI, isDesktop} from '@app/features/ui/utils/NativeUtils';
+import Users from '@app/features/user/state/Users';
+import * as NicknameUtils from '@app/features/user/utils/NicknameUtils';
+import {VoiceP2pPeerFailedModal} from '@app/features/voice/components/alerts/VoiceP2pPeerFailedModal';
+import {getStreamKey, parseStreamKey} from '@app/features/voice/components/StreamKeys';
+import {pushActiveStreamSettings} from '@app/features/voice/components/StreamSettingsMenuContent';
+import {voiceStatsDB} from '@app/features/voice/diagnostics/VoiceStatsDB';
+import {
+	createMediaEngineFacadeSnapshot,
+	type MediaEngineFacadeEvent,
+	type MediaEngineFacadeP2pRefusal,
+	type MediaEngineFacadePendingSessionRestore,
+	type MediaEngineFacadeSnapshot,
+	selectMediaEngineConnectPreflightDecision,
+	selectMediaEngineConnectRequestDecision,
+	selectMediaEngineGatewayErrorDecision,
+	shouldCancelMediaEngineReconnectForServerVoiceStateRemoval,
+	shouldImmediatelyDisconnectMediaEngineForServerVoiceStateRemoval,
+	shouldRunMediaEngineDeferredDisconnect,
+	transitionMediaEngineFacadeSnapshot,
+} from '@app/features/voice/engine/MediaEngineFacadeStateMachine';
+import {
+	AFK_CHECK_INTERVAL_MS,
+	CLAIM_YOUR_ACCOUNT_TO_JOIN_THIS_VOICE_CHANNEL_DESCRIPTOR,
+	CLAIM_YOUR_ACCOUNT_TO_JOIN_VOICE_CHANNELS_YOU_DESCRIPTOR,
+	CLAIM_YOUR_ACCOUNT_TO_START_OR_JOIN_1_DESCRIPTOR,
+	DEFERRED_DISCONNECT_TIMEOUT_MS,
+	RECONNECT_SUCCEEDED_PICK_A_SCREEN_AGAIN_IF_YOU_DESCRIPTOR,
+	VOICE_CHANNEL_NO_LONGER_AVAILABLE_DESCRIPTOR,
+	VOICE_CONNECTION_FAILED_DESCRIPTOR,
+	VOICE_CONNECTION_LIMIT_REACHED_DESCRIPTOR,
+	YOU_CAN_T_JOIN_WHILE_YOU_RE_ON_DESCRIPTOR,
+} from '@app/features/voice/engine/media_engine_facade/shared';
+import {
+	createVoiceSessionRestoreSync,
+	saveCurrentVoiceSessionRestoreSnapshot,
+	type VoiceSessionRestoreSyncHandle,
+} from '@app/features/voice/engine/media_engine_facade/VoiceSessionRestoreSync';
+import VoiceMeshPeers from '@app/features/voice/engine/mesh/VoiceMeshPeers';
+import {isVoiceMeshRoom} from '@app/features/voice/engine/mesh/VoiceMeshRoom';
+import ScreenShareCodecNegotiation from '@app/features/voice/engine/ScreenShareCodecNegotiation';
+import ScreenSharePublicationMigration from '@app/features/voice/engine/ScreenSharePublicationMigration';
+import {Store, useStoreVersion} from '@app/features/voice/engine/Store';
+import {shouldMoveToAfkOnTick} from '@app/features/voice/engine/VoiceAfkTracking';
+import {
+	checkChannelLimit,
+	checkMultipleConnections,
+	checkP2pConsent,
+	requestP2pConsent,
+	sendVoiceStateConnect,
+	sendVoiceStateDisconnect,
+	showVoiceChannelFullModal,
+	syncVoiceStateToServer,
+} from '@app/features/voice/engine/VoiceChannelConnector';
+import type {VoiceConnectionLocalDisconnectReason} from '@app/features/voice/engine/VoiceConnectionStateMachine';
+import VoiceDevicePermissionState from '@app/features/voice/engine/VoiceDevicePermissionState';
+import {getEffectiveAudioState} from '@app/features/voice/engine/VoiceEffectiveAudioState';
+import type {NormalizedVoiceState} from '@app/features/voice/engine/VoiceGatewayStateMachine';
+import {
+	noteLocalVoiceActivity,
+	noteLocalVoiceActivityFromSnapshot,
+} from '@app/features/voice/engine/VoiceIdleActivityBridge';
+import {
+	createVoiceLocalAudioReconcileCoalescerSnapshot,
+	selectVoiceLocalAudioEffectiveSelfMute,
+	selectVoiceLocalAudioReconcileCoalescedCount,
+	selectVoiceLocalAudioReconcileRunReasons,
+	shouldStartVoiceLocalAudioReconcileRun,
+	shouldWarnAboutVoiceLocalAudioReconcileFollowUpRuns,
+	transitionVoiceLocalAudioReconcileCoalescerSnapshot,
+	type VoiceLocalAudioReconcileCoalescerSnapshot,
+} from '@app/features/voice/engine/VoiceLocalAudioReconcilePolicy';
+import {normalizeVoiceMediaGraphViewerStreamKeys} from '@app/features/voice/engine/VoiceMediaGraph';
+import {startVoiceMediaGraphTimerScheduler} from '@app/features/voice/engine/VoiceMediaGraphTimerScheduler';
+import {bindOutputDeviceSync} from '@app/features/voice/engine/VoiceOutputDeviceSync';
+import type {LivekitParticipantSnapshot} from '@app/features/voice/engine/VoiceParticipantStateMachine';
+import {bindRoomEvents, type RoomEventDependencies} from '@app/features/voice/engine/VoiceRoomEventBinder';
+import type {VoiceStateSyncPartial, VoiceStateSyncPayload} from '@app/features/voice/engine/VoiceStateSyncTypes';
+import {
+	deferStopWatchingStreamKey,
+	normalizeStreamGuildId,
+	replaceWatchedStreamKeys,
+	stopWatchingStreamKey,
+} from '@app/features/voice/engine/VoiceStreamWatchState';
+import {type VoiceConnectionQuality, VoiceTrackSource} from '@app/features/voice/engine/VoiceTrackSource';
+import {bindVoiceEngineV2AppAudioPreferencesSync} from '@app/features/voice/engine/v2/VoiceEngineV2AppAudioPreferencesSyncBinding';
+import {getCameraCaptureDimensions} from '@app/features/voice/engine/v2/VoiceEngineV2AppCameraResolutionPresets';
+import voiceEngineV2AppConnectionHostAdapter, {
+	type VoiceServerUpdateData,
+} from '@app/features/voice/engine/v2/VoiceEngineV2AppConnectionHostAdapter';
+import {
+	createVoiceEngineV2AppControllerHost,
+	type VoiceEngineV2AppControllerHost,
+} from '@app/features/voice/engine/v2/VoiceEngineV2AppControllerHost';
+import voiceEngineV2AppDebugEventSinkHostAdapter from '@app/features/voice/engine/v2/VoiceEngineV2AppDebugEventSinkHostAdapter';
+import {createVoiceEngineV2AppEventLogSpillLoggerSink} from '@app/features/voice/engine/v2/VoiceEngineV2AppEventLogSpillLoggerSink';
+import type {VoiceEngineV2AppLifecycleDisposable} from '@app/features/voice/engine/v2/VoiceEngineV2AppLifecycleAdapter';
+import voiceEngineV2AppMediaExecutionAdapter from '@app/features/voice/engine/v2/VoiceEngineV2AppMediaExecutionAdapter';
+import voiceEngineV2AppMediaStateAdapter from '@app/features/voice/engine/v2/VoiceEngineV2AppMediaStateAdapter';
+import {
+	createVoiceEngineV2AppParticipantAdapter,
+	type VoiceEngineV2AppParticipantAdapter,
+} from '@app/features/voice/engine/v2/VoiceEngineV2AppParticipantAdapter';
+import VoiceEngineV2AppPermissionAdapter from '@app/features/voice/engine/v2/VoiceEngineV2AppPermissionAdapter';
+import {
+	createVoiceEngineV2AppIngestionPort,
+	createVoiceEngineV2AppProductionHostPorts,
+} from '@app/features/voice/engine/v2/VoiceEngineV2AppProductionHostPorts';
+import {
+	createVoiceEngineV2AppProjectionStore,
+	type VoiceEngineV2AppProjectionStore,
+} from '@app/features/voice/engine/v2/VoiceEngineV2AppProjectionStore';
+import VoiceEngineV2AppRemoteSpeakingAdapter from '@app/features/voice/engine/v2/VoiceEngineV2AppRemoteSpeakingAdapter';
+import type {VoiceEngineV2AppScreenShareControllerGateway} from '@app/features/voice/engine/v2/VoiceEngineV2AppScreenShareControllerRouting';
+import voiceEngineV2AppScreenShareExecutionAdapter, {
+	type DeviceScreenShareCaptureOptions,
+	type ScreenShareReconnectSnapshot,
+	shouldRestoreScreenShareAfterReconnect,
+} from '@app/features/voice/engine/v2/VoiceEngineV2AppScreenShareExecutionAdapter';
+import {selectVoiceEngineV2AppIntentSelfMuteForVoiceStatePayload} from '@app/features/voice/engine/v2/VoiceEngineV2AppSelectors';
+import {VoiceEngineV2AppSourceLifecycleBridge} from '@app/features/voice/engine/v2/VoiceEngineV2AppSourceLifecycleBridge';
+import {VoiceEngineV2AppStatsHostAdapter} from '@app/features/voice/engine/v2/VoiceEngineV2AppStatsHostAdapter';
+import VoiceEngineV2AppSubscriptionAdapter from '@app/features/voice/engine/v2/VoiceEngineV2AppSubscriptionAdapter';
+import voiceEngineV2AppVoiceStateAdapter from '@app/features/voice/engine/v2/VoiceEngineV2AppVoiceStateAdapter';
+import type {DisplayScreenShareCaptureContext} from '@app/features/voice/engine/voice_screen_share_manager/shared';
+import ActiveScreenShareSource from '@app/features/voice/state/ActiveScreenShareSource';
+import CallMediaPrefs from '@app/features/voice/state/CallMediaPrefs';
+import {type ChannelE2EEStatus, computeChannelE2EEStatus} from '@app/features/voice/state/ChannelE2EEStatus';
+import LocalVoiceState from '@app/features/voice/state/LocalVoiceState';
+import VoiceCallLayout from '@app/features/voice/state/VoiceCallLayout';
+import VoiceP2pConsent from '@app/features/voice/state/VoiceP2pConsent';
+import VoiceRegionTeleport from '@app/features/voice/state/VoiceRegionTeleport';
+import VoiceSessionRestore, {type VoiceSessionRestoreSnapshot} from '@app/features/voice/state/VoiceSessionRestore';
+import VoiceSettings from '@app/features/voice/state/VoiceSettings';
+import {setNativeAudioCaptureBridgeLifecycleBridge} from '@app/features/voice/utils/NativeAudioCaptureBridge';
+import {resolveDisplayShareEnvironment} from '@app/features/voice/utils/ScreenShareEnvironment';
+import {executeScreenShareOperation} from '@app/features/voice/utils/ScreenShareUtils';
+import {areOrderedStringArraysEqual} from '@app/features/voice/utils/StringArrayUtils';
+import {
+	VOICE_P2P_CONSENT_REQUIRED_DESCRIPTOR,
+	VOICE_P2P_UNAVAILABLE_DESCRIPTOR,
+} from '@app/features/voice/utils/VoiceMessageDescriptors';
+import {buildVoiceParticipantIdentity} from '@app/features/voice/utils/VoiceParticipantIdentity';
+import {
+	isVoiceServerMuteActive,
+	resolveVoiceStateSelfMute,
+	shouldPrepareMicrophoneForVoiceConnect,
+} from '@app/features/voice/utils/VoicePermissionUtils';
+import {getActiveVoiceProcessingMode} from '@app/features/voice/utils/VoiceProcessingProfile';
+import type {NativeAudioStartOptions} from '@app/types/electron.d';
+import {ME} from '@fluxer/constants/src/AppConstants';
+import {ChannelTypes} from '@fluxer/constants/src/ChannelConstants';
+import {shouldApplyGatewayVoiceStateEcho} from '@fluxer/voice_engine_v2/src/core/reducers/gateway';
+import type {VoiceEngineV2Snapshot} from '@fluxer/voice_engine_v2/src/core/state';
+import type {VoiceEngineV2Command} from '@fluxer/voice_engine_v2/src/protocol/commands';
+import type {
+	VoiceEngineV2AudioMode,
+	VoiceEngineV2CameraOptions,
+	VoiceEngineV2DisconnectReason,
+	VoiceEngineV2GatewayVoiceState,
+	VoiceEngineV2LatencyDataPoint,
+	VoiceEngineV2MicrophoneOptions,
+	VoiceEngineV2Model,
+	VoiceEngineV2PerTrackStats,
+	VoiceEngineV2StatsSample,
+	VoiceEngineV2TransportInfo,
+	VoiceEngineV2VoiceStats,
+} from '@fluxer/voice_engine_v2/src/protocol/types';
+import type {VoiceEngineV2Controller} from '@fluxer/voice_engine_v2/src/runtime/VoiceEngineV2Controller';
+import {type I18n, i18n as linguiI18n, type MessageDescriptor} from '@lingui/core';
+import type {
+	ConnectionQuality as LiveKitConnectionQuality,
+	Participant,
+	Room,
+	ScreenShareCaptureOptions,
+	TrackPublishOptions,
+} from 'livekit-client';
+import {compareStructural, makeObservable, observableRef, reaction} from 'mobx';
+import React from 'react';
+
+const logger = new Logger('MediaEngineFacade');
+const VOICE_P2P_PEER_FAILED_MODAL_KEY = 'voice-p2p-peer-failed';
+
+function isCameraPermissionDeniedCommandFailure(error: unknown): boolean {
+	if (!(error instanceof Error)) return false;
+	const code = (error as Error & {code?: unknown}).code;
+	if (code === 'permissionDenied') return true;
+	return error.message.includes('permissionDenied');
+}
+
+function buildCameraCommandOptions(options?: {deviceId?: string; sendUpdate?: boolean}): VoiceEngineV2CameraOptions {
+	const commandOptions: VoiceEngineV2CameraOptions = {};
+	if (options?.deviceId) {
+		commandOptions.deviceId = options.deviceId;
+	}
+	if (options?.sendUpdate === false) {
+		commandOptions.sendUpdate = false;
+	}
+	return commandOptions;
+}
+
+function buildRoomEventDependencies(facade: {
+	resetStreamTracking: () => void;
+	participants: VoiceEngineV2AppParticipantAdapter;
+	sourceLifecycleBridge: VoiceEngineV2AppSourceLifecycleBridge | null;
+	isUserMovePending: () => boolean;
+}): RoomEventDependencies {
+	const sourceLifecycleBridge = facade.sourceLifecycleBridge;
+	return {
+		connection: {
+			createGuardedHandler: (guardedAttemptId, handler) =>
+				voiceEngineV2AppConnectionHostAdapter.createGuardedHandler(guardedAttemptId, handler),
+			isDisconnecting: () => voiceEngineV2AppConnectionHostAdapter.disconnecting,
+			isUserMovePending: () => facade.isUserMovePending(),
+			markConnected: () => voiceEngineV2AppConnectionHostAdapter.markConnected(),
+			markDisconnected: (reason) => voiceEngineV2AppConnectionHostAdapter.markDisconnected(reason),
+			markReconnecting: () => voiceEngineV2AppConnectionHostAdapter.markReconnecting(),
+			markReconnected: () => voiceEngineV2AppConnectionHostAdapter.markReconnected(),
+		},
+		media: {
+			applyAllLocalAudioPreferences: (activeRoom) =>
+				voiceEngineV2AppMediaExecutionAdapter.applyAllLocalAudioPreferences(activeRoom),
+			ensureMicrophone: (activeRoom, activeChannelId) =>
+				voiceEngineV2AppMediaExecutionAdapter.ensureMicrophone(activeRoom, activeChannelId),
+			playEntranceSound: () => voiceEngineV2AppMediaExecutionAdapter.playEntranceSound(),
+			resetStreamTracking: () => facade.resetStreamTracking(),
+		},
+		mediaState: {
+			handleLocalTrackStateChange: (source, isPublished) =>
+				voiceEngineV2AppMediaStateAdapter.handleLocalTrackStateChange(source, isPublished),
+			resetLocalMediaState: (reason) => voiceEngineV2AppMediaStateAdapter.resetLocalMediaState(reason),
+		},
+		participants: {
+			clear: () => facade.participants.clear(),
+			hydrateFromRoom: (activeRoom) => facade.participants.hydrateFromRoom(activeRoom),
+			removeParticipant: (identity) => facade.participants.removeParticipant(identity),
+			updateActiveSpeakers: (speakers) => facade.participants.updateActiveSpeakers(speakers),
+			upsertParticipant: (participant) => facade.participants.upsertParticipant(participant),
+		},
+		permissions: {
+			applyDeafen: (activeRoom, deafened) => VoiceEngineV2AppPermissionAdapter.applyDeafen(activeRoom, deafened),
+			syncWithPermissionState: (activeGuildId, activeChannelId, activeRoom) =>
+				VoiceEngineV2AppPermissionAdapter.syncWithPermissionState(activeGuildId, activeChannelId, activeRoom),
+		},
+		remoteSpeaking: {
+			attachIfApplicable: (participant, publication, track) =>
+				VoiceEngineV2AppRemoteSpeakingAdapter.attachIfApplicable(participant, publication, track),
+			clear: () => VoiceEngineV2AppRemoteSpeakingAdapter.clear(),
+			detachByIdentity: (identity) => VoiceEngineV2AppRemoteSpeakingAdapter.detachByIdentity(identity),
+			detachIfTrackMatches: (participant, publication) =>
+				VoiceEngineV2AppRemoteSpeakingAdapter.detachIfTrackMatches(participant, publication),
+			hydrateFromRoom: (activeRoom) => VoiceEngineV2AppRemoteSpeakingAdapter.hydrateFromRoom(activeRoom),
+		},
+		screenShare: {
+			cleanupLingeringScreenShareTracks: (participant) =>
+				voiceEngineV2AppScreenShareExecutionAdapter.cleanupLingeringScreenShareTracks(participant),
+			handleLocalScreenShareTrackUnpublished: (activeRoom, didChangeLocalState, publication) =>
+				voiceEngineV2AppScreenShareExecutionAdapter.handleLocalScreenShareTrackUnpublished(
+					activeRoom,
+					didChangeLocalState,
+					publication,
+				),
+			isScreenSharePublicationReplaceInFlight: () =>
+				voiceEngineV2AppScreenShareExecutionAdapter.isScreenSharePublicationReplaceInFlight(),
+		},
+		subscriptions: {
+			isScreenShareSubscribed: (participantIdentity) =>
+				VoiceEngineV2AppSubscriptionAdapter.isScreenShareSubscribed(participantIdentity),
+			reattachScreenShareAfterPublish: (participantIdentity, publication) =>
+				VoiceEngineV2AppSubscriptionAdapter.reattachScreenShareAfterPublish(participantIdentity, publication),
+			reconcileSubscriptions: () => VoiceEngineV2AppSubscriptionAdapter.reconcileSubscriptions(),
+		},
+		remoteTrackLifecycle: sourceLifecycleBridge
+			? {
+					bind: (track, options) => sourceLifecycleBridge.bindRemoteTrackLifecycle(track, options),
+				}
+			: undefined,
+	};
+}
+
+interface ConnectToVoiceChannelOptions {
+	skipChannelGate?: boolean;
+	deferNavigationUntilConnected?: boolean;
+	initialViewerStreamKeys?: Array<string>;
+}
+
+interface ConnectDirectlyOptions {
+	deferNavigationUntilConnected?: boolean;
+	initialViewerStreamKeys?: Array<string>;
+}
+
+type TerminalUnloadVoiceDisconnectReason = 'pagehide' | 'beforeunload' | 'unload';
+
+type VoiceMuteReason = 'guild' | 'permission' | 'voice_push_to_talk' | 'self' | null;
+
+export interface VoiceEngineConnectionContext {
+	guildId: string | null;
+	channelId: string | null;
+	connectionId: string | null;
+	connected: boolean;
+	connecting: boolean;
+	reconnecting: boolean;
+}
+
+class MediaEngineFacade extends Store {
+	private readonly voiceEngineV2Host: VoiceEngineV2AppControllerHost;
+	private readonly voiceEngineV2ProjectionStore: VoiceEngineV2AppProjectionStore;
+	private readonly voiceEngineV2Participants: VoiceEngineV2AppParticipantAdapter;
+	private readonly voiceEngineV2SourceLifecycleBridge: VoiceEngineV2AppSourceLifecycleBridge | null;
+	private statsHostAdapter: VoiceEngineV2AppStatsHostAdapter;
+	private afkIntervalId: NodeJS.Timeout | null = null;
+	private voiceSessionRestoreSync: VoiceSessionRestoreSyncHandle | null = null;
+	private outputDeviceSyncDisposer: (() => void) | null = null;
+	private audioPreferencesSyncDisposer: (() => void) | null = null;
+	private localAudioReconcileCoalescer: VoiceLocalAudioReconcileCoalescerSnapshot =
+		createVoiceLocalAudioReconcileCoalescerSnapshot();
+	private applyingGatewayVoiceStateEcho = false;
+	private i18n: I18n | null = linguiI18n;
+	private pendingServerDisconnectTimeout: NodeJS.Timeout | null = null;
+	private facadeSnapshot: MediaEngineFacadeSnapshot = createMediaEngineFacadeSnapshot();
+	private disconnectPromise: Promise<void> | null = null;
+	private terminalUnloadVoiceDisconnectSent = false;
+	private voiceEngineV2EstablishedConnectionKey: string | null = null;
+	private lastVoiceConnectFailed = false;
+
+	constructor() {
+		super();
+		this.statsHostAdapter = new VoiceEngineV2AppStatsHostAdapter();
+		const voiceEngineV2Ingestion = createVoiceEngineV2AppIngestionPort();
+		this.voiceEngineV2Host = createVoiceEngineV2AppControllerHost({
+			eventLogSpillSink: createVoiceEngineV2AppEventLogSpillLoggerSink({logger}),
+			ports: createVoiceEngineV2AppProductionHostPorts({
+				gateway: {
+					async writeVoiceState(options): Promise<void> {
+						const connectionId = voiceEngineV2AppConnectionHostAdapter.connectionId;
+						if (!connectionId) return;
+						if (!options.channelId) {
+							sendVoiceStateDisconnect(options.guildId, connectionId);
+							return;
+						}
+						syncVoiceStateToServer(options.guildId, options.channelId, connectionId, {
+							self_mute: options.selfMute,
+							self_deaf: options.selfDeaf,
+							self_video: options.selfVideo,
+							self_stream: options.selfStream,
+						});
+					},
+					async clearVoiceState(guildId): Promise<void> {
+						const connectionId = voiceEngineV2AppConnectionHostAdapter.connectionId;
+						if (!connectionId) return;
+						sendVoiceStateDisconnect(guildId, connectionId);
+					},
+				},
+				connection: {
+					startConnection: (guildId, channelId) =>
+						voiceEngineV2AppConnectionHostAdapter.startConnection(guildId, channelId),
+					disconnectFromVoiceChannel: (reason) =>
+						voiceEngineV2AppConnectionHostAdapter.disconnectFromVoiceChannel(reason),
+				},
+				media: voiceEngineV2AppMediaExecutionAdapter,
+				screenShare: voiceEngineV2AppScreenShareExecutionAdapter,
+				getRoom: () => this.room,
+				getActiveGuildId: () => voiceEngineV2AppConnectionHostAdapter.guildId,
+				getActiveChannelId: () => voiceEngineV2AppConnectionHostAdapter.channelId,
+				audioOutputStore: {
+					async setOutputDevice(deviceId): Promise<void> {
+						VoiceSettings.updateSettings({outputDeviceId: deviceId});
+					},
+				},
+				ingestion: voiceEngineV2Ingestion,
+				subscriptions: VoiceEngineV2AppSubscriptionAdapter,
+				stats: this.statsHostAdapter,
+				lifecycleDisposables: this.createVoiceEngineV2LifecycleDisposables(),
+				logger,
+			}),
+		});
+		this.voiceEngineV2ProjectionStore = createVoiceEngineV2AppProjectionStore(this.voiceEngineV2Host);
+		this.voiceEngineV2Participants = createVoiceEngineV2AppParticipantAdapter({
+			controller: this.voiceEngineV2Controller,
+			getModel: () => this.voiceEngineV2Model,
+			ingest: (event) => voiceEngineV2Ingestion.ingest(event),
+			getCurrentConnectionId: () => voiceEngineV2AppConnectionHostAdapter.connectionId,
+		});
+		this.voiceEngineV2SourceLifecycleBridge = this.createSourceLifecycleBridge();
+		voiceEngineV2AppScreenShareExecutionAdapter.setControllerGateway(this.createScreenShareControllerGateway());
+		ScreenShareCodecNegotiation.setSelectionChangeListener((activeRoom, codec, reason) => {
+			void voiceEngineV2AppScreenShareExecutionAdapter
+				.republishActiveScreenShareForNegotiatedCodecInternal(activeRoom, codec)
+				.catch((error) => {
+					logger.warn('Failed to republish active screen share after a codec negotiation change', {
+						error,
+						codec,
+						reason,
+					});
+				});
+		});
+		voiceEngineV2AppMediaExecutionAdapter.setSourceLifecycleBridge(this.voiceEngineV2SourceLifecycleBridge);
+		setNativeAudioCaptureBridgeLifecycleBridge(this.voiceEngineV2SourceLifecycleBridge);
+		this.syncVoiceEngineV2AudioControlsFromAppState();
+		makeObservable<this, 'facadeSnapshot'>(this, {
+			facadeSnapshot: observableRef,
+		});
+		this.initializeEngineStoreSync();
+		this.initializeVoiceEngineV2ConnectionLifecycleSync();
+		this.initializeLocalAudioStateSync();
+		this.initializeVoiceSessionRestoreSync();
+		this.initializeE2EEStatusSync();
+		this.initializeP2pPeerFailedModalSync();
+		this.initializeTerminalUnloadVoiceDisconnect();
+		Sound.setSelfDeafenedResolver(() => getEffectiveAudioState().effectiveDeaf);
+		setSoundOutputDeviceIdResolver(() => VoiceSettings.getOutputDeviceId());
+		this.prewarmVoiceEngineV2InBackground('startup');
+		(
+			window as typeof window & {
+				_mediaEngine?: MediaEngineFacade;
+			}
+		)._mediaEngine = this;
+		logger.debug('MediaEngineFacade initialized');
+	}
+
+	private createSourceLifecycleBridge(): VoiceEngineV2AppSourceLifecycleBridge | null {
+		const api = getElectronAPI()?.nativeScreenCapture;
+		if (!api || typeof api.onLifecycleEvent !== 'function') return null;
+		const subscribe = api.onLifecycleEvent.bind(api);
+		const host = this.voiceEngineV2Host;
+		return new VoiceEngineV2AppSourceLifecycleBridge({
+			dispatch: (event) => {
+				host.dispatch(event);
+			},
+			subscribe,
+		});
+	}
+
+	private createVoiceEngineV2LifecycleDisposables(): ReadonlyArray<VoiceEngineV2AppLifecycleDisposable> {
+		return [
+			{
+				name: 'app-tracking-and-stores',
+				dispose: async () => {
+					this.stopTracking();
+					this.statsHostAdapter.reset();
+					VoiceEngineV2AppRemoteSpeakingAdapter.clear();
+					VoiceEngineV2AppSubscriptionAdapter.cleanup();
+					VoiceEngineV2AppPermissionAdapter.reset();
+					this.resetLocalMediaAndScreenShareTracking();
+					this.voiceEngineV2Participants.clear();
+				},
+			},
+		];
+	}
+
+	private transitionFacadeState(event: MediaEngineFacadeEvent): void {
+		this.update(() => {
+			this.facadeSnapshot = transitionMediaEngineFacadeSnapshot(this.facadeSnapshot, event);
+		});
+	}
+
+	private prewarmVoiceEngineV2InBackground(reason: string): void {
+		void this.voiceEngineV2Host
+			.runAndWait(
+				() => {
+					this.voiceEngineV2Controller.prewarm();
+				},
+				{description: `voice engine v2 prewarm (${reason})`},
+			)
+			.then(() => {
+				logger.info('Voice engine v2 prewarm completed', {reason});
+			})
+			.catch((error) => {
+				logger.warn('Voice engine v2 prewarm failed', {reason, error});
+			});
+	}
+
+	private initializeEngineStoreSync(): void {
+		const forwardChange = () => {
+			this.emitChange();
+		};
+		this.voiceEngineV2ProjectionStore.subscribe(forwardChange);
+		voiceEngineV2AppConnectionHostAdapter.subscribe(forwardChange);
+		voiceEngineV2AppVoiceStateAdapter.subscribe(forwardChange);
+		this.statsHostAdapter.subscribe(forwardChange);
+		voiceEngineV2AppMediaExecutionAdapter.subscribe(forwardChange);
+		voiceEngineV2AppScreenShareExecutionAdapter.subscribe(forwardChange);
+		VoiceEngineV2AppSubscriptionAdapter.subscribe(forwardChange);
+		VoiceEngineV2AppPermissionAdapter.subscribe(forwardChange);
+		ScreenSharePublicationMigration.subscribe(forwardChange);
+	}
+
+	private initializeVoiceEngineV2ConnectionLifecycleSync(): void {
+		assert.ok(this.voiceEngineV2Host != null, 'connection lifecycle sync requires the v2 host');
+		assert.equal(
+			this.voiceEngineV2EstablishedConnectionKey,
+			null,
+			'connection lifecycle sync must initialize before any establishment',
+		);
+		voiceEngineV2AppConnectionHostAdapter.subscribe(() => this.syncVoiceEngineV2ConnectionLifecycle());
+		voiceEngineV2AppConnectionHostAdapter.subscribe(() => this.syncVoiceConnectFailureToast());
+		this.syncVoiceEngineV2ConnectionLifecycle();
+	}
+
+	private syncVoiceConnectFailureToast(): void {
+		const failed = voiceEngineV2AppConnectionHostAdapter.connectFailed;
+		if (failed === this.lastVoiceConnectFailed) return;
+		this.lastVoiceConnectFailed = failed;
+		if (!failed) return;
+		if (!this.i18n) return;
+		ToastCommands.createToast({
+			type: 'error',
+			children: this.i18n._(VOICE_CONNECTION_FAILED_DESCRIPTOR),
+		});
+	}
+
+	private syncVoiceEngineV2ConnectionLifecycle(): void {
+		const state = voiceEngineV2AppConnectionHostAdapter.connectionState;
+		assert.equal(typeof state.connected, 'boolean', 'connection state must expose a boolean connected flag');
+		assert.equal(typeof state.reconnecting, 'boolean', 'connection state must expose a boolean reconnecting flag');
+		if (state.reconnecting) return;
+		const key = state.connected ? `${state.connectionId ?? ''}|${state.voiceServerEndpoint ?? ''}` : null;
+		const previousKey = this.voiceEngineV2EstablishedConnectionKey;
+		if (key === previousKey) return;
+		this.voiceEngineV2EstablishedConnectionKey = key;
+		if (key === null) {
+			const transition = this.voiceEngineV2Host.dispatch({
+				type: 'connection.remoteDisconnected',
+				reason: this.resolveVoiceEngineV2RemoteDisconnectReason(),
+			});
+			assert.notEqual(
+				transition.snapshot.connection.status,
+				'connected',
+				'v2 snapshot must not stay connected after external disconnect',
+			);
+			return;
+		}
+		if (previousKey !== null) {
+			this.voiceEngineV2Host.dispatch({type: 'connection.remoteDisconnected', reason: 'replaced'});
+		}
+		const transition = this.voiceEngineV2Host.dispatch({
+			type: 'connection.externallyEstablished',
+			options: {url: state.voiceServerEndpoint ?? '', token: ''},
+		});
+		if (transition.snapshot.lifecycle.tearingDown) {
+			this.voiceEngineV2EstablishedConnectionKey = null;
+			logger.info('Voice engine v2 external establishment observed during lifecycle teardown', {
+				connectionStatus: transition.snapshot.connection.status,
+			});
+			return;
+		}
+		assert.equal(
+			transition.snapshot.connection.status,
+			'connected',
+			'v2 snapshot must be connected after external establishment',
+		);
+		this.syncVoiceEngineV2AudioControlsFromAppState();
+	}
+
+	private resolveVoiceEngineV2RemoteDisconnectReason(): VoiceEngineV2DisconnectReason {
+		const reason = voiceEngineV2AppConnectionHostAdapter.localDisconnectReason;
+		assert.ok(reason === null || typeof reason === 'string', 'local disconnect reason must be a string or null');
+		switch (reason) {
+			case 'error':
+			case 'abort':
+				return 'network';
+			case 'server':
+				return 'server';
+			case 'channelMove':
+			case 'replaced':
+				return 'replaced';
+			case 'user':
+			case null:
+				return 'user';
+		}
+	}
+
+	private get pendingSessionRestore(): MediaEngineFacadePendingSessionRestore | null {
+		return this.facadeSnapshot.context.pendingSessionRestore;
+	}
+
+	private get pendingUserMove(): {guildId: string | null; channelId: string} | null {
+		return this.facadeSnapshot.context.pendingUserMove;
+	}
+
+	private get pendingServerDisconnectConnectionId(): string | null {
+		return this.facadeSnapshot.context.pendingServerDisconnectConnectionId;
+	}
+
+	private get pendingScreenShareReconnect(): ScreenShareReconnectSnapshot | null {
+		return this.facadeSnapshot.context.pendingScreenShareReconnect as ScreenShareReconnectSnapshot | null;
+	}
+
+	get voiceEngineV2Controller(): VoiceEngineV2Controller {
+		return this.voiceEngineV2Host.controller;
+	}
+
+	get voiceEngineV2Snapshot(): VoiceEngineV2Snapshot {
+		return this.voiceEngineV2ProjectionStore.snapshot;
+	}
+
+	get voiceEngineV2Model(): VoiceEngineV2Model {
+		return this.voiceEngineV2ProjectionStore.model;
+	}
+
+	get room(): Room | null {
+		return voiceEngineV2AppConnectionHostAdapter.room;
+	}
+
+	get guildId(): string | null {
+		return voiceEngineV2AppConnectionHostAdapter.guildId;
+	}
+
+	get channelId(): string | null {
+		return voiceEngineV2AppConnectionHostAdapter.channelId;
+	}
+
+	get connectionId(): string | null {
+		return voiceEngineV2AppConnectionHostAdapter.connectionId;
+	}
+
+	get connected(): boolean {
+		return voiceEngineV2AppConnectionHostAdapter.connected;
+	}
+
+	get connecting(): boolean {
+		return voiceEngineV2AppConnectionHostAdapter.connecting;
+	}
+
+	get reconnecting(): boolean {
+		return voiceEngineV2AppConnectionHostAdapter.reconnecting;
+	}
+
+	get connectFailed(): boolean {
+		return voiceEngineV2AppConnectionHostAdapter.connectFailed;
+	}
+
+	get localDisconnectReason(): VoiceConnectionLocalDisconnectReason {
+		return voiceEngineV2AppConnectionHostAdapter.localDisconnectReason;
+	}
+
+	get connectFailedTarget(): {guildId: string | null; channelId: string} | null {
+		return voiceEngineV2AppConnectionHostAdapter.connectFailedTarget;
+	}
+
+	get voiceServerEndpoint(): string | null {
+		return voiceEngineV2AppConnectionHostAdapter.voiceServerEndpoint;
+	}
+
+	get connectionContext(): VoiceEngineConnectionContext {
+		return {
+			guildId: this.guildId,
+			channelId: this.channelId,
+			connectionId: this.connectionId,
+			connected: this.connected,
+			connecting: this.connecting,
+			reconnecting: this.reconnecting,
+		};
+	}
+
+	get participants(): Readonly<Record<string, LivekitParticipantSnapshot>> {
+		return this.voiceEngineV2Participants.participants;
+	}
+
+	get localConnectionQuality(): VoiceConnectionQuality | LiveKitConnectionQuality {
+		return this.room?.localParticipant?.connectionQuality ?? 'unknown';
+	}
+
+	get connectionVoiceStates(): Readonly<Record<string, NormalizedVoiceState>> {
+		return voiceEngineV2AppVoiceStateAdapter.getConnectionVoiceStates();
+	}
+
+	get currentLatency(): number | null {
+		return this.statsHostAdapter.currentLatency;
+	}
+
+	get averageLatency(): number | null {
+		return this.statsHostAdapter.averageLatency;
+	}
+
+	get latencyHistory(): Array<VoiceEngineV2LatencyDataPoint> {
+		return this.statsHostAdapter.latencyHistory;
+	}
+
+	get voiceStats(): VoiceEngineV2VoiceStats {
+		return this.statsHostAdapter.voiceStats;
+	}
+
+	get perTrackStats(): Array<VoiceEngineV2PerTrackStats> {
+		return this.statsHostAdapter.perTrackStats;
+	}
+
+	get statsTimeSeries(): Array<VoiceEngineV2StatsSample> {
+		return this.statsHostAdapter.statsTimeSeries;
+	}
+
+	get publisherTransport(): VoiceEngineV2TransportInfo | null {
+		return this.statsHostAdapter.publisherTransport;
+	}
+
+	get subscriberTransport(): VoiceEngineV2TransportInfo | null {
+		return this.statsHostAdapter.subscriberTransport;
+	}
+
+	get reconnectionCount(): number {
+		return this.statsHostAdapter.reconnectionCount;
+	}
+
+	refreshCameraBackgroundFromSettings(): void {
+		void this.refreshCameraBackgroundFromCurrentEngine().catch((error) => {
+			logger.warn('Failed to refresh camera background from settings', {error});
+		});
+	}
+
+	private async refreshCameraBackgroundFromCurrentEngine(): Promise<void> {
+		await voiceEngineV2AppMediaExecutionAdapter.refreshCameraBackground();
+	}
+
+	refreshCameraCaptureFromSettings(): void {
+		void this.refreshCameraCaptureFromCurrentEngine().catch((error) => {
+			logger.warn('Failed to refresh camera capture from settings', {error});
+		});
+	}
+
+	private async refreshCameraCaptureFromCurrentEngine(): Promise<void> {
+		await voiceEngineV2AppMediaExecutionAdapter.refreshCameraCapture();
+	}
+
+	refreshScreenShareCodecNegotiationFromSettings(): void {
+		void this.refreshScreenShareCodecNegotiationFromCurrentEngine().catch((error) => {
+			logger.warn('Failed to refresh screen share codec negotiation from settings', {error});
+		});
+	}
+
+	private async refreshScreenShareCodecNegotiationFromCurrentEngine(): Promise<void> {
+		await ScreenShareCodecNegotiation.publishLocalCapabilities(this.room, 'manual');
+	}
+
+	private reconcileLocalAudioStateInBackground(reason: string): void {
+		const previous = this.localAudioReconcileCoalescer;
+		const next = transitionVoiceLocalAudioReconcileCoalescerSnapshot(previous, {type: 'run.requested', reason});
+		this.localAudioReconcileCoalescer = next;
+		if (!shouldStartVoiceLocalAudioReconcileRun(previous, next)) return;
+		void this.drainLocalAudioReconcile();
+	}
+
+	private async drainLocalAudioReconcile(): Promise<void> {
+		try {
+			for (;;) {
+				const reasons = selectVoiceLocalAudioReconcileRunReasons(this.localAudioReconcileCoalescer);
+				try {
+					await this.reconcileLocalAudioState(reasons.join(' + '));
+				} catch (error) {
+					logger.warn('Local audio reconciliation failed', {reasons, error});
+				}
+				const previous = this.localAudioReconcileCoalescer;
+				const next = transitionVoiceLocalAudioReconcileCoalescerSnapshot(previous, {type: 'run.settled'});
+				this.localAudioReconcileCoalescer = next;
+				if (!shouldStartVoiceLocalAudioReconcileRun(previous, next)) return;
+				if (
+					shouldWarnAboutVoiceLocalAudioReconcileFollowUpRuns(next) &&
+					!shouldWarnAboutVoiceLocalAudioReconcileFollowUpRuns(previous)
+				) {
+					logger.warn('Local audio reconciliation keeps re-queueing itself', {
+						reasons: selectVoiceLocalAudioReconcileRunReasons(next),
+						coalescedCount: selectVoiceLocalAudioReconcileCoalescedCount(previous),
+					});
+				}
+			}
+		} catch (error) {
+			logger.error('Local audio reconciliation loop aborted; resetting the coalescer', {error});
+			this.localAudioReconcileCoalescer = createVoiceLocalAudioReconcileCoalescerSnapshot();
+		}
+	}
+
+	private async restoreLocalMedia(args: {
+		reason: string;
+		room: Room | null;
+		restoreCamera: boolean;
+		restoreStream: boolean;
+		screenShareSnapshot: ScreenShareReconnectSnapshot | null;
+		toastWhenStreamNotRestored: boolean;
+		sendUpdateWhenStreamNotRestored: boolean;
+	}): Promise<void> {
+		assert.equal(typeof args.restoreCamera, 'boolean', 'restoreLocalMedia requires a camera flag');
+		assert.equal(typeof args.restoreStream, 'boolean', 'restoreLocalMedia requires a stream flag');
+		if (args.restoreCamera) {
+			try {
+				await this.setCameraEnabled(true, {
+					deviceId: VoiceSettings.getVideoDeviceId(),
+					sendUpdate: false,
+				});
+			} catch (error) {
+				logger.warn('Failed to restore camera during local media restore', {reason: args.reason, error});
+			}
+		}
+		if (!shouldRestoreScreenShareAfterReconnect(args.restoreStream, args.screenShareSnapshot)) return;
+		let restored = false;
+		let streamRestoreFailed = false;
+		try {
+			restored = await voiceEngineV2AppScreenShareExecutionAdapter.restoreScreenShareAfterReconnect(
+				args.room,
+				args.screenShareSnapshot,
+			);
+		} catch (error) {
+			streamRestoreFailed = true;
+			logger.warn('Failed to restore screen share during local media restore', {reason: args.reason, error});
+		}
+		if (restored) return;
+		if (streamRestoreFailed || args.screenShareSnapshot !== null) {
+			voiceEngineV2AppMediaStateAdapter.applyScreenShareState(false, {
+				sendUpdate: args.sendUpdateWhenStreamNotRestored,
+			});
+		}
+		if (args.toastWhenStreamNotRestored && this.i18n) {
+			ToastCommands.createToast({
+				type: 'info',
+				children: this.i18n._(RECONNECT_SUCCEEDED_PICK_A_SCREEN_AGAIN_IF_YOU_DESCRIPTOR),
+				timeout: 5000,
+			});
+		}
+	}
+
+	private initializeLocalAudioStateSync(): void {
+		let previousState = {
+			selfMute: LocalVoiceState.getSelfMute(),
+			selfDeaf: LocalVoiceState.getSelfDeaf(),
+		};
+		LocalVoiceState.subscribe(() => {
+			const currentState = {
+				selfMute: LocalVoiceState.getSelfMute(),
+				selfDeaf: LocalVoiceState.getSelfDeaf(),
+			};
+			if (currentState.selfMute === previousState.selfMute && currentState.selfDeaf === previousState.selfDeaf) {
+				return;
+			}
+			logger.debug('Local audio state changed, reconciling active voice session', {
+				previousState,
+				currentState,
+			});
+			const unmutedLocally = previousState.selfMute && !currentState.selfMute && !this.applyingGatewayVoiceStateEcho;
+			previousState = currentState;
+			if (unmutedLocally) {
+				voiceEngineV2AppMediaExecutionAdapter.noteUserMuteIntentChanged();
+			}
+			this.syncVoiceEngineV2AudioControlsFromAppState();
+			this.reconcileLocalAudioStateInBackground('local audio state change');
+		});
+	}
+
+	private initializeE2EEStatusSync(): void {
+		let previousRoom: Room | null = null;
+		let previousStatus: ChannelE2EEStatus | null = null;
+		const syncE2EEStatus = () => {
+			const room = voiceEngineV2AppConnectionHostAdapter.room;
+			const channelId = voiceEngineV2AppConnectionHostAdapter.channelId;
+			const status =
+				voiceEngineV2AppConnectionHostAdapter.connected && channelId
+					? computeChannelE2EEStatus(voiceEngineV2AppConnectionHostAdapter.guildId, channelId)
+					: null;
+			if (room === previousRoom && status === previousStatus) {
+				return;
+			}
+			previousRoom = room;
+			previousStatus = status;
+			if (!room || isVoiceMeshRoom(room)) return;
+			if (status === 'encrypted') {
+				void room.setE2EEEnabled(true).catch((error) => {
+					logger.warn('Failed to enable E2EE on room', error);
+				});
+			} else if (status === 'broken') {
+				void room.setE2EEEnabled(false).catch((error) => {
+					logger.warn('Failed to disable E2EE on room after capability mix detected', error);
+				});
+			}
+		};
+		voiceEngineV2AppConnectionHostAdapter.subscribe(syncE2EEStatus);
+		voiceEngineV2AppVoiceStateAdapter.subscribe(syncE2EEStatus);
+	}
+
+	private initializeP2pPeerFailedModalSync(): void {
+		reaction(
+			() => VoiceMeshPeers.failedConnectionIds,
+			(failedConnectionIds, previousConnectionIds) => {
+				if (failedConnectionIds.length === 0) {
+					ModalCommands.popWithKey(VOICE_P2P_PEER_FAILED_MODAL_KEY);
+					return;
+				}
+				if (failedConnectionIds.some((connectionId) => !previousConnectionIds.includes(connectionId))) {
+					this.showP2pPeerFailedModal(failedConnectionIds);
+				}
+			},
+			{equals: compareStructural},
+		);
+	}
+
+	private showP2pPeerFailedModal(failedConnectionIds: ReadonlyArray<string>): void {
+		const {guildId, channelId} = voiceEngineV2AppConnectionHostAdapter.connectionState;
+		if (!channelId) return;
+		const names = failedConnectionIds.flatMap((connectionId) => {
+			const userId = voiceEngineV2AppVoiceStateAdapter.getVoiceStateByConnectionId(connectionId)?.user_id;
+			const user = userId ? Users.getUser(userId) : undefined;
+			return user ? [NicknameUtils.getNickname(user, guildId, channelId)] : [];
+		});
+		const allowSwitch = guildId === null || Channels.getChannel(channelId)?.rtcP2p !== true;
+		ModalCommands.pushWithKey(
+			modal(() =>
+				React.createElement(VoiceP2pPeerFailedModal, {
+					names,
+					allowSwitch,
+					onLeave: () => void this.disconnectFromVoiceChannel('user'),
+					onSwitch: () => this.switchToStandardCall(),
+				}),
+			),
+			VOICE_P2P_PEER_FAILED_MODAL_KEY,
+		);
+	}
+
+	switchToStandardCall(): void {
+		const {guildId, channelId, connectionId} = voiceEngineV2AppConnectionHostAdapter.connectionState;
+		if (!channelId || !connectionId) return;
+		logger.info('Switching P2P call to a standard call', {guildId, channelId});
+		syncVoiceStateToServer(guildId, channelId, connectionId, undefined, false);
+	}
+
+	private initializeVoiceSessionRestoreSync(): void {
+		this.voiceSessionRestoreSync?.dispose();
+		this.voiceSessionRestoreSync = createVoiceSessionRestoreSync();
+	}
+
+	private initializeTerminalUnloadVoiceDisconnect(): void {
+		const handlePageHide = (event: PageTransitionEvent) => {
+			if (event.persisted) return;
+			this.disconnectVoiceForTerminalUnload('pagehide');
+		};
+		const handleBeforeUnload = () => this.disconnectVoiceForTerminalUnload('beforeunload');
+		const handleUnload = () => this.disconnectVoiceForTerminalUnload('unload');
+		window.addEventListener('pagehide', handlePageHide, {capture: true});
+		window.addEventListener('beforeunload', handleBeforeUnload, {capture: true});
+		window.addEventListener('unload', handleUnload, {capture: true});
+	}
+
+	private disconnectVoiceTransportForTerminalUnload(): void {
+		voiceEngineV2AppConnectionHostAdapter.disconnectTransportsForTerminalUnload();
+	}
+
+	private discardVoiceConnection(connectionId: string, options: {clearLocalState?: boolean} = {}): void {
+		voiceEngineV2AppVoiceStateAdapter.removeVoiceStateConnection(connectionId);
+		this.voiceEngineV2Participants.discardConnection(connectionId);
+		if (options.clearLocalState) {
+			LocalVoiceState.clearConnectionState(connectionId);
+		}
+	}
+
+	private handleCurrentLocalVoiceStateRemoval(guildId: string | null, voiceState: VoiceState): boolean {
+		const connectionId = voiceState.connection_id;
+		if (!connectionId) return false;
+		const removalInput = {
+			voiceStateConnectionId: connectionId,
+			voiceStateChannelId: voiceState.channel_id,
+			currentConnectionId: voiceEngineV2AppConnectionHostAdapter.connectionId,
+			currentChannelId: voiceEngineV2AppConnectionHostAdapter.channelId,
+			connected: voiceEngineV2AppConnectionHostAdapter.connected,
+			connecting: voiceEngineV2AppConnectionHostAdapter.connecting,
+		};
+		if (shouldImmediatelyDisconnectMediaEngineForServerVoiceStateRemoval(removalInput)) {
+			logger.info('Server removed current voice connection, tearing down local voice transport', {
+				guildId,
+				connectionId,
+			});
+			this.cancelPendingServerDisconnect();
+			this.applyEngineGatewayEcho(null);
+			void this.disconnectFromVoiceChannel('server');
+			return true;
+		}
+		if (!shouldCancelMediaEngineReconnectForServerVoiceStateRemoval(removalInput)) return false;
+		logger.info('Server confirmed current voice connection removal, cancelling auto reconnect', {
+			guildId,
+			connectionId,
+		});
+		this.cancelPendingServerDisconnect();
+		this.applyEngineGatewayEcho(null);
+		this.clearViewerStreamKeys();
+		VoiceSessionRestore.clearSnapshot();
+		this.discardVoiceConnection(connectionId, {clearLocalState: true});
+		voiceEngineV2AppConnectionHostAdapter.markDisconnected('server');
+		CallMediaPrefs.clearForCall(connectionId);
+		return true;
+	}
+
+	disconnectVoiceForTerminalUnload(reason: TerminalUnloadVoiceDisconnectReason): void {
+		if (this.terminalUnloadVoiceDisconnectSent) return;
+		const {guildId, channelId, connectionId, connected, connecting, room} =
+			voiceEngineV2AppConnectionHostAdapter.connectionState;
+		const hasVoiceTransport = voiceEngineV2AppConnectionHostAdapter.hasTerminalUnloadTransports();
+		if (!connected && !connecting && !channelId && !connectionId && !room && !hasVoiceTransport) return;
+		this.terminalUnloadVoiceDisconnectSent = true;
+		saveCurrentVoiceSessionRestoreSnapshot();
+		logger.info('Terminal page unload voice disconnect', {
+			reason,
+			guildId,
+			channelId,
+			connectionId,
+			connected,
+			connecting,
+			hasRoom: room != null,
+			hasVoiceTransport,
+		});
+		voiceEngineV2AppScreenShareExecutionAdapter.stopNativeScreenShareForTerminalUnload();
+		const hasSpecificConnection = connectionId != null;
+		GatewaySessions.foregroundConnection.sendTerminalVoiceDisconnect(
+			{
+				guild_id: hasSpecificConnection ? guildId : null,
+				channel_id: null,
+				self_mute: true,
+				self_deaf: true,
+				self_video: false,
+				self_stream: false,
+				viewer_stream_keys: [],
+				connection_id: connectionId ?? null,
+			},
+			`Terminal voice disconnect: ${reason}`,
+		);
+		this.disconnectVoiceTransportForTerminalUnload();
+	}
+
+	private resolveVoiceConnectChannel(guildId: string | null, channelId: string): Channel | null {
+		const channel = Channels.getChannel(channelId) ?? null;
+		if (!channel) return null;
+		if (channel.type === ChannelTypes.GUILD_VOICE) {
+			if (guildId && channel.guildId !== guildId) return null;
+			return channel;
+		}
+		if (guildId) return null;
+		if (channel.type === ChannelTypes.DM || channel.type === ChannelTypes.GROUP_DM) {
+			return channel;
+		}
+		return null;
+	}
+
+	private showVoiceErrorModal(message: MessageDescriptor, dataFlx: string, values?: Record<string, unknown>): void {
+		const i18n = this.i18n;
+		if (!i18n) return;
+		showGenericErrorModal({
+			title: () => i18n._(SOMETHING_WENT_WRONG_DESCRIPTOR),
+			message: () => i18n._(message, values),
+			dataFlx,
+		});
+	}
+
+	private showVoiceChannelUnavailableErrorModal(): void {
+		if (!this.i18n) return;
+		this.showVoiceErrorModal(
+			VOICE_CHANNEL_NO_LONGER_AVAILABLE_DESCRIPTOR,
+			'voice.media-engine-facade.channel-unavailable-error-modal',
+		);
+	}
+
+	private clearUnavailableVoiceTarget(
+		channelId: string,
+		reason: 'preflight' | 'gateway-error' | 'channel-delete',
+		options: {showToast?: boolean} = {},
+	): void {
+		logger.info('Clearing unavailable voice target', {channelId, reason});
+		this.transitionFacadeState({type: 'unavailableTarget.clear', channelId});
+		VoiceSessionRestore.clearSnapshotForChannel(channelId);
+		voiceEngineV2AppConnectionHostAdapter.forgetReconnectChannel(channelId);
+		if (options.showToast) {
+			this.showVoiceChannelUnavailableErrorModal();
+		}
+	}
+
+	handleChannelDelete(channelId: string): void {
+		this.clearUnavailableVoiceTarget(channelId, 'channel-delete');
+		if (voiceEngineV2AppConnectionHostAdapter.channelId === channelId) {
+			void this.disconnectFromVoiceChannel('server');
+		}
+	}
+
+	async retryFailedVoiceConnection(): Promise<void> {
+		const target = voiceEngineV2AppConnectionHostAdapter.connectFailedTarget;
+		if (!target) {
+			logger.warn('Retry requested with no failed voice connection target');
+			return;
+		}
+		this.lastVoiceConnectFailed = false;
+		voiceEngineV2AppConnectionHostAdapter.resetConnectionState();
+		await this.connectToVoiceChannel(target.guildId, target.channelId, {skipChannelGate: true});
+	}
+
+	dismissFailedVoiceConnection(): void {
+		if (!voiceEngineV2AppConnectionHostAdapter.connectFailed) return;
+		this.lastVoiceConnectFailed = false;
+		voiceEngineV2AppConnectionHostAdapter.resetConnectionState();
+	}
+
+	async connectToVoiceChannel(
+		guildId: string | null,
+		channelId: string,
+		options: ConnectToVoiceChannelOptions = {},
+	): Promise<void> {
+		this.terminalUnloadVoiceDisconnectSent = false;
+		VoiceCallLayout.reset();
+		const voiceChannel = this.resolveVoiceConnectChannel(guildId, channelId);
+		const resolvedGuildId = voiceChannel ? (guildId ?? voiceChannel.guildId ?? null) : guildId;
+		const currentUserId = Authentication.currentUserId;
+		const isTimedOut =
+			voiceChannel && resolvedGuildId && currentUserId
+				? (GuildMembers.getMember(resolvedGuildId, currentUserId)?.isTimedOut() ?? false)
+				: false;
+		const currentUser = Users.getCurrentUser();
+		const isUnclaimed = !(currentUser?.isClaimed() ?? false);
+		const guild = resolvedGuildId ? Guilds.getGuild(resolvedGuildId) : null;
+		const isOwner = guild?.isOwner(currentUserId) ?? false;
+		const channel = voiceChannel ?? Channels.getChannel(channelId);
+		const blockedByMatureGate =
+			Boolean(voiceChannel) &&
+			!options.skipChannelGate &&
+			GuildMatureContentAgree.shouldShowGate({
+				channelId,
+				guildId: resolvedGuildId,
+			});
+		const preflightDecision = selectMediaEngineConnectPreflightDecision({
+			targetAvailable: Boolean(voiceChannel),
+			isTimedOut: Boolean(isTimedOut),
+			isUnclaimed,
+			isGuildOwner: resolvedGuildId ? isOwner : true,
+			isDirectMessage: channel?.type === ChannelTypes.DM,
+			hasGatewaySocket: Boolean(GatewaySessions.foregroundConnection.socket),
+			blockedByMatureGate,
+			channelLimitAllowed: true,
+		});
+		if (preflightDecision.type === 'cleanup-unavailable-target') {
+			this.clearUnavailableVoiceTarget(channelId, 'preflight', {showToast: preflightDecision.showToast});
+			return;
+		}
+		if (preflightDecision.type === 'toast') {
+			if (!this.i18n) {
+				throw new Error('MediaEngineFacade: i18n not initialized');
+			}
+			const descriptor =
+				preflightDecision.reason === 'timed-out'
+					? YOU_CAN_T_JOIN_WHILE_YOU_RE_ON_DESCRIPTOR
+					: preflightDecision.reason === 'claim-account-direct'
+						? CLAIM_YOUR_ACCOUNT_TO_START_OR_JOIN_1_DESCRIPTOR
+						: CLAIM_YOUR_ACCOUNT_TO_JOIN_VOICE_CHANNELS_YOU_DESCRIPTOR;
+			this.showVoiceErrorModal(
+				descriptor,
+				`voice.media-engine-facade.preflight-${preflightDecision.reason}-error-modal`,
+			);
+			return;
+		}
+		if (preflightDecision.type === 'abort') {
+			if (preflightDecision.reason === 'missing-gateway-socket') {
+				logger.warn('No socket');
+			}
+			return;
+		}
+		if (preflightDecision.type === 'navigate-channel-gate') {
+			NavigationCommands.selectChannel(resolvedGuildId ?? undefined, channelId);
+			return;
+		}
+		const channelLimitAllowed = checkChannelLimit(resolvedGuildId, channelId);
+		const channelLimitDecision = selectMediaEngineConnectPreflightDecision({
+			targetAvailable: true,
+			isTimedOut: false,
+			isUnclaimed: false,
+			isGuildOwner: true,
+			isDirectMessage: false,
+			hasGatewaySocket: true,
+			blockedByMatureGate: false,
+			channelLimitAllowed,
+		});
+		if (channelLimitDecision.type === 'abort') {
+			return;
+		}
+		const hasP2pConsent = checkP2pConsent(
+			resolvedGuildId,
+			channelId,
+			() => void this.connectToVoiceChannel(guildId, channelId, options),
+			() => voiceEngineV2AppConnectionHostAdapter.clearInFlightConnect(),
+		);
+		if (!hasP2pConsent) return;
+		const shouldProceed = checkMultipleConnections(
+			resolvedGuildId,
+			channelId,
+			async () =>
+				this.connectDirectly(resolvedGuildId, channelId, {
+					deferNavigationUntilConnected: options.deferNavigationUntilConnected,
+					initialViewerStreamKeys: options.initialViewerStreamKeys,
+				}),
+			() =>
+				this.connectDirectly(resolvedGuildId, channelId, {
+					deferNavigationUntilConnected: options.deferNavigationUntilConnected,
+					initialViewerStreamKeys: options.initialViewerStreamKeys,
+				}),
+			() => voiceEngineV2AppConnectionHostAdapter.clearInFlightConnect(),
+		);
+		if (!shouldProceed) return;
+		await this.connectDirectly(resolvedGuildId, channelId, {
+			deferNavigationUntilConnected: options.deferNavigationUntilConnected,
+			initialViewerStreamKeys: options.initialViewerStreamKeys,
+		});
+	}
+
+	private async connectDirectly(
+		guildId: string | null,
+		channelId: string,
+		options: ConnectDirectlyOptions = {},
+	): Promise<void> {
+		VoiceCallLayout.reset();
+		if (this.disconnectPromise) {
+			logger.debug('Waiting for voice teardown before starting a new connection', {guildId, channelId});
+			await this.disconnectPromise;
+		}
+		const initialDecision = selectMediaEngineConnectRequestDecision(this.facadeSnapshot, {
+			guildId,
+			channelId,
+			connected: voiceEngineV2AppConnectionHostAdapter.connected,
+			connecting: voiceEngineV2AppConnectionHostAdapter.connecting,
+			currentGuildId: voiceEngineV2AppConnectionHostAdapter.guildId,
+			currentChannelId: voiceEngineV2AppConnectionHostAdapter.channelId,
+		});
+		if (initialDecision.type === 'noop') return;
+		if (
+			shouldPrepareMicrophoneForVoiceConnect({
+				guildId,
+				channelId,
+				selfMute: LocalVoiceState.getSelfMute(),
+				selfDeaf: LocalVoiceState.getSelfDeaf(),
+				hasUserSetMute: LocalVoiceState.getHasUserSetMute(),
+				mutedByPermission: LocalVoiceState.getMutedByPermission(),
+			})
+		) {
+			void voiceEngineV2AppMediaExecutionAdapter.prepareMicrophonePermissionForConnect().catch((error) => {
+				logger.warn('Microphone permission warm-up before voice connect failed; joining listen-only', {error});
+			});
+		}
+		const connectDecision = selectMediaEngineConnectRequestDecision(this.facadeSnapshot, {
+			guildId,
+			channelId,
+			connected: voiceEngineV2AppConnectionHostAdapter.connected,
+			connecting: voiceEngineV2AppConnectionHostAdapter.connecting,
+			currentGuildId: voiceEngineV2AppConnectionHostAdapter.guildId,
+			currentChannelId: voiceEngineV2AppConnectionHostAdapter.channelId,
+		});
+		if (connectDecision.type === 'noop') return;
+		if (connectDecision.type === 'move-user') {
+			this.transitionFacadeState({
+				type: 'userMove.requested',
+				guildId: connectDecision.guildId,
+				channelId: connectDecision.channelId,
+			});
+			await this.disconnectForChannelMove('user');
+		}
+		if (!voiceEngineV2AppConnectionHostAdapter.startConnection(guildId, channelId)) return;
+		const initialViewerStreamKeys = replaceWatchedStreamKeys(options.initialViewerStreamKeys ?? [], {
+			sync: false,
+		}).keys;
+		if (!options.deferNavigationUntilConnected) {
+			this.navigateToVoiceChannel(guildId, channelId);
+		}
+		sendVoiceStateConnect(guildId, channelId, initialViewerStreamKeys);
+	}
+
+	async restoreVoiceSession(
+		snapshot: VoiceSessionRestoreSnapshot,
+		options?: {
+			restoreVideo?: boolean;
+			restoreStream?: boolean;
+		},
+	): Promise<void> {
+		this.prepareVoiceSessionRestore(snapshot, options);
+		await this.connectToVoiceChannel(snapshot.guildId, snapshot.channelId, {deferNavigationUntilConnected: true});
+		if (
+			!voiceEngineV2AppConnectionHostAdapter.connecting &&
+			!(
+				voiceEngineV2AppConnectionHostAdapter.connected &&
+				voiceEngineV2AppConnectionHostAdapter.guildId === snapshot.guildId &&
+				voiceEngineV2AppConnectionHostAdapter.channelId === snapshot.channelId
+			)
+		) {
+			this.clearPreparedVoiceSessionRestore(snapshot);
+		}
+	}
+
+	prepareVoiceSessionRestore(
+		snapshot: VoiceSessionRestoreSnapshot,
+		options?: {
+			restoreVideo?: boolean;
+			restoreStream?: boolean;
+		},
+	): void {
+		this.transitionFacadeState({
+			type: 'sessionRestore.prepare',
+			guildId: snapshot.guildId,
+			channelId: snapshot.channelId,
+			restoreVideo: Boolean(options?.restoreVideo && snapshot.selfVideo),
+			restoreStream: Boolean(options?.restoreStream && snapshot.selfStream),
+		});
+	}
+
+	clearPreparedVoiceSessionRestore(snapshot?: Pick<VoiceSessionRestoreSnapshot, 'guildId' | 'channelId'>): void {
+		if (!snapshot) {
+			this.transitionFacadeState({type: 'sessionRestore.clear'});
+			return;
+		}
+		this.transitionFacadeState({
+			type: 'sessionRestore.clearTarget',
+			guildId: snapshot.guildId,
+			channelId: snapshot.channelId,
+		});
+	}
+
+	private resetLocalMediaAndScreenShareTracking(): void {
+		voiceEngineV2AppScreenShareExecutionAdapter.resetStreamTracking();
+		voiceEngineV2AppMediaExecutionAdapter.resetStreamTracking();
+	}
+
+	private async stopActiveScreenShareForTeardown(context: 'disconnect' | 'channel_move'): Promise<void> {
+		if (!LocalVoiceState.getSelfStream()) return;
+		try {
+			await voiceEngineV2AppScreenShareExecutionAdapter.setScreenShareEnabled(this.room, false, {
+				sendUpdate: false,
+				playSound: false,
+			});
+		} catch (error) {
+			logger.warn('Failed to stop screen share during teardown', {context, error});
+		}
+	}
+
+	async disconnectFromVoiceChannel(reason: 'user' | 'error' | 'server' = 'user'): Promise<void> {
+		if (this.disconnectPromise) {
+			logger.debug('Voice teardown already in progress', {reason});
+			return this.disconnectPromise;
+		}
+		const disconnectPromise = this.runDisconnectFromVoiceChannel(reason);
+		this.disconnectPromise = disconnectPromise;
+		try {
+			await disconnectPromise;
+		} finally {
+			if (this.disconnectPromise === disconnectPromise) {
+				this.disconnectPromise = null;
+			}
+		}
+	}
+
+	private async runDisconnectFromVoiceChannel(reason: 'user' | 'error' | 'server'): Promise<void> {
+		const {guildId, connectionId, connected, connecting, channelId} =
+			voiceEngineV2AppConnectionHostAdapter.connectionState;
+		if (!connected && !connecting && !channelId) {
+			return;
+		}
+		logger.debug('Voice teardown starting', {guildId, channelId, reason});
+		this.cancelPendingServerDisconnect();
+		this.transitionFacadeState({type: 'disconnect.cleanupStarted', reason});
+		await this.stopActiveScreenShareForTeardown('disconnect');
+		this.clearViewerStreamKeys();
+		this.stopTracking();
+		this.statsHostAdapter.reset();
+		if (reason === 'user' || reason === 'server') {
+			VoiceSessionRestore.clearSnapshot();
+			VoiceP2pConsent.clear();
+		}
+		if (reason !== 'server' && connectionId) {
+			sendVoiceStateDisconnect(guildId, connectionId);
+		}
+		SoundCommands.playSound(SoundType.VoiceDisconnect);
+		VoiceCallLayout.reset();
+		voiceEngineV2AppMediaStateAdapter.resetLocalMediaState('disconnect');
+		voiceEngineV2AppMediaExecutionAdapter.resetMicrophoneFailureLatch();
+		this.resetLocalMediaAndScreenShareTracking();
+		this.voiceEngineV2Participants.clear();
+		if (connectionId) {
+			this.discardVoiceConnection(connectionId, {clearLocalState: true});
+		} else {
+			LocalVoiceState.clearConnectionState(connectionId);
+		}
+		voiceEngineV2AppConnectionHostAdapter.disconnectFromVoiceChannel(reason);
+		if (reason === 'user' || reason === 'server') {
+			VoiceSessionRestore.clearSnapshot();
+		}
+		if (connectionId) CallMediaPrefs.clearForCall(connectionId);
+		logger.info('Voice teardown complete', {channelId, reason});
+		this.transitionFacadeState({type: 'cleanup.complete'});
+	}
+
+	private async disconnectForChannelMove(reason: 'user' | 'server'): Promise<void> {
+		const {guildId, connectionId, connected, connecting, channelId} =
+			voiceEngineV2AppConnectionHostAdapter.connectionState;
+		if (!connected && !connecting && !channelId) return;
+		logger.debug('Voice teardown for channel move', {guildId, channelId});
+		this.cancelPendingServerDisconnect();
+		this.transitionFacadeState({type: 'channelMove.cleanupStarted', reason});
+		await this.stopActiveScreenShareForTeardown('channel_move');
+		this.clearViewerStreamKeys();
+		this.stopTracking();
+		this.statsHostAdapter.reset();
+		if (reason === 'user' && connectionId) {
+			sendVoiceStateDisconnect(guildId, connectionId);
+		}
+		VoiceCallLayout.reset();
+		voiceEngineV2AppMediaStateAdapter.resetLocalMediaState('disconnect');
+		voiceEngineV2AppMediaExecutionAdapter.resetMicrophoneFailureLatch();
+		this.resetLocalMediaAndScreenShareTracking();
+		this.voiceEngineV2Participants.clear();
+		if (reason === 'user' && connectionId) {
+			this.discardVoiceConnection(connectionId, {clearLocalState: true});
+		} else {
+			LocalVoiceState.clearConnectionState(connectionId);
+		}
+		voiceEngineV2AppConnectionHostAdapter.disconnectForChannelMove();
+		if (connectionId) CallMediaPrefs.clearForCall(connectionId);
+		SoundCommands.playSound(SoundType.UserMove);
+		this.transitionFacadeState({type: 'cleanup.complete'});
+	}
+
+	private scheduleDeferredServerDisconnect(connectionId: string): void {
+		this.cancelPendingServerDisconnect();
+		this.transitionFacadeState({type: 'serverDisconnect.schedule', connectionId});
+		this.pendingServerDisconnectTimeout = setTimeout(() => {
+			const currentVoiceState = voiceEngineV2AppVoiceStateAdapter.getVoiceStateByConnectionId(connectionId);
+			const currentVoiceStateChannelId = currentVoiceState?.channel_id ?? null;
+			if (
+				shouldRunMediaEngineDeferredDisconnect(this.facadeSnapshot, {
+					connectionId,
+					currentConnectionId: voiceEngineV2AppConnectionHostAdapter.connectionId,
+					connected: voiceEngineV2AppConnectionHostAdapter.connected,
+					currentVoiceStateChannelId,
+				})
+			) {
+				logger.info('Deferred disconnect executing - no VOICE_SERVER_UPDATE received', {connectionId});
+				void this.disconnectFromVoiceChannel('server');
+			} else if (currentVoiceStateChannelId) {
+				logger.debug('Deferred disconnect ignored because voice state is active again', {
+					connectionId,
+					channelId: currentVoiceStateChannelId,
+				});
+			}
+			this.pendingServerDisconnectTimeout = null;
+			this.transitionFacadeState({type: 'serverDisconnect.timeoutElapsed', connectionId});
+		}, DEFERRED_DISCONNECT_TIMEOUT_MS);
+		logger.debug('Scheduled deferred disconnect', {connectionId, timeoutMs: DEFERRED_DISCONNECT_TIMEOUT_MS});
+	}
+
+	private isPushToTalkActive(): boolean {
+		if (getActiveVoiceProcessingMode(VoiceSettings) === 'studio') return false;
+		return Keybind.isPushToTalkEffective();
+	}
+
+	private isPushToMuteActive(): boolean {
+		if (getActiveVoiceProcessingMode(VoiceSettings) === 'studio') return false;
+		return Keybind.isPushToMuteEffective();
+	}
+
+	private getVoiceEngineV2AudioMode(): VoiceEngineV2AudioMode {
+		if (this.isPushToTalkActive()) return 'pushToTalk';
+		if (this.isPushToMuteActive()) return 'pushToMute';
+		return 'voiceActivity';
+	}
+
+	private syncVoiceEngineV2AudioControlsFromAppState(): void {
+		this.voiceEngineV2Controller.setAudioControls({
+			mode: this.getVoiceEngineV2AudioMode(),
+			locallyMuted: selectVoiceLocalAudioEffectiveSelfMute({
+				localSelfMute: LocalVoiceState.getSelfMute(),
+				microphoneFailureLatched: voiceEngineV2AppMediaExecutionAdapter.isMicrophoneFailureLatched(),
+			}),
+			preferredLocallyMuted: LocalVoiceState.getSelfMute(),
+			locallyDeafened: LocalVoiceState.getSelfDeaf(),
+			mutedByPermission: LocalVoiceState.getMutedByPermission(),
+			hasUserSetMute: LocalVoiceState.getHasUserSetMute(),
+			hasUserSetDeaf: LocalVoiceState.getHasUserSetDeaf(),
+			shouldUnmuteOnUndeafen: LocalVoiceState.shouldUnmuteOnUndeafen,
+			pushToTalkActive: this.isPushToTalkActive() && Keybind.pushToTalkHeld,
+			pushToMuteActive: this.isPushToMuteActive() && Keybind.pushToMuteHeld,
+			inputVolume: VoiceSettings.inputVolume,
+			outputVolume: VoiceSettings.outputVolume,
+		});
+	}
+
+	private getEffectiveSelfMuteForVoiceStatePayload(): boolean {
+		this.syncVoiceEngineV2AudioControlsFromAppState();
+		return selectVoiceEngineV2AppIntentSelfMuteForVoiceStatePayload(this.voiceEngineV2Snapshot);
+	}
+
+	private cancelPendingServerDisconnect(): void {
+		if (this.pendingServerDisconnectTimeout) {
+			clearTimeout(this.pendingServerDisconnectTimeout);
+			this.pendingServerDisconnectTimeout = null;
+			logger.debug('Cancelled pending server disconnect', {
+				connectionId: this.pendingServerDisconnectConnectionId,
+			});
+		}
+		this.transitionFacadeState({type: 'serverDisconnect.cancel'});
+	}
+
+	private seedLocalVoiceStateFromServerUpdate(raw: VoiceServerUpdateData): void {
+		const previousConnectionId = voiceEngineV2AppConnectionHostAdapter.connectionId;
+		const currentVoiceState = raw.connection_id
+			? voiceEngineV2AppVoiceStateAdapter.getVoiceStateByConnectionId(raw.connection_id)
+			: null;
+		const resolvedGuildId = raw.guild_id ?? voiceEngineV2AppConnectionHostAdapter.guildId ?? null;
+		const resolvedChannelId = raw.channel_id ?? voiceEngineV2AppConnectionHostAdapter.channelId ?? null;
+		if (!raw.connection_id) return;
+		const viewerStreamKeys = currentVoiceState?.viewer_stream_keys ?? LocalVoiceState.getViewerStreamKeys();
+		const seededViewerStreamKeys = this.replaceViewerStreamConnectionId(
+			viewerStreamKeys,
+			resolvedGuildId,
+			resolvedChannelId,
+			previousConnectionId,
+			raw.connection_id,
+		);
+		LocalVoiceState.seedConnectionState(raw.connection_id, {
+			selfMute: currentVoiceState?.self_mute ?? LocalVoiceState.getSelfMute(),
+			selfDeaf: currentVoiceState?.self_deaf ?? LocalVoiceState.getSelfDeaf(),
+			selfVideo: currentVoiceState?.self_video ?? LocalVoiceState.getSelfVideo(),
+			selfStream: currentVoiceState?.self_stream ?? LocalVoiceState.getSelfStream(),
+			viewerStreamKeys: seededViewerStreamKeys,
+		});
+		replaceWatchedStreamKeys(seededViewerStreamKeys, {sync: false});
+		const currentUserId = Users.getCurrentUser()?.id;
+		if (currentUserId) {
+			this.migratePinnedScreenShareIdentity(currentUserId, previousConnectionId, raw.connection_id);
+		}
+	}
+
+	handleVoiceServerUpdate(raw: VoiceServerUpdateData): void {
+		if (raw.connection_id && raw.connection_id === this.pendingServerDisconnectConnectionId) {
+			this.cancelPendingServerDisconnect();
+		}
+		if (!raw.ice_servers) VoiceP2pConsent.clear();
+		this.handleVoiceServerUpdateViaJs(raw);
+	}
+
+	private handleVoiceServerUpdateViaJs(raw: VoiceServerUpdateData): void {
+		const expectedChannelId = voiceEngineV2AppConnectionHostAdapter.channelId;
+		const currentVoiceState = raw.connection_id
+			? voiceEngineV2AppVoiceStateAdapter.getVoiceStateByConnectionId(raw.connection_id)
+			: null;
+		if (
+			voiceEngineV2AppConnectionHostAdapter.connected &&
+			raw.channel_id &&
+			currentVoiceState?.channel_id &&
+			currentVoiceState.channel_id !== raw.channel_id
+		) {
+			logger.warn('Ignoring VOICE_SERVER_UPDATE that conflicts with known voice state', {
+				expectedChannelId,
+				incomingChannelId: raw.channel_id,
+				connectionId: raw.connection_id,
+				voiceStateChannelId: currentVoiceState.channel_id,
+			});
+			return;
+		}
+		if (
+			raw.channel_id &&
+			expectedChannelId &&
+			raw.channel_id !== expectedChannelId &&
+			this.pendingUserMove?.channelId === expectedChannelId &&
+			voiceEngineV2AppConnectionHostAdapter.connecting
+		) {
+			logger.warn('Ignoring VOICE_SERVER_UPDATE during user-initiated move', {
+				expectedChannelId,
+				incomingChannelId: raw.channel_id,
+				connectionId: raw.connection_id,
+			});
+			return;
+		}
+		const resolvedGuildId = raw.guild_id ?? voiceEngineV2AppConnectionHostAdapter.guildId ?? null;
+		const resolvedChannelId = raw.channel_id ?? voiceEngineV2AppConnectionHostAdapter.channelId ?? null;
+		this.seedLocalVoiceStateFromServerUpdate(raw);
+		const shouldPreserveLocalMedia =
+			Boolean(this.facadeSnapshot.context.activeConnection) &&
+			this.facadeSnapshot.context.activeConnection?.guildId === resolvedGuildId &&
+			this.facadeSnapshot.context.activeConnection?.channelId === resolvedChannelId;
+		const shouldApplyPendingSessionRestore =
+			Boolean(this.pendingSessionRestore) &&
+			this.pendingSessionRestore?.guildId === resolvedGuildId &&
+			this.pendingSessionRestore?.channelId === resolvedChannelId;
+		const currentRoom = voiceEngineV2AppConnectionHostAdapter.room;
+		const isConversion = !raw.ice_servers && currentRoom !== null && isVoiceMeshRoom(currentRoom);
+		voiceEngineV2AppConnectionHostAdapter.handleVoiceServerUpdate(
+			raw,
+			(room, attemptId, guildId, channelId) => {
+				const roomEventDependencies = buildRoomEventDependencies({
+					resetStreamTracking: () => this.resetLocalMediaAndScreenShareTracking(),
+					participants: this.voiceEngineV2Participants,
+					sourceLifecycleBridge: this.voiceEngineV2SourceLifecycleBridge,
+					isUserMovePending: () => this.pendingUserMove !== null,
+				});
+				bindRoomEvents(
+					room,
+					attemptId,
+					guildId,
+					channelId,
+					{
+						onConnected: async () => {
+							this.transitionFacadeState({type: 'connection.connected', guildId, channelId});
+							this.navigateToVoiceChannel(guildId, channelId);
+							this.startTracking(room);
+							if (shouldPreserveLocalMedia) {
+								await this.restoreLocalMediaState(room);
+							}
+							if (isConversion) await this.reapplyVideoQualityLimits(room);
+							if (shouldApplyPendingSessionRestore) {
+								await this.restorePendingSessionMedia();
+							}
+							voiceEngineV2AppMediaExecutionAdapter.resetMicrophoneFailureLatch();
+							await this.reconcileLocalAudioState('voice room connected');
+						},
+						onDisconnected: () => {
+							this.stopTracking();
+							this.statsHostAdapter.reset();
+						},
+						onReconnecting: () => {
+							this.statsHostAdapter.stopLatencyTracking();
+							this.statsHostAdapter.stopStatsTracking();
+						},
+						onReconnected: () => {
+							this.statsHostAdapter.incrementReconnectionCount();
+							this.statsHostAdapter.startLatencyTracking();
+							this.statsHostAdapter.startStatsTracking();
+							voiceEngineV2AppMediaExecutionAdapter.resetMicrophoneFailureLatch();
+							this.reconcileLocalAudioStateInBackground('voice room reconnected');
+						},
+					},
+					roomEventDependencies,
+				);
+			},
+			(isChannelMove, previousRoom) => {
+				this.cancelPendingServerDisconnect();
+				this.stopTracking();
+				if (isChannelMove) {
+					this.statsHostAdapter.reset();
+				}
+				this.voiceEngineV2Participants.clear();
+				let shouldKeepPreviousRoomTracks = false;
+				if (!isChannelMove && shouldPreserveLocalMedia && LocalVoiceState.getSelfStream()) {
+					const pendingScreenShareReconnect =
+						voiceEngineV2AppScreenShareExecutionAdapter.prepareScreenShareReconnect(previousRoom);
+					if (pendingScreenShareReconnect) {
+						this.transitionFacadeState({
+							type: 'screenShareReconnect.prepare',
+							snapshot: pendingScreenShareReconnect,
+						});
+						this.syncLocalVoiceStateWithServer({self_stream: true});
+						shouldKeepPreviousRoomTracks = true;
+					} else {
+						this.transitionFacadeState({type: 'screenShareReconnect.clear'});
+					}
+				} else {
+					this.transitionFacadeState({type: 'screenShareReconnect.clear'});
+				}
+				if (!shouldPreserveLocalMedia && this.facadeSnapshot.context.activeConnection) {
+					voiceEngineV2AppMediaStateAdapter.resetLocalMediaState('disconnect');
+					this.resetLocalMediaAndScreenShareTracking();
+				}
+				return shouldKeepPreviousRoomTracks;
+			},
+			(_room, _attemptId) => {},
+			(newRoom, attemptId, guildId, channelId) => {
+				logger.info('Region hot-swap complete, rebinding tracking', {guildId, channelId, attemptId});
+				this.stopTracking();
+				this.startTracking(newRoom);
+				this.voiceEngineV2Participants.hydrateFromRoom(newRoom);
+				VoiceEngineV2AppRemoteSpeakingAdapter.hydrateFromRoom(newRoom);
+				VoiceEngineV2AppSubscriptionAdapter.reconcileSubscriptions();
+				VoiceEngineV2AppPermissionAdapter.applyDeafen(newRoom, getEffectiveAudioState().effectiveDeaf);
+				voiceEngineV2AppMediaExecutionAdapter.applyAllLocalAudioPreferences(newRoom);
+				if (guildId && channelId) {
+					VoiceEngineV2AppPermissionAdapter.syncWithPermissionState(guildId, channelId, newRoom);
+				}
+				voiceEngineV2AppMediaExecutionAdapter.resetMicrophoneFailureLatch();
+				this.reconcileLocalAudioStateInBackground('region hot-swap complete');
+				if (isConversion) void this.finishMeshConversion(currentRoom, newRoom);
+			},
+			(_guildId, _channelId, _connectionId, _attemptId, error) => {
+				logger.warn('LiveKit connect failed, clearing gateway voice state', {error});
+				void this.disconnectFromVoiceChannel('error');
+			},
+		);
+	}
+
+	handleGatewayReady(guilds: Array<GuildReadyData>): void {
+		voiceEngineV2AppVoiceStateAdapter.handleGatewayReady(guilds);
+	}
+
+	handleGuildCreate(guild: GuildReadyData): void {
+		voiceEngineV2AppVoiceStateAdapter.handleGuildCreate(guild);
+	}
+
+	handleGuildDelete(guildId: string): void {
+		voiceEngineV2AppVoiceStateAdapter.handleGuildDelete(guildId);
+		if (voiceEngineV2AppConnectionHostAdapter.connected && voiceEngineV2AppConnectionHostAdapter.guildId === guildId) {
+			void this.disconnectFromVoiceChannel('server');
+		}
+	}
+
+	handlePassiveVoiceStates(guildId: string, voiceStates: Array<VoiceState>): void {
+		for (const voiceState of voiceStates) {
+			const stateWithGuild = {
+				...voiceState,
+				guild_id: voiceState.guild_id ?? guildId,
+			};
+			voiceEngineV2AppVoiceStateAdapter.handleGatewayVoiceStateUpdate(guildId, stateWithGuild);
+		}
+	}
+
+	handleGatewayVoiceStateUpdate(guildId: string | null, voiceState: VoiceState): void {
+		const user = Users.getCurrentUser();
+		const isLocalConnection =
+			user &&
+			voiceState.user_id === user.id &&
+			voiceState.connection_id === voiceEngineV2AppConnectionHostAdapter.connectionId;
+		if (voiceEngineV2AppVoiceStateAdapter.isConnectionIgnored(voiceState.connection_id)) {
+			voiceEngineV2AppVoiceStateAdapter.handleGatewayVoiceStateUpdate(guildId, voiceState);
+			if (isLocalConnection) {
+				this.handleCurrentLocalVoiceStateRemoval(guildId, voiceState);
+			}
+			return;
+		}
+		const previousConnectionState = voiceState.connection_id
+			? voiceEngineV2AppVoiceStateAdapter.getVoiceStateByConnectionId(voiceState.connection_id)
+			: null;
+		const incomingViewerStreamKeys = normalizeVoiceMediaGraphViewerStreamKeys(voiceState.viewer_stream_keys);
+		const previousLocalMediaState = isLocalConnection
+			? {
+					selfVideo: LocalVoiceState.getSelfVideo(),
+					selfStream: LocalVoiceState.getSelfStream(),
+				}
+			: null;
+		const previousLocalAudioState =
+			isLocalConnection && previousConnectionState
+				? {
+						serverMute: isVoiceServerMuteActive(
+							previousConnectionState,
+							previousConnectionState.guild_id,
+							previousConnectionState.channel_id,
+						),
+						serverDeaf: previousConnectionState.deaf,
+						selfMute: previousConnectionState.self_mute,
+						selfDeaf: previousConnectionState.self_deaf,
+					}
+				: null;
+		const previousViewerStreamKeys: ReadonlyArray<string> = previousConnectionState?.viewer_stream_keys ?? [];
+		if (!isLocalConnection && voiceState.connection_id) {
+			this.migrateWatchedRemoteStreamConnection(guildId, voiceState);
+		}
+		const localServerPayload: VoiceStateSyncPayload | null =
+			isLocalConnection && voiceState.channel_id && voiceState.connection_id
+				? {
+						guild_id: guildId,
+						channel_id: voiceState.channel_id,
+						connection_id: voiceState.connection_id,
+						self_mute: voiceState.self_mute,
+						self_deaf: voiceState.self_deaf,
+						self_video: voiceState.self_video,
+						self_stream: voiceState.self_stream,
+						viewer_stream_keys: incomingViewerStreamKeys,
+					}
+				: null;
+		const shouldApplyIncomingLocalState =
+			localServerPayload === null
+				? true
+				: shouldApplyGatewayVoiceStateEcho(
+						this.voiceEngineV2Snapshot,
+						this.toEngineGatewayVoiceState(voiceState, guildId),
+					);
+		const projectedVoiceState =
+			isLocalConnection && !shouldApplyIncomingLocalState
+				? {
+						...voiceState,
+						self_mute: LocalVoiceState.getSelfMute(),
+						self_deaf: LocalVoiceState.getSelfDeaf(),
+						self_video: LocalVoiceState.getSelfVideo(),
+						self_stream: LocalVoiceState.getSelfStream(),
+						viewer_stream_keys: LocalVoiceState.getViewerStreamKeys(),
+					}
+				: voiceState;
+		voiceEngineV2AppVoiceStateAdapter.handleGatewayVoiceStateUpdate(guildId, projectedVoiceState);
+		if (!isLocalConnection && voiceEngineV2AppConnectionHostAdapter.connected && voiceState.channel_id) {
+			if (!areOrderedStringArraysEqual(previousViewerStreamKeys, incomingViewerStreamKeys)) {
+				this.playSpectatorSounds(previousViewerStreamKeys, incomingViewerStreamKeys);
+			}
+		}
+		if (!isLocalConnection && voiceState.connection_id) {
+			const previousGuildId = normalizeStreamGuildId(previousConnectionState?.guild_id);
+			const nextGuildId = normalizeStreamGuildId(guildId ?? voiceState.guild_id);
+			const previousChannelId = previousConnectionState?.channel_id ?? null;
+			const nextChannelId = voiceState.channel_id ?? null;
+			const leftPreviousStreamChannel =
+				previousChannelId != null && (previousChannelId !== nextChannelId || previousGuildId !== nextGuildId);
+			const streamEnded = voiceState.self_stream === false;
+			const streamChannelId = leftPreviousStreamChannel ? previousChannelId : nextChannelId;
+			const streamGuildId = leftPreviousStreamChannel ? previousGuildId : nextGuildId;
+			if (streamChannelId && (streamEnded || leftPreviousStreamChannel)) {
+				const streamKey = getStreamKey(streamGuildId, streamChannelId, voiceState.connection_id);
+				if (streamEnded) {
+					deferStopWatchingStreamKey(streamKey, {
+						guildId: streamGuildId,
+						channelId: streamChannelId,
+					});
+				} else {
+					stopWatchingStreamKey(streamKey, {
+						guildId: streamGuildId,
+						channelId: streamChannelId,
+					});
+				}
+			}
+		}
+		if (isLocalConnection) {
+			const currentConnectionId = voiceEngineV2AppConnectionHostAdapter.connectionId;
+			const isCurrentConnection = voiceState.connection_id === currentConnectionId;
+			let shouldApplyCurrentServerState = true;
+			const serverPayload = localServerPayload;
+			if (this.handleCurrentLocalVoiceStateRemoval(guildId, voiceState)) {
+				return;
+			}
+			if (voiceState.channel_id && voiceState.connection_id && isCurrentConnection) {
+				const ptmActive = this.isPushToMuteActive();
+				const pttActive = this.isPushToTalkActive();
+				const applyServerState = shouldApplyIncomingLocalState;
+				shouldApplyCurrentServerState = applyServerState;
+				this.applyingGatewayVoiceStateEcho = true;
+				try {
+					LocalVoiceState.syncConnectionState(voiceState.connection_id, {
+						selfMute: ptmActive || pttActive || !applyServerState ? undefined : voiceState.self_mute,
+						selfDeaf: applyServerState ? voiceState.self_deaf : undefined,
+						selfVideo: applyServerState ? voiceState.self_video : undefined,
+						selfStream: applyServerState ? voiceState.self_stream : undefined,
+						viewerStreamKeys: applyServerState ? incomingViewerStreamKeys : undefined,
+					});
+				} finally {
+					this.applyingGatewayVoiceStateEcho = false;
+				}
+				if (applyServerState) {
+					replaceWatchedStreamKeys([...incomingViewerStreamKeys], {sync: false});
+				}
+			}
+			this.applyEngineGatewayEcho(serverPayload ? this.toEngineGatewayVoiceState(voiceState, guildId) : null);
+			if (voiceState.channel_id && voiceState.connection_id) {
+				if (isCurrentConnection && this.pendingServerDisconnectConnectionId === voiceState.connection_id) {
+					this.cancelPendingServerDisconnect();
+				}
+				if (
+					isCurrentConnection &&
+					voiceEngineV2AppConnectionHostAdapter.connected &&
+					!voiceEngineV2AppConnectionHostAdapter.connecting &&
+					voiceState.channel_id !== voiceEngineV2AppConnectionHostAdapter.channelId
+				) {
+					const updatedGuildId = guildId ?? voiceState.guild_id ?? null;
+					void this.disconnectForChannelMove('server').finally(() => {
+						voiceEngineV2AppConnectionHostAdapter.recoverConnectionExpectation(updatedGuildId, voiceState.channel_id!);
+					});
+					return;
+				}
+				const shouldRecoverConnectionExpectation =
+					!voiceEngineV2AppConnectionHostAdapter.connected &&
+					!voiceEngineV2AppConnectionHostAdapter.connecting &&
+					voiceEngineV2AppConnectionHostAdapter.guildId === null &&
+					voiceEngineV2AppConnectionHostAdapter.channelId === null;
+				if (shouldRecoverConnectionExpectation) {
+					const recoveredGuildId = guildId ?? voiceState.guild_id ?? null;
+					voiceEngineV2AppConnectionHostAdapter.recoverConnectionExpectation(recoveredGuildId, voiceState.channel_id);
+					logger.info('Recovered connection expectation from voice state update', {
+						guildId: recoveredGuildId,
+						channelId: voiceState.channel_id,
+						connectionId: voiceState.connection_id,
+					});
+				}
+				const nextServerMute = isVoiceServerMuteActive(
+					voiceState,
+					guildId ?? voiceState.guild_id,
+					voiceState.channel_id,
+				);
+				const audioStateChanged =
+					previousLocalAudioState &&
+					(previousLocalAudioState.serverMute !== nextServerMute ||
+						previousLocalAudioState.serverDeaf !== voiceState.deaf ||
+						previousLocalAudioState.selfMute !== voiceState.self_mute ||
+						previousLocalAudioState.selfDeaf !== voiceState.self_deaf);
+				if (isCurrentConnection && audioStateChanged) {
+					this.reconcileLocalAudioStateInBackground('voice state update');
+				}
+			}
+			if (previousLocalMediaState) {
+				const videoDisabled =
+					shouldApplyCurrentServerState && previousLocalMediaState.selfVideo && voiceState.self_video === false;
+				const streamDisabled =
+					shouldApplyCurrentServerState && previousLocalMediaState.selfStream && voiceState.self_stream === false;
+				if (videoDisabled) {
+					logger.info('Server disabled camera for local connection, unpublishing video track');
+					void this.setCameraEnabled(false, {sendUpdate: false});
+				}
+				if (streamDisabled) {
+					logger.info('Server disabled screen share for local connection, unpublishing stream track');
+					void this.setScreenShareEnabled(false, {sendUpdate: false});
+				}
+			}
+			if (
+				voiceState.channel_id === null &&
+				voiceEngineV2AppConnectionHostAdapter.connected &&
+				voiceState.connection_id &&
+				isCurrentConnection
+			) {
+				this.scheduleDeferredServerDisconnect(voiceState.connection_id);
+			}
+		}
+	}
+
+	getCurrentUserVoiceState(guildId?: string | null): NormalizedVoiceState | null {
+		return voiceEngineV2AppVoiceStateAdapter.getCurrentUserVoiceState(
+			guildId,
+			Users.getCurrentUser()?.id,
+			voiceEngineV2AppConnectionHostAdapter.connectionId,
+		);
+	}
+
+	getVoiceState(guildId: string | null, userId?: string): NormalizedVoiceState | null {
+		const currentUserId = Users.getCurrentUser()?.id;
+		const connectionId =
+			!userId || userId === currentUserId ? voiceEngineV2AppConnectionHostAdapter.connectionId : null;
+		return voiceEngineV2AppVoiceStateAdapter.getVoiceState(guildId, userId, currentUserId, connectionId);
+	}
+
+	getVoiceStateByConnectionId(connectionId: string): NormalizedVoiceState | null {
+		return voiceEngineV2AppVoiceStateAdapter.getVoiceStateByConnectionId(connectionId);
+	}
+
+	isVoiceConnectionIgnored(connectionId: string | null | undefined): boolean {
+		return voiceEngineV2AppVoiceStateAdapter.isConnectionIgnored(connectionId);
+	}
+
+	getAllVoiceStatesInChannel(guildId: string, channelId: string): Readonly<Record<string, NormalizedVoiceState>> {
+		return voiceEngineV2AppVoiceStateAdapter.getAllVoiceStatesInChannel(guildId, channelId);
+	}
+
+	getAllVoiceStatesInGuild(
+		guildId: string,
+	): Readonly<Record<string, Readonly<Record<string, NormalizedVoiceState>>>> | undefined {
+		return voiceEngineV2AppVoiceStateAdapter.getAllVoiceStatesInGuild(guildId);
+	}
+
+	getAllVoiceStates(): Readonly<
+		Record<string, Readonly<Record<string, Readonly<Record<string, NormalizedVoiceState>>>>>
+	> {
+		return voiceEngineV2AppVoiceStateAdapter.getAllVoiceStates();
+	}
+
+	private toEngineGatewayVoiceState(
+		source: {
+			guild_id?: string | null;
+			channel_id: string | null;
+			user_id: string;
+			session_id?: string;
+			self_mute: boolean;
+			self_deaf: boolean;
+			self_video: boolean;
+			self_stream: boolean;
+			suppress?: boolean;
+		},
+		guildId: string | null,
+	): VoiceEngineV2GatewayVoiceState {
+		return {
+			guildId: guildId ?? source.guild_id ?? null,
+			channelId: source.channel_id,
+			userId: source.user_id,
+			sessionId: source.session_id ?? null,
+			selfMute: source.self_mute,
+			selfDeaf: source.self_deaf,
+			selfVideo: source.self_video,
+			selfStream: source.self_stream,
+			suppress: source.suppress ?? false,
+			requestToSpeakTimestamp: null,
+		};
+	}
+
+	private applyEngineGatewayEcho(voiceState: VoiceEngineV2GatewayVoiceState | null): void {
+		this.voiceEngineV2Controller.dispatch({type: 'gateway.voiceStateUpdated', voiceState});
+		if (voiceState) {
+			this.voiceEngineV2Controller.reconcileGatewayVoiceState();
+		}
+	}
+
+	syncLocalVoiceStateWithServer(partial?: VoiceStateSyncPartial): void {
+		const devicePermission = VoiceDevicePermissionState.getState().permissionStatus;
+		const micGranted = MediaPermission.isMicrophoneGranted() || devicePermission.audio === 'granted';
+		if (!micGranted || LocalVoiceState.getMutedByPermission()) {
+			LocalVoiceState.ensurePermissionMute();
+		}
+		const {guildId, channelId, connectionId} = voiceEngineV2AppConnectionHostAdapter.connectionState;
+		if (!channelId || !connectionId) return;
+		const selfMute = resolveVoiceStateSelfMute({
+			guildId,
+			channelId,
+			microphoneGranted: micGranted,
+			requestedSelfMute: partial?.self_mute,
+			effectiveSelfMute: this.getEffectiveSelfMuteForVoiceStatePayload(),
+		});
+		const payload: VoiceStateSyncPayload = {
+			guild_id: guildId,
+			channel_id: channelId,
+			connection_id: connectionId,
+			self_mute: selfMute,
+			self_deaf: partial?.self_deaf ?? LocalVoiceState.getSelfDeaf(),
+			self_video: partial?.self_video ?? LocalVoiceState.getSelfVideo(),
+			self_stream: partial?.self_stream ?? LocalVoiceState.getSelfStream(),
+			viewer_stream_keys: partial?.viewer_stream_keys ?? LocalVoiceState.getViewerStreamKeys(),
+		};
+		if (!micGranted && !LocalVoiceState.getSelfMute()) {
+			LocalVoiceState.updateSelfMute(true);
+		}
+		this.voiceEngineV2Controller.setDesiredGatewayVoiceState({
+			guildId,
+			channelId,
+			selfMute: payload.self_mute,
+			selfDeaf: payload.self_deaf,
+			selfVideo: payload.self_video,
+			selfStream: payload.self_stream,
+		});
+		if (partial?.viewer_stream_keys !== undefined) {
+			syncVoiceStateToServer(guildId, channelId, connectionId, {viewer_stream_keys: payload.viewer_stream_keys});
+		}
+	}
+
+	private async reconcileLocalAudioState(reason: string): Promise<void> {
+		const {channelId, connectionId} = voiceEngineV2AppConnectionHostAdapter.connectionState;
+		if (!channelId || !connectionId) {
+			logger.debug('Skipping local audio reconciliation without an active voice connection', {
+				reason,
+				channelId,
+				connectionId,
+			});
+			return;
+		}
+		const serverVoiceState = voiceEngineV2AppVoiceStateAdapter.getVoiceStateByConnectionId(connectionId);
+		const serverMute = isVoiceServerMuteActive(
+			serverVoiceState,
+			voiceEngineV2AppConnectionHostAdapter.guildId,
+			channelId,
+		);
+		const serverDeaf = serverVoiceState?.deaf ?? false;
+		await voiceEngineV2AppMediaExecutionAdapter.reconcileEffectiveAudioState(
+			voiceEngineV2AppConnectionHostAdapter.room,
+			{
+				channelId,
+				serverMute,
+				serverDeaf,
+			},
+		);
+		this.syncLocalVoiceStateWithServer();
+	}
+
+	getParticipantByUserIdAndConnectionId(
+		userId: string,
+		connectionId: string | null,
+	): LivekitParticipantSnapshot | undefined {
+		return this.voiceEngineV2Participants.getParticipantByUserIdAndConnectionId(userId, connectionId);
+	}
+
+	upsertParticipant(participant: Participant): void {
+		this.voiceEngineV2Participants.upsertParticipant(participant);
+	}
+
+	async setCameraEnabled(
+		enabled: boolean,
+		options?: {
+			deviceId?: string;
+			sendUpdate?: boolean;
+		},
+	): Promise<void> {
+		const selectedOptions = enabled
+			? {
+					deviceId: options?.deviceId ?? VoiceSettings.getVideoDeviceId(),
+					...(options?.sendUpdate === false ? {sendUpdate: false} : {}),
+				}
+			: options;
+		const commandOptions = buildCameraCommandOptions(selectedOptions);
+		try {
+			await this.voiceEngineV2Host.runAndWait(
+				() => {
+					if (enabled) {
+						this.voiceEngineV2Controller.publishCamera(commandOptions);
+					} else {
+						this.voiceEngineV2Controller.unpublishCamera(commandOptions);
+					}
+				},
+				{description: enabled ? 'publish camera' : 'unpublish camera'},
+			);
+		} catch (error) {
+			if (isCameraPermissionDeniedCommandFailure(error)) {
+				logger.info('Camera enable denied by permission; denial already surfaced to the user', {enabled});
+				return;
+			}
+			throw error;
+		}
+	}
+
+	async enableMicrophone(
+		room: Room,
+		channelId: string | null,
+		options: VoiceEngineV2MicrophoneOptions = {},
+	): Promise<void> {
+		await voiceEngineV2AppMediaExecutionAdapter.enableMicrophone(room, channelId, options);
+	}
+
+	async refreshMicrophonePublishSettingsForChannel(channelId: string): Promise<void> {
+		assert.ok(channelId.length > 0, 'microphone publish settings refresh requires a channelId');
+		if (channelId !== voiceEngineV2AppConnectionHostAdapter.channelId) return;
+		await voiceEngineV2AppMediaExecutionAdapter.refreshMicrophonePublishSettings(
+			voiceEngineV2AppConnectionHostAdapter.room,
+			channelId,
+		);
+	}
+
+	async updateActiveCameraCapture(options?: {deviceId?: string}): Promise<void> {
+		await this.setCameraEnabled(true, options);
+	}
+
+	async setScreenShareEnabled(
+		enabled: boolean,
+		options?: ScreenShareCaptureOptions & {
+			sendUpdate?: boolean;
+			playSound?: boolean;
+			restartIfEnabled?: boolean;
+			preserveStreamAudioPreferences?: boolean;
+			keepShareTracking?: boolean;
+		},
+		publishOptions?: TrackPublishOptions,
+	): Promise<void> {
+		await voiceEngineV2AppScreenShareExecutionAdapter.setScreenShareEnabled(
+			this.room,
+			enabled,
+			options,
+			publishOptions,
+		);
+	}
+
+	async startDeviceScreenShare(
+		options?: DeviceScreenShareCaptureOptions,
+		publishOptions?: TrackPublishOptions,
+	): Promise<void> {
+		await voiceEngineV2AppScreenShareExecutionAdapter.startDeviceScreenShare(this.room, options, publishOptions);
+	}
+
+	private createScreenShareControllerGateway(): VoiceEngineV2AppScreenShareControllerGateway {
+		const plannedScreenOperationIds = (commands: ReadonlyArray<VoiceEngineV2Command>): Array<number> => {
+			const operationIds: Array<number> = [];
+			for (const command of commands) {
+				if (command.type === 'screen.publish') operationIds.push(command.operationId);
+				if (command.type === 'screen.updateEncoding') operationIds.push(command.operationId);
+				if (command.type === 'screen.unpublish') operationIds.push(command.operationId);
+			}
+			return operationIds;
+		};
+		return {
+			isScreenCommandRoutable: () => this.voiceEngineV2Snapshot.connection.status === 'connected',
+			hasScreenPublication: () => {
+				const screen = this.voiceEngineV2Snapshot.screen;
+				if (screen.published != null) return true;
+				return screen.status === 'publishing' || screen.status === 'unpublishing';
+			},
+			hasScreenDesired: () => this.voiceEngineV2Snapshot.screen.desired != null,
+			clearScreenDesired: () => {
+				if (this.voiceEngineV2Snapshot.screen.desired == null) return;
+				this.voiceEngineV2Controller.unpublishScreen();
+			},
+			executingScreenOperationId: () => this.voiceEngineV2Host.executingCommand('screen')?.operationId ?? null,
+			isScreenOperationPending: (operationId) => this.voiceEngineV2Host.isOperationPending(operationId),
+			publishScreen: (options, onPlanned) =>
+				this.voiceEngineV2Host.runAndWait(
+					() => {
+						this.voiceEngineV2Controller.publishScreen(options);
+					},
+					{
+						description: 'publish screen share',
+						staleCompletion: 'resolve',
+						onCommandsPlanned: (commands) => onPlanned(plannedScreenOperationIds(commands)),
+					},
+				),
+			unpublishScreen: (onPlanned) =>
+				this.voiceEngineV2Host.runAndWait(
+					() => {
+						this.voiceEngineV2Controller.unpublishScreen();
+					},
+					{
+						description: 'unpublish screen share',
+						staleCompletion: 'resolve',
+						onCommandsPlanned: (commands) => onPlanned(plannedScreenOperationIds(commands)),
+					},
+				),
+		};
+	}
+
+	async replaceActiveDisplayScreenShare(
+		options?: ScreenShareCaptureOptions,
+		publishOptions?: TrackPublishOptions,
+		captureContext?: DisplayScreenShareCaptureContext,
+	): Promise<boolean> {
+		return voiceEngineV2AppScreenShareExecutionAdapter.replaceActiveDisplayScreenShare(
+			this.room,
+			options,
+			publishOptions,
+			captureContext,
+		);
+	}
+
+	async replaceActiveDeviceScreenShare(
+		options?: DeviceScreenShareCaptureOptions,
+		publishOptions?: TrackPublishOptions,
+	): Promise<boolean> {
+		return voiceEngineV2AppScreenShareExecutionAdapter.replaceActiveDeviceScreenShare(
+			this.room,
+			options,
+			publishOptions,
+		);
+	}
+
+	async ensureLinuxScreenShareAudioPublication(
+		linuxRule?: NonNullable<NativeAudioStartOptions['linuxRule']>,
+		options?: {includeSelfWindowAudio?: boolean; replaceExisting?: boolean},
+	): Promise<boolean> {
+		return voiceEngineV2AppScreenShareExecutionAdapter.ensureLinuxScreenShareAudioPublication(
+			this.room,
+			linuxRule,
+			options,
+		);
+	}
+
+	async ensureWindowScreenShareAudioPublication(sourceId: string): Promise<boolean> {
+		return voiceEngineV2AppScreenShareExecutionAdapter.ensureWindowScreenShareAudioPublication(this.room, sourceId);
+	}
+
+	getActiveScreenShareVideoDeviceId(): string {
+		return voiceEngineV2AppScreenShareExecutionAdapter.getActiveScreenShareVideoDeviceId(this.room);
+	}
+
+	get isScreenShareCapturePaused(): boolean {
+		return voiceEngineV2AppScreenShareExecutionAdapter.isScreenShareCapturePaused;
+	}
+
+	async ensureDeviceScreenShareMicPublication(audioDeviceId: string): Promise<boolean> {
+		return voiceEngineV2AppScreenShareExecutionAdapter.ensureDeviceScreenShareMicPublication(this.room, audioDeviceId);
+	}
+
+	setScreenShareAudioMuted(muted: boolean): void {
+		voiceEngineV2AppScreenShareExecutionAdapter.setScreenShareAudioMuted(this.room, muted);
+	}
+
+	async updateActiveScreenShareSettings(
+		options?: ScreenShareCaptureOptions,
+		publishOptions?: TrackPublishOptions,
+	): Promise<boolean> {
+		return voiceEngineV2AppScreenShareExecutionAdapter.updateActiveScreenShareSettings(
+			this.room,
+			options,
+			publishOptions,
+		);
+	}
+
+	applyLocalAudioPreferencesForUser(userId: string): void {
+		voiceEngineV2AppMediaExecutionAdapter.applyLocalAudioPreferencesForUser(userId, this.room);
+	}
+
+	applyAllLocalAudioPreferences(): void {
+		voiceEngineV2AppMediaExecutionAdapter.applyAllLocalAudioPreferences(this.room);
+	}
+
+	setLocalVideoDisabled(identity: string, disabled: boolean): void {
+		voiceEngineV2AppMediaExecutionAdapter.setLocalVideoDisabled(identity, disabled, this.room, this.connectionId);
+	}
+
+	applyPushToTalkHold(held: boolean): void {
+		voiceEngineV2AppMediaExecutionAdapter.applyPushToTalkHold(held, this.room, () => this.getCurrentUserVoiceState());
+		this.syncVoiceEngineV2AudioControlsFromAppState();
+	}
+
+	applyPushToMuteHold(held: boolean): void {
+		voiceEngineV2AppMediaExecutionAdapter.applyPushToMuteHold(held, this.room, () => this.getCurrentUserVoiceState());
+		this.syncVoiceEngineV2AudioControlsFromAppState();
+	}
+
+	handlePushToTalkModeChange(options: {preserveSelfMute?: boolean} = {}): void {
+		voiceEngineV2AppMediaExecutionAdapter.handlePushToTalkModeChange(
+			this.room,
+			() => this.getCurrentUserVoiceState(),
+			options,
+		);
+		this.syncVoiceEngineV2AudioControlsFromAppState();
+	}
+
+	getMuteReason(voiceState: VoiceState | null): VoiceMuteReason {
+		return voiceEngineV2AppMediaExecutionAdapter.getMuteReason(voiceState, this.guildId, this.channelId);
+	}
+
+	isMicrophoneFailureLatched(): boolean {
+		return voiceEngineV2AppMediaExecutionAdapter.isMicrophoneFailureLatched();
+	}
+
+	clearMicrophoneFailureLatch(): void {
+		if (!voiceEngineV2AppMediaExecutionAdapter.isMicrophoneFailureLatched()) return;
+		voiceEngineV2AppMediaExecutionAdapter.noteUserMuteIntentChanged();
+		this.syncVoiceEngineV2AudioControlsFromAppState();
+		this.reconcileLocalAudioStateInBackground('microphone failure latch cleared');
+	}
+
+	async toggleCameraFromKeybind(): Promise<void> {
+		const current = LocalVoiceState.getSelfVideo();
+		await this.setCameraEnabled(!current, {deviceId: VoiceSettings.getVideoDeviceId()});
+	}
+
+	private startTracking(roomOverride?: Room | null): void {
+		const room = roomOverride ?? voiceEngineV2AppConnectionHostAdapter.room;
+		if (!room) {
+			logger.warn('No room available');
+			return;
+		}
+		startVoiceMediaGraphTimerScheduler();
+		this.statsHostAdapter.setRoom(room);
+		this.statsHostAdapter.startLatencyTracking();
+		this.statsHostAdapter.startStatsTracking();
+		VoiceEngineV2AppSubscriptionAdapter.setRoom(room);
+		VoiceEngineV2AppPermissionAdapter.initializeSubscriptions(room);
+		this.outputDeviceSyncDisposer?.();
+		this.outputDeviceSyncDisposer = bindOutputDeviceSync(room);
+		this.audioPreferencesSyncDisposer?.();
+		this.audioPreferencesSyncDisposer = this.bindAudioPreferencesSync(room);
+		this.startAfkTracking();
+		const channelId = voiceEngineV2AppConnectionHostAdapter.channelId;
+		if (channelId) {
+			voiceEngineV2AppDebugEventSinkHostAdapter.start({
+				guildId: voiceEngineV2AppConnectionHostAdapter.guildId,
+				channelId,
+				connectionId: voiceEngineV2AppConnectionHostAdapter.connectionId,
+				room,
+			});
+		}
+		logger.info('All tracking started');
+	}
+
+	private stopTracking(): void {
+		voiceEngineV2AppDebugEventSinkHostAdapter.stop('tracking-stopped');
+		this.statsHostAdapter.stopLatencyTracking();
+		this.statsHostAdapter.stopStatsTracking();
+		VoiceEngineV2AppRemoteSpeakingAdapter.clear();
+		VoiceEngineV2AppSubscriptionAdapter.cleanup();
+		VoiceEngineV2AppPermissionAdapter.reset();
+		this.outputDeviceSyncDisposer?.();
+		this.outputDeviceSyncDisposer = null;
+		this.audioPreferencesSyncDisposer?.();
+		this.audioPreferencesSyncDisposer = null;
+		this.stopAfkTracking();
+		logger.info('All tracking stopped');
+	}
+
+	private abortVoiceConnection(): void {
+		this.transitionFacadeState({type: 'screenShareReconnect.clear'});
+		voiceEngineV2AppConnectionHostAdapter.abortConnection();
+	}
+
+	private bindAudioPreferencesSync(room: Room): () => void {
+		return bindVoiceEngineV2AppAudioPreferencesSync(
+			room,
+			{
+				requestMicrophoneRefresh: (targetRoom, request) =>
+					voiceEngineV2AppMediaExecutionAdapter.requestMicrophoneRefresh(targetRoom, request),
+				configureVoiceInput: (targetRoom) => voiceEngineV2AppMediaExecutionAdapter.configureVoiceInput(targetRoom),
+				handleInputKeybindChange: (targetRoom, options) =>
+					voiceEngineV2AppMediaExecutionAdapter.handlePushToTalkModeChange(
+						targetRoom,
+						() => this.getCurrentUserVoiceState(),
+						options,
+					),
+				applyAllLocalAudioPreferences: () => voiceEngineV2AppMediaExecutionAdapter.applyAllLocalAudioPreferences(room),
+			},
+			logger,
+		);
+	}
+
+	private startAfkTracking(): void {
+		this.stopAfkTracking();
+		this.afkIntervalId = setInterval(() => {
+			if (
+				!voiceEngineV2AppConnectionHostAdapter.connected ||
+				!voiceEngineV2AppConnectionHostAdapter.guildId ||
+				!voiceEngineV2AppConnectionHostAdapter.channelId
+			)
+				return;
+			const guild = Guilds.getGuild(voiceEngineV2AppConnectionHostAdapter.guildId);
+			if (
+				shouldMoveToAfkOnTick({
+					hasRecentVoiceActivity: this.noteCurrentLocalVoiceActivity(),
+					channelId: voiceEngineV2AppConnectionHostAdapter.channelId,
+					afkChannelId: guild?.afkChannelId,
+					afkTimeoutSeconds: guild?.afkTimeout,
+					inactiveDurationMs: Idle.getInactiveDurationMs(),
+				})
+			) {
+				void this.moveToAfkChannel();
+			}
+		}, AFK_CHECK_INTERVAL_MS);
+	}
+
+	private noteCurrentLocalVoiceActivity(): boolean {
+		const livekitParticipant = voiceEngineV2AppConnectionHostAdapter.room?.localParticipant;
+		if (noteLocalVoiceActivity(livekitParticipant)) return true;
+		return noteLocalVoiceActivityFromSnapshot(this.voiceEngineV2Participants.getLocalParticipant());
+	}
+
+	private stopAfkTracking(): void {
+		if (this.afkIntervalId !== null) {
+			clearInterval(this.afkIntervalId);
+			this.afkIntervalId = null;
+		}
+	}
+
+	private playSpectatorSounds(oldStreamKeys: ReadonlyArray<string>, newStreamKeys: ReadonlyArray<string>): void {
+		if (VoiceRegionTeleport.shouldSuppressRejoinSounds()) return;
+		const myConnectionId = voiceEngineV2AppConnectionHostAdapter.connectionId;
+		if (!myConnectionId) return;
+		const myViewerStreamKeys = LocalVoiceState.getViewerStreamKeys();
+		const isRelevantStream = (key: string): boolean => {
+			const parsed = parseStreamKey(key);
+			if (!parsed) return false;
+			if (parsed.connectionId === myConnectionId) return true;
+			if (myViewerStreamKeys.includes(key)) return true;
+			return false;
+		};
+		const isEndedLocalStream = (key: string): boolean => {
+			const parsed = parseStreamKey(key);
+			return parsed?.connectionId === myConnectionId && !LocalVoiceState.getSelfStream();
+		};
+		const oldRelevant = new Set(oldStreamKeys.filter(isRelevantStream));
+		const newRelevant = new Set(newStreamKeys.filter(isRelevantStream));
+		const joined = newStreamKeys.filter((k) => isRelevantStream(k) && !oldRelevant.has(k));
+		const left = oldStreamKeys.filter((k) => isRelevantStream(k) && !newRelevant.has(k) && !isEndedLocalStream(k));
+		if (joined.length > 0) {
+			SoundCommands.playSound(SoundType.ViewerJoin);
+		} else if (left.length > 0) {
+			SoundCommands.playSound(SoundType.ViewerLeave);
+		}
+	}
+
+	private replaceViewerStreamConnectionId(
+		keys: ReadonlyArray<string>,
+		guildId: string | null | undefined,
+		channelId: string | null | undefined,
+		previousConnectionId: string | null | undefined,
+		nextConnectionId: string | null | undefined,
+	): Array<string> {
+		if (!channelId || !previousConnectionId || !nextConnectionId || previousConnectionId === nextConnectionId) {
+			return [...keys];
+		}
+		const normalizedGuildId = normalizeStreamGuildId(guildId);
+		const previousKey = getStreamKey(normalizedGuildId, channelId, previousConnectionId);
+		const nextKey = getStreamKey(normalizedGuildId, channelId, nextConnectionId);
+		let changed = false;
+		const updated: Array<string> = [];
+		for (const key of keys) {
+			const migratedKey = key === previousKey ? nextKey : key;
+			changed ||= migratedKey !== key;
+			if (!updated.includes(migratedKey)) {
+				updated.push(migratedKey);
+			}
+		}
+		return changed ? updated : [...keys];
+	}
+
+	private migratePinnedScreenShareIdentity(
+		userId: string,
+		previousConnectionId: string | null | undefined,
+		nextConnectionId: string | null | undefined,
+	): void {
+		if (!previousConnectionId || !nextConnectionId || previousConnectionId === nextConnectionId) return;
+		if (VoiceCallLayout.pinnedParticipantSource !== VoiceTrackSource.ScreenShare) return;
+		if (VoiceCallLayout.pinnedParticipantIdentity !== buildVoiceParticipantIdentity(userId, previousConnectionId))
+			return;
+		VoiceCallLayout.setPinnedParticipant(
+			buildVoiceParticipantIdentity(userId, nextConnectionId),
+			VoiceTrackSource.ScreenShare,
+		);
+	}
+
+	private migrateWatchedRemoteStreamConnection(guildId: string | null, voiceState: VoiceState): void {
+		const channelId = voiceState.channel_id;
+		const nextConnectionId = voiceState.connection_id;
+		if (!channelId || !nextConnectionId || !voiceState.self_stream) return;
+		const normalizedGuildId = normalizeStreamGuildId(guildId ?? voiceState.guild_id);
+		const previousStates = voiceEngineV2AppVoiceStateAdapter.getAllVoiceStatesInChannel(
+			normalizedGuildId ?? ME,
+			channelId,
+		);
+		const currentKeys = LocalVoiceState.getViewerStreamKeys();
+		let updatedKeys: Array<string> = [...currentKeys];
+		let migrated = false;
+		for (const previousConnectionKey in previousStates) {
+			const previousState = previousStates[previousConnectionKey];
+			if (!previousState) continue;
+			const previousConnectionId = previousState.connection_id;
+			if (
+				previousState.user_id !== voiceState.user_id ||
+				!previousConnectionId ||
+				previousConnectionId === nextConnectionId ||
+				!previousState.self_stream
+			) {
+				continue;
+			}
+			const nextKeys = this.replaceViewerStreamConnectionId(
+				updatedKeys,
+				normalizedGuildId,
+				channelId,
+				previousConnectionId,
+				nextConnectionId,
+			);
+			if (!areOrderedStringArraysEqual(nextKeys, updatedKeys)) {
+				this.migratePinnedScreenShareIdentity(voiceState.user_id, previousConnectionId, nextConnectionId);
+				updatedKeys = nextKeys;
+				migrated = true;
+			}
+		}
+		const result = replaceWatchedStreamKeys(updatedKeys, {sync: false});
+		if (!result.changed) return;
+		this.syncLocalVoiceStateWithServer({viewer_stream_keys: result.keys});
+		if (migrated) {
+			logger.info('Migrated watched stream connection id', {
+				userId: voiceState.user_id,
+				channelId,
+				nextConnectionId,
+			});
+		}
+	}
+
+	disconnectRemoteDevice(guildId: string, connectionId: string): void {
+		if (connectionId === voiceEngineV2AppConnectionHostAdapter.connectionId) {
+			void this.disconnectFromVoiceChannel('user');
+			return;
+		}
+		this.discardVoiceConnection(connectionId);
+		sendVoiceStateDisconnect(guildId, connectionId);
+	}
+
+	async moveToAfkChannel(): Promise<void> {
+		const {guildId, channelId, connected} = voiceEngineV2AppConnectionHostAdapter.connectionState;
+		if (!connected || !guildId || !channelId) return;
+		const guild = Guilds.getGuild(guildId);
+		if (!guild?.afkChannelId || channelId === guild.afkChannelId) return;
+		await this.connectToVoiceChannel(guildId, guild.afkChannelId);
+	}
+
+	getLastConnectedChannel(): {
+		guildId: string;
+		channelId: string;
+	} | null {
+		return voiceEngineV2AppConnectionHostAdapter.lastConnectedChannel;
+	}
+
+	getShouldReconnect(): boolean {
+		return voiceEngineV2AppConnectionHostAdapter.shouldAutoReconnect;
+	}
+
+	markReconnectionAttempted(): void {
+		voiceEngineV2AppConnectionHostAdapter.markReconnectionAttempted();
+	}
+
+	async handleLogout(): Promise<void> {
+		this.terminalUnloadVoiceDisconnectSent = false;
+		this.cancelPendingServerDisconnect();
+		this.transitionFacadeState({type: 'cleanup.logoutStarted'});
+		this.clearViewerStreamKeys();
+		this.stopTracking();
+		await this.stopActiveScreenShareForTeardown('disconnect');
+		VoiceSessionRestore.clearSnapshot();
+		voiceEngineV2AppConnectionHostAdapter.cleanup();
+		voiceEngineV2AppVoiceStateAdapter.clearAllVoiceStates();
+		this.voiceEngineV2Participants.clear();
+		VoiceEngineV2AppPermissionAdapter.reset();
+		this.resetLocalMediaAndScreenShareTracking();
+		voiceEngineV2AppMediaStateAdapter.resetLocalMediaState('logout');
+		try {
+			await voiceStatsDB.clear();
+		} catch (error) {
+			logger.error('Failed to clear voice stats DB during logout', error);
+			throw error;
+		} finally {
+			logger.info('Cleanup complete');
+			this.transitionFacadeState({type: 'cleanup.complete'});
+		}
+	}
+
+	handleGatewayError(error: GatewayErrorData): void {
+		const {guildId, channelId} = voiceEngineV2AppConnectionHostAdapter;
+		const decision = selectMediaEngineGatewayErrorDecision(this.facadeSnapshot, {
+			code: error.code,
+			connecting: voiceEngineV2AppConnectionHostAdapter.connecting,
+			connected: voiceEngineV2AppConnectionHostAdapter.connected,
+			channelId: voiceEngineV2AppConnectionHostAdapter.channelId,
+		});
+		if (decision.type === 'ignore') return;
+		logger.warn(`Voice-related gateway error: [${error.code}] ${error.message}`);
+		if (decision.clearPendingSessionRestore) {
+			this.transitionFacadeState({type: 'sessionRestore.clear'});
+		}
+		if (decision.unavailableChannelId) {
+			this.clearUnavailableVoiceTarget(decision.unavailableChannelId, 'gateway-error', {
+				showToast: decision.showUnavailableToast,
+			});
+		}
+		if (decision.clearViewerStreamKeys) {
+			this.clearViewerStreamKeys();
+		}
+		if (decision.abortConnection) {
+			logger.info('Gateway voice error while connecting, aborting', {code: error.code});
+			this.abortVoiceConnection();
+		}
+		if (decision.disconnectReason) {
+			void this.disconnectFromVoiceChannel(decision.disconnectReason);
+		}
+		if (decision.toast) {
+			if (!this.i18n) {
+				throw new Error('MediaEngineFacade: i18n not initialized');
+			}
+			const descriptor =
+				decision.toast === 'timed-out'
+					? YOU_CAN_T_JOIN_WHILE_YOU_RE_ON_DESCRIPTOR
+					: decision.toast === 'connection-limit'
+						? VOICE_CONNECTION_LIMIT_REACHED_DESCRIPTOR
+						: CLAIM_YOUR_ACCOUNT_TO_JOIN_THIS_VOICE_CHANNEL_DESCRIPTOR;
+			this.showVoiceErrorModal(descriptor, `voice.media-engine-facade.gateway-${decision.toast}-error-modal`);
+		}
+		if (decision.p2pRefusal) {
+			this.handleP2pRefusal(decision.p2pRefusal, decision.abortConnection && channelId ? {guildId, channelId} : null);
+		}
+	}
+
+	private handleP2pRefusal(
+		refusal: MediaEngineFacadeP2pRefusal,
+		target: {guildId: string | null; channelId: string} | null,
+	): void {
+		if (refusal === 'consent-required' && target && !VoiceP2pConsent.isAgreed(target.channelId)) {
+			const retry = () => void this.connectToVoiceChannel(target.guildId, target.channelId);
+			if (requestP2pConsent(target.guildId, target.channelId, retry, () => {})) retry();
+			return;
+		}
+		VoiceP2pConsent.clear();
+		switch (refusal) {
+			case 'consent-required':
+				this.showVoiceErrorModal(
+					VOICE_P2P_CONSENT_REQUIRED_DESCRIPTOR,
+					'voice.media-engine-facade.gateway-p2p-consent-required-error-modal',
+				);
+				return;
+			case 'unavailable':
+				this.showVoiceErrorModal(
+					VOICE_P2P_UNAVAILABLE_DESCRIPTOR,
+					'voice.media-engine-facade.gateway-p2p-unavailable-error-modal',
+				);
+				return;
+			case 'channel-full':
+				showVoiceChannelFullModal();
+				return;
+		}
+	}
+
+	cleanup(): void {
+		this.terminalUnloadVoiceDisconnectSent = false;
+		this.cancelPendingServerDisconnect();
+		this.transitionFacadeState({type: 'cleanup.cleanupStarted'});
+		this.clearViewerStreamKeys();
+		this.stopTracking();
+		this.statsHostAdapter.cleanup();
+		VoiceEngineV2AppSubscriptionAdapter.cleanup();
+		VoiceEngineV2AppPermissionAdapter.reset();
+		this.resetLocalMediaAndScreenShareTracking();
+		voiceEngineV2AppConnectionHostAdapter.cleanup();
+		voiceEngineV2AppVoiceStateAdapter.clearAllVoiceStates();
+		this.voiceEngineV2Participants.clear();
+		voiceEngineV2AppMediaStateAdapter.resetLocalMediaState('cleanup');
+		this.transitionFacadeState({type: 'cleanup.complete'});
+	}
+
+	private async reapplyVideoQualityLimits(room: Room): Promise<void> {
+		try {
+			if (room.localParticipant.isCameraEnabled) {
+				await voiceEngineV2AppMediaExecutionAdapter.updateCameraEncoding(
+					getCameraCaptureDimensions(VoiceSettings.getCameraResolution()),
+				);
+			}
+			if (!room.localParticipant.isScreenShareEnabled) return;
+			await executeScreenShareOperation(() =>
+				pushActiveStreamSettings(
+					ActiveScreenShareSource.getShareContext() ?? 'display',
+					resolveDisplayShareEnvironment(isDesktop(), NativePermission.isLinuxWaylandDesktop),
+				),
+			);
+		} catch (error) {
+			logger.warn('Failed to reapply video quality limits after conversion', {error});
+		}
+	}
+
+	private async finishMeshConversion(meshRoom: Room, room: Room): Promise<void> {
+		await this.restoreLocalMedia({
+			reason: 'mesh conversion',
+			room,
+			restoreCamera: false,
+			restoreStream: false,
+			screenShareSnapshot: voiceEngineV2AppScreenShareExecutionAdapter.prepareScreenShareReconnect(meshRoom),
+			toastWhenStreamNotRestored: true,
+			sendUpdateWhenStreamNotRestored: true,
+		});
+		await this.reapplyVideoQualityLimits(room);
+	}
+
+	private async restoreLocalMediaState(roomOverride?: Room | null): Promise<void> {
+		const room = roomOverride ?? voiceEngineV2AppConnectionHostAdapter.room;
+		const participant = room?.localParticipant ?? null;
+		if (!participant) return;
+		const pendingScreenShareReconnect = this.pendingScreenShareReconnect;
+		this.transitionFacadeState({type: 'screenShareReconnect.consume'});
+		await this.restoreLocalMedia({
+			reason: 'voice room connected',
+			room,
+			restoreCamera: LocalVoiceState.getSelfVideo() && !participant.isCameraEnabled,
+			restoreStream: LocalVoiceState.getSelfStream() && !participant.isScreenShareEnabled,
+			screenShareSnapshot: pendingScreenShareReconnect,
+			toastWhenStreamNotRestored: false,
+			sendUpdateWhenStreamNotRestored: false,
+		});
+	}
+
+	private async restorePendingSessionMedia(): Promise<void> {
+		const pendingRestore = this.pendingSessionRestore;
+		this.transitionFacadeState({type: 'sessionRestore.consume'});
+		if (!pendingRestore) {
+			return;
+		}
+		await this.restoreLocalMedia({
+			reason: 'startup voice restore',
+			room: this.room,
+			restoreCamera: pendingRestore.restoreVideo,
+			restoreStream: pendingRestore.restoreStream,
+			screenShareSnapshot: null,
+			toastWhenStreamNotRestored: true,
+			sendUpdateWhenStreamNotRestored: false,
+		});
+	}
+
+	private navigateToVoiceChannel(guildId: string | null, channelId: string): void {
+		const targetGuildId = guildId ?? ME;
+		NavigationCommands.selectChannel(targetGuildId, channelId);
+	}
+
+	private clearViewerStreamKeys(): void {
+		if (LocalVoiceState.getViewerStreamKeys().length === 0) {
+			return;
+		}
+		replaceWatchedStreamKeys([], {sync: false});
+	}
+}
+
+const instance = new MediaEngineFacade();
+
+export function useMediaEngineVersion(): number {
+	return useStoreVersion(instance);
+}
+
+export function useVoiceEngineV2Model(): VoiceEngineV2Model {
+	useMediaEngineVersion();
+	return instance.voiceEngineV2Model;
+}
+
+(
+	window as typeof window & {
+		_mediaEngineFacade?: MediaEngineFacade;
+	}
+)._mediaEngineFacade = instance;
+
+export default instance;

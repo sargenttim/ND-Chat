@@ -1,0 +1,7 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.subsectionTitle {
+	font-size: 0.875rem;
+	font-weight: 500;
+	color: var(--text-primary);
+}

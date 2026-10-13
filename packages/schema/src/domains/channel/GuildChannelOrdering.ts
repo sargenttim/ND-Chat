@@ -48,7 +48,15 @@ export function compareChannelOrdering<Id extends string | bigint>(
 }
 
 function channelLayoutRank(channel: {type: number}): number {
-	if (channel.type === ChannelTypes.GUILD_TEXT || channel.type === ChannelTypes.GUILD_LINK) return 0;
+	if (
+		channel.type === ChannelTypes.GUILD_TEXT ||
+		channel.type === ChannelTypes.GUILD_ANNOUNCEMENT ||
+		channel.type === ChannelTypes.GUILD_LINK ||
+		channel.type === ChannelTypes.GUILD_FORUM ||
+		channel.type === ChannelTypes.GUILD_MEDIA
+	) {
+		return 0;
+	}
 	if (channel.type === ChannelTypes.GUILD_VOICE) return 1;
 	return 2;
 }
@@ -140,27 +148,6 @@ function findCategorySpanInOrderedList<Id extends string | bigint, Channel exten
 		end++;
 	}
 	return {start, end};
-}
-
-export function computePrecedingSiblingIdFromPosition<
-	Id extends string | bigint,
-	Channel extends ChannelOrderingChannel<Id>,
->({
-	channels,
-	targetId,
-	desiredParentId,
-	position,
-}: {
-	channels: ReadonlyArray<Channel>;
-	targetId: Id;
-	desiredParentId: Id | null;
-	position: number;
-}): Id | null {
-	const siblings = sortChannelsForOrdering(channels).filter((ch) => (ch.parentId ?? null) === desiredParentId);
-	const blockIds = computeChannelMoveBlockIds({channels, targetId});
-	const siblingsWithoutBlock = siblings.filter((ch) => !blockIds.has(ch.id));
-	const clamped = Math.min(Math.max(position, 0), siblingsWithoutBlock.length);
-	return clamped === 0 ? null : siblingsWithoutBlock[clamped - 1]!.id;
 }
 
 export function computePositionFromPrecedingSiblingId<

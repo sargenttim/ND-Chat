@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {createUserID, type UserID} from '@app/api/BrandedTypes';
+import {BatchBuilder, fetchMany, fetchOne, upsertOne} from '@app/api/database/CassandraQueryExecution';
+import type {VisionarySlotRow} from '@app/api/database/types/PaymentTypes';
+import {VisionarySlot} from '@app/api/models/VisionarySlot';
+import {VisionarySlots} from '@app/api/Tables';
+
+const FETCH_ALL_VISIONARY_SLOTS_QUERY = VisionarySlots.selectCql();
+const FETCH_VISIONARY_SLOT_QUERY = VisionarySlots.selectCql({
+	where: VisionarySlots.where.eq('slot_index'),
+	limit: 1,
+});
+
+export class VisionarySlotRepository {
+	async listVisionarySlots(): Promise<Array<VisionarySlot>> {
+		const slots = await fetchMany<VisionarySlotRow>(FETCH_ALL_VISIONARY_SLOTS_QUERY, {});
+		return slots.map((slot) => new VisionarySlot(slot));
+	}
+
+	async expandVisionarySlots(byCount: number): Promise<void> {
+		const existingSlots = await this.listVisionarySlots();
+		const maxSlotIndex = existingSlots.length > 0 ? Math.max(...existingSlots.map((s) => s.slotIndex)) : 0;
+		const batch = new BatchBuilder();
+		for (let i = 1; i <= byCount; i++) {
+			const newSlotIndex = maxSlotIndex + i;
+			batch.addPrepared(
+				VisionarySlots.upsertAll({
+					slot_index: newSlotIndex,
+					user_id: null,
+				}),
+			);
+		}
+		await batch.execute();
+	}
+
+	async reserveVisionarySlot(slotIndex: number, userId: UserID): Promise<void> {
+		const existingSlot = await fetchOne<VisionarySlotRow>(FETCH_VISIONARY_SLOT_QUERY, {
+			slot_index: slotIndex,
+		});
+		if (!existingSlot) {
+			await upsertOne(
+				VisionarySlots.upsertAll({
+					slot_index: slotIndex,
+					user_id: userId,
+				}),
+			);
+		} else {
+			await upsertOne(
+				VisionarySlots.upsertAll({
+					slot_index: slotIndex,
+					user_id: userId,
+				}),
+			);
+		}
+	}
+
+	async unreserveVisionarySlot(slotIndex: number, userId: UserID): Promise<void> {
+		const existingSlot = await fetchOne<VisionarySlotRow>(FETCH_VISIONARY_SLOT_QUERY, {
+			slot_index: slotIndex,
+		});
+		if (!existingSlot) {
+			return;
+		}
+		const sentinelUserId = createUserID(BigInt(-1));
+		if (userId !== sentinelUserId && existingSlot.user_id !== userId) {
+			return;
+		}
+		await upsertOne(
+			VisionarySlots.upsertAll({
+				slot_index: slotIndex,
+				user_id: null,
+			}),
+		);
+	}
+}

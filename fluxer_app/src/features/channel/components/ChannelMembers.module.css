@@ -1,0 +1,87 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.groupContainer {
+	display: flex;
+	flex-direction: column;
+}
+
+.groupHeader,
+.virtualGroupRow {
+	color: var(--text-primary-muted);
+	font-weight: 600;
+	font-size: 0.875rem;
+	line-height: 1rem;
+}
+
+.groupHeader {
+	display: flex;
+	min-width: 0;
+	align-items: flex-start;
+	padding-top: 0.75rem;
+	padding-bottom: 0.25rem;
+	padding-left: 0.5rem;
+	padding-right: 0.5rem;
+}
+
+.groupHeaderLabel {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.groupHeaderSeparator {
+	flex-shrink: 0;
+}
+
+.groupHeaderCount {
+	flex-shrink: 0;
+}
+
+.membersList {
+	display: flex;
+	flex-direction: column;
+	gap: var(--member-list-row-gap);
+}
+
+.virtualListContent {
+	position: relative;
+	min-height: 100%;
+}
+
+.virtualRow {
+	position: absolute;
+	left: 0;
+	right: 0;
+	display: flex;
+	align-items: center;
+	height: var(--member-list-item-height);
+	min-height: var(--member-list-item-height);
+}
+
+.virtualMemberRow {
+	align-items: center;
+	padding-left: 0;
+	padding-right: 0;
+	box-sizing: border-box;
+}
+
+.virtualMemberRow > * {
+	width: 100%;
+}
+
+.virtualGroupRow {
+	display: flex;
+	height: var(--member-list-group-header-height);
+	min-height: var(--member-list-group-header-height);
+	align-items: flex-start;
+	padding-left: 0.5rem;
+	padding-right: 0.5rem;
+	padding-top: 0.75rem;
+	padding-bottom: 0.25rem;
+	box-sizing: border-box;
+}
+
+.groupSpacer {
+	height: var(--member-list-group-spacer-height);
+}

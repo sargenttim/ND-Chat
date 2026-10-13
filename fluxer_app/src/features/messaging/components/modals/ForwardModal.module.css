@@ -1,0 +1,109 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.richInput {
+	--composer-placeholder-top: 0.625rem;
+	--composer-placeholder-right: 3.25rem;
+	--composer-placeholder-left: 0.75rem;
+	position: relative;
+	box-sizing: border-box;
+	min-width: 0;
+	width: 100%;
+	padding: 0.625rem 3.25rem 0.625rem 0.75rem;
+}
+
+.richInput [contenteditable] {
+	box-sizing: border-box;
+	min-height: 1.25rem;
+	max-height: 5rem;
+	overflow-x: hidden;
+	overflow-y: auto;
+	color: var(--text-chat);
+	caret-color: var(--text-chat);
+}
+
+.footerSection {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	width: 100%;
+	flex-shrink: 0;
+	padding: 0.75rem 1rem;
+	border-top: 0.0625rem solid var(--background-modifier-accent);
+}
+
+.messageInputContainer {
+	position: relative;
+	display: grid;
+	box-sizing: border-box;
+	min-height: 2.75rem;
+	min-width: 0;
+	width: 100%;
+	border-radius: 0.375rem;
+	border: 0.0625rem solid var(--background-modifier-accent);
+	background-color: var(--background-textarea);
+	transition: border-color 0.15s ease;
+}
+
+.messageInputContainer:focus-within {
+	border-color: var(--background-modifier-accent-focus);
+}
+
+.messageInputContainerDisabled {
+	opacity: 0.65;
+	cursor: not-allowed;
+}
+
+.messageInputContainerWithCounter:not(.messageInputContainerWithNotice) .richInput {
+	padding-bottom: 2.25rem;
+}
+
+.slowmodeNotice {
+	min-width: 0;
+	padding: 0 0.75rem 0.625rem;
+	color: var(--text-warning);
+	font-size: 0.75rem;
+	line-height: 1.4;
+	overflow-wrap: anywhere;
+}
+
+.messageInputContainerWithCounter.messageInputContainerWithNotice .slowmodeNotice {
+	padding-right: 4.75rem;
+}
+
+.messageInputActions {
+	position: absolute;
+	z-index: 1;
+	top: 0.0625rem;
+	right: 0.0625rem;
+}
+
+.emojiPickerButton {
+	display: flex;
+	height: 2.625rem;
+	min-width: 2.75rem;
+	align-items: center;
+	justify-content: center;
+	padding: 0 0.75rem;
+	transition: color 0.2s ease;
+	color: var(--text-chat-muted);
+	cursor: pointer;
+}
+
+.emojiPickerButton:hover {
+	color: var(--text-chat);
+}
+
+.emojiPickerButton:disabled {
+	cursor: not-allowed;
+	color: var(--text-tertiary);
+}
+
+.emojiPickerButtonActive {
+	color: var(--text-primary);
+}
+
+.emojiIcon {
+	height: 1.5rem;
+	width: 1.5rem;
+}

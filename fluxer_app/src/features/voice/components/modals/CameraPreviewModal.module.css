@@ -1,0 +1,110 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.content {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.backgroundSection {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.backgroundLabel {
+	font-weight: 500;
+	color: var(--text-primary);
+	font-size: 0.875rem;
+}
+
+.effectStrengthSlider {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.effectStrengthLabelRow {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	min-height: 1.5rem;
+}
+
+.effectStrengthLabel {
+	font-weight: 500;
+	color: var(--text-primary);
+	font-size: 0.875rem;
+}
+
+.videoContainer {
+	position: relative;
+	aspect-ratio: 16 / 9;
+	max-height: 24rem;
+	overflow: hidden;
+	border-radius: 0.5rem;
+	background-color: black;
+}
+
+.footer .footerStart {
+	display: flex;
+	flex: 1 1 auto;
+	align-items: center;
+	justify-content: flex-start;
+	min-width: 0;
+}
+
+.footerMirrorSwitch {
+	flex: 0 0 auto;
+}
+
+.video {
+	height: 100%;
+	width: 100%;
+	object-fit: contain;
+}
+
+.overlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	background-color: rgba(0, 0, 0, 0.7);
+}
+
+.overlayText {
+	margin-top: 0.75rem;
+	text-align: center;
+	color: white;
+}
+
+.overlayTextMedium {
+	font-weight: 500;
+	font-size: 0.875rem;
+}
+
+.errorOverlay {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background-color: rgba(0, 0, 0, 0.7);
+}
+
+.errorText {
+	text-align: center;
+	color: rgb(248 113 113);
+}
+
+.errorTitle {
+	font-weight: 500;
+	font-size: 0.875rem;
+}
+
+.errorDetail {
+	font-size: 0.75rem;
+	color: color-mix(in srgb, currentcolor 75%, transparent);
+}

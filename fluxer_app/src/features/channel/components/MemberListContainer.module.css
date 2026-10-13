@@ -1,0 +1,30 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.memberListContainer {
+	display: flex;
+	flex-direction: column;
+	height: 100%;
+	min-height: 0;
+	width: 100svw;
+	min-width: 0;
+	overflow: hidden;
+	background-color: var(--background-secondary-lighter);
+	--member-list-width: 100svw;
+}
+
+@media (min-width: 768px) {
+	.memberListContainer {
+		--member-list-width: var(--layout-member-list-width);
+		width: var(--member-list-width);
+	}
+}
+
+.memberListScroller {
+	flex: 1;
+	min-height: 0;
+	background-color: var(--background-secondary-lighter);
+	padding-top: var(--member-list-scroller-padding-block-start);
+	padding-left: var(--member-list-scroller-padding-inline);
+	padding-right: var(--member-list-scroller-padding-inline);
+	padding-bottom: var(--member-list-scroller-padding-block-end);
+}

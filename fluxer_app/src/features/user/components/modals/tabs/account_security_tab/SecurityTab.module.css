@@ -1,0 +1,11 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.warningText {
+	margin-top: 0.25rem;
+	color: var(--alert-warning-color);
+	font-size: 0.875rem;
+}
+
+.claimButton {
+	align-self: flex-start;
+}

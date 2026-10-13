@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import type {UserID} from '@app/api/BrandedTypes';
+import {DeletionReasons} from '@fluxer/constants/src/Core';
+import {UserFlags} from '@fluxer/constants/src/UserConstants';
+
+interface PendingDeletionQueueLike {
+	scheduleDeletion(userId: UserID, pendingAt: Date, reasonCode: number): Promise<void>;
+	removeFromQueue(userId: UserID): Promise<void>;
+}
+
+interface ReschedulePendingDeletionParams {
+	userId: UserID;
+	currentPendingDeletionAt?: Date | null;
+	nextPendingDeletionAt: Date;
+	deletionReasonCode: number;
+
+	deletionQueue: PendingDeletionQueueLike;
+}
+
+interface ClearPendingDeletionParams {
+	userId: UserID;
+
+	deletionQueue: Pick<PendingDeletionQueueLike, 'removeFromQueue'>;
+}
+
+interface PendingDeletionReasonUserLike {
+	deletionReasonCode?: number | null;
+	flags: bigint;
+}
+
+interface PendingDeletionEligibilityUserLike {
+	isBot: boolean;
+	flags: bigint;
+}
+
+export async function reschedulePendingDeletion({
+	userId,
+	currentPendingDeletionAt,
+	nextPendingDeletionAt,
+	deletionReasonCode,
+	deletionQueue,
+}: ReschedulePendingDeletionParams): Promise<void> {
+	if (currentPendingDeletionAt) await deletionQueue.removeFromQueue(userId);
+	await deletionQueue.scheduleDeletion(userId, nextPendingDeletionAt, deletionReasonCode);
+}
+
+export async function clearPendingDeletion({userId, deletionQueue}: ClearPendingDeletionParams): Promise<void> {
+	await deletionQueue.removeFromQueue(userId);
+}
+
+export function resolvePendingDeletionReasonCode(
+	user: PendingDeletionReasonUserLike,
+	queuedReasonCode: number,
+): number {
+	if (user.deletionReasonCode !== null && user.deletionReasonCode !== undefined) {
+		return user.deletionReasonCode;
+	}
+	if (queuedReasonCode !== 0) {
+		return queuedReasonCode;
+	}
+	if ((user.flags & UserFlags.SELF_DELETED) !== 0n) {
+		return DeletionReasons.USER_REQUESTED;
+	}
+	if ((user.flags & UserFlags.DELETED) !== 0n) {
+		return DeletionReasons.OTHER;
+	}
+	return 0;
+}
+
+export function isPendingDeletionBlocked(user: PendingDeletionEligibilityUserLike): boolean {
+	if (user.isBot) {
+		return true;
+	}
+	return (user.flags & UserFlags.APP_STORE_REVIEWER) !== 0n;
+}

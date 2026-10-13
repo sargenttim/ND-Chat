@@ -1,0 +1,471 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {createTestAccount} from '@app/api/auth/tests/AuthTestUtils';
+import {getPngDataUrl} from '@app/api/emoji/tests/EmojiTestUtils';
+import {
+	addMemberRole,
+	createRole,
+	getMember,
+	setupTestGuildWithMembers,
+	updateMember,
+	updateRolePositions,
+} from '@app/api/guild/tests/GuildTestUtils';
+import {ensureSessionStarted} from '@app/api/message/tests/MessageTestUtils';
+import {profileSubstringBlocklistCache} from '@app/api/middleware/ProfileSubstringBlocklistCache';
+import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
+import {HTTP_STATUS} from '@app/api/test/TestConstants';
+import {createBuilder} from '@app/api/test/TestRequestBuilder';
+import {grantPremium} from '@app/api/user/tests/UserTestUtils';
+import {APIErrorCodes} from '@fluxer/constants/src/ApiErrorCodes';
+import {Permissions} from '@fluxer/constants/src/ChannelConstants';
+import {ValidationErrorCodes} from '@fluxer/constants/src/ValidationErrorCodes';
+import type {GuildBanResponse, GuildMemberResponse} from '@fluxer/schema/src/domains/guild/GuildMemberSchemas';
+import {afterEach, beforeEach, describe, expect, test} from 'vitest';
+
+function sortSnowflakes(ids: Array<string>): Array<string> {
+	return [...ids].sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : BigInt(a) > BigInt(b) ? 1 : 0));
+}
+
+describe('Guild Member Management', () => {
+	let harness: ApiTestHarness;
+	beforeEach(async () => {
+		harness = await createApiTestHarness();
+	});
+	afterEach(async () => {
+		for (const scope of ['nickname', 'bio', 'pronouns'] as const) {
+			profileSubstringBlocklistCache.remove(scope, 'blockedslug');
+		}
+		await harness?.shutdown();
+	});
+	test('should reject assigning @everyone via member update', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const member = members[0];
+		type InvalidFormResponse = {
+			errors: Array<{
+				path: string;
+			}>;
+			code: string;
+		};
+		const {json} = await createBuilder<InvalidFormResponse>(harness, owner.token)
+			.patch(`/guilds/${guild.id}/members/${member.userId}`)
+			.body({roles: [guild.id]})
+			.expect(HTTP_STATUS.BAD_REQUEST, APIErrorCodes.INVALID_FORM_BODY)
+			.executeWithResponse();
+		expect(json.errors?.some((error) => error.path === 'roles')).toBe(true);
+	});
+	test('should reject adding @everyone role explicitly', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const member = members[0];
+		type InvalidFormResponse = {
+			errors: Array<{
+				path: string;
+			}>;
+			code: string;
+		};
+		const {json} = await createBuilder<InvalidFormResponse>(harness, owner.token)
+			.put(`/guilds/${guild.id}/members/${member.userId}/roles/${guild.id}`)
+			.expect(HTTP_STATUS.BAD_REQUEST, APIErrorCodes.INVALID_FORM_BODY)
+			.executeWithResponse();
+		expect(json.errors?.some((error) => error.path === 'role_id')).toBe(true);
+	});
+	test('should block banned profile substrings in member nickname', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const member = members[0];
+		profileSubstringBlocklistCache.add('nickname', 'blockedslug');
+		await createBuilder(harness, owner.token)
+			.patch(`/guilds/${guild.id}/members/${member.userId}`)
+			.body({nick: 'BlockedSlug Nick'})
+			.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.CONTENT_BLOCKED)
+			.execute();
+	});
+	test('should require MANAGE_NICKNAMES to change others nickname', async () => {
+		const {members, guild} = await setupTestGuildWithMembers(harness, 2);
+		const [member1, member2] = members;
+		await createBuilder(harness, member1.token)
+			.patch(`/guilds/${guild.id}/members/${member2.userId}`)
+			.body({nick: 'New Nick'})
+			.expect(HTTP_STATUS.FORBIDDEN)
+			.execute();
+	});
+	test('should require MANAGE_ROLES to add roles', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 2);
+		const [member1, member2] = members;
+		const role = await createRole(harness, owner.token, guild.id, {
+			name: 'Test Role',
+		});
+		await createBuilder(harness, member1.token)
+			.put(`/guilds/${guild.id}/members/${member2.userId}/roles/${role.id}`)
+			.expect(HTTP_STATUS.FORBIDDEN)
+			.execute();
+	});
+	test('should require KICK_MEMBERS to kick members', async () => {
+		const {members, guild} = await setupTestGuildWithMembers(harness, 2);
+		const [member1, member2] = members;
+		await createBuilder(harness, member1.token)
+			.delete(`/guilds/${guild.id}/members/${member2.userId}`)
+			.expect(HTTP_STATUS.FORBIDDEN)
+			.execute();
+	});
+	test('should not allow kicking the owner', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const member = members[0];
+		const modRole = await createRole(harness, owner.token, guild.id, {
+			name: 'Moderator',
+			permissions: Permissions.KICK_MEMBERS.toString(),
+		});
+		await addMemberRole(harness, owner.token, guild.id, member.userId, modRole.id);
+		await createBuilder(harness, member.token)
+			.delete(`/guilds/${guild.id}/members/${owner.userId}`)
+			.expect(HTTP_STATUS.NOT_FOUND)
+			.execute();
+	});
+	test('should reject a ban body that is not valid JSON', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const member = members[0];
+		const {json} = await createBuilder<{
+			code: string;
+			errors: Array<{
+				path: string;
+				code: string;
+			}>;
+		}>(harness, owner.token)
+			.put(`/guilds/${guild.id}/bans/${member.userId}`)
+			.body('{not json')
+			.expect(HTTP_STATUS.BAD_REQUEST)
+			.executeWithResponse();
+		expect(json.code).toBe(APIErrorCodes.INVALID_FORM_BODY);
+		const bodyError = json.errors.find((entry) => entry.path === 'body');
+		expect(bodyError).toBeDefined();
+		expect(bodyError?.code).toBe(ValidationErrorCodes.INVALID_FORMAT);
+		const bans = await createBuilder<Array<GuildBanResponse>>(harness, owner.token)
+			.get(`/guilds/${guild.id}/bans`)
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		expect(bans.find((entry) => entry.user.id === member.userId)).toBeUndefined();
+	});
+	test('should disallow banning nonexistent user from guild', async () => {
+		const {owner, guild} = await setupTestGuildWithMembers(harness, 1);
+		const nonExistentId = '1234567890123456789';
+		await createBuilder(harness, owner.token)
+			.put(`/guilds/${guild.id}/bans/${nonExistentId}`)
+			.body({})
+			.expect(HTTP_STATUS.NOT_FOUND)
+			.execute();
+	});
+	test('should fall back to audit log reason header when ban reason is omitted', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const member = members[0];
+		const auditLogReason = 'Header fallback guild ban reason';
+		await createBuilder(harness, owner.token)
+			.put(`/guilds/${guild.id}/bans/${member.userId}`)
+			.header('X-Audit-Log-Reason', auditLogReason)
+			.body({})
+			.expect(HTTP_STATUS.NO_CONTENT)
+			.execute();
+		const bans = await createBuilder<Array<GuildBanResponse>>(harness, owner.token)
+			.get(`/guilds/${guild.id}/bans`)
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		const ban = bans.find((entry) => entry.user.id === member.userId);
+		expect(ban).toBeDefined();
+		expect(ban?.reason).toBe(auditLogReason);
+	});
+	test('should require BAN_MEMBERS to ban members', async () => {
+		const {members, guild} = await setupTestGuildWithMembers(harness, 2);
+		const [member1, member2] = members;
+		await createBuilder(harness, member1.token)
+			.put(`/guilds/${guild.id}/bans/${member2.userId}`)
+			.body({})
+			.expect(HTTP_STATUS.FORBIDDEN)
+			.execute();
+	});
+	test('should not allow member to ban themselves', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const member = members[0];
+		const modRole = await createRole(harness, owner.token, guild.id, {
+			name: 'Moderator',
+			permissions: Permissions.BAN_MEMBERS.toString(),
+		});
+		await addMemberRole(harness, owner.token, guild.id, member.userId, modRole.id);
+		await createBuilder(harness, member.token)
+			.put(`/guilds/${guild.id}/bans/${member.userId}`)
+			.body({})
+			.expect(HTTP_STATUS.NOT_FOUND)
+			.execute();
+	});
+	test('should prevent a timed-out member from changing their own nickname', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const [member] = members;
+		const timeoutUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+		await createBuilder(harness, owner.token)
+			.patch(`/guilds/${guild.id}/members/${member.userId}`)
+			.body({communication_disabled_until: timeoutUntil})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		await createBuilder(harness, member.token)
+			.patch(`/guilds/${guild.id}/members/@me`)
+			.body({nick: 'While Timed Out'})
+			.expect(HTTP_STATUS.FORBIDDEN)
+			.execute();
+		const fetched = await getMember(harness, owner.token, guild.id, member.userId);
+		expect(fetched.nick).toBeNull();
+	});
+	test('should still allow a moderator to change a timed-out member nickname', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const [member] = members;
+		const timeoutUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+		await createBuilder(harness, owner.token)
+			.patch(`/guilds/${guild.id}/members/${member.userId}`)
+			.body({communication_disabled_until: timeoutUntil})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		const updated = await createBuilder<GuildMemberResponse>(harness, owner.token)
+			.patch(`/guilds/${guild.id}/members/${member.userId}`)
+			.body({nick: 'Moderator Set'})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		expect(updated.nick).toBe('Moderator Set');
+	});
+	test('should clear a timeout when communication_disabled_until is an empty string', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const member = members[0];
+		const timeoutUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+		const timedOutMember = await createBuilder<GuildMemberResponse>(harness, owner.token)
+			.patch(`/guilds/${guild.id}/members/${member.userId}`)
+			.body({
+				communication_disabled_until: timeoutUntil,
+				timeout_reason: 'Compatibility test timeout',
+			})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		expect(timedOutMember.communication_disabled_until).toBe(timeoutUntil);
+		const clearedMember = await createBuilder<GuildMemberResponse>(harness, owner.token)
+			.patch(`/guilds/${guild.id}/members/${member.userId}`)
+			.body({
+				communication_disabled_until: '',
+			})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		expect(clearedMember.communication_disabled_until).toBeNull();
+	});
+	test('should ignore invalid role IDs when updating a member', async () => {
+		const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+		const member = members[0];
+		const validRole = await createRole(harness, owner.token, guild.id, {
+			name: 'Valid Role',
+		});
+		const invalidRoleId = '999999999999999998';
+		const updatedMember = await createBuilder<GuildMemberResponse>(harness, owner.token)
+			.patch(`/guilds/${guild.id}/members/${member.userId}`)
+			.body({roles: [validRole.id, invalidRoleId]})
+			.expect(HTTP_STATUS.OK)
+			.execute();
+		expect(updatedMember.roles).toContain(validRole.id);
+		expect(updatedMember.roles).not.toContain(invalidRoleId);
+	});
+	describe('List Members Permission Checks', () => {
+		test('should reject non-member from listing guild members', async () => {
+			const {guild} = await setupTestGuildWithMembers(harness, 1);
+			const nonMember = await createTestAccount(harness);
+			await createBuilder(harness, nonMember.token)
+				.get(`/guilds/${guild.id}/members`)
+				.expect(HTTP_STATUS.NOT_FOUND)
+				.execute();
+		});
+		test('should support limit parameter for listing members', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 3);
+			const expectedIds = sortSnowflakes([owner.userId, ...members.map((member) => member.userId)]);
+			const firstPage = await createBuilder<Array<GuildMemberResponse>>(harness, owner.token)
+				.get(`/guilds/${guild.id}/members?limit=2`)
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(firstPage.map((entry) => entry.user.id)).toEqual(expectedIds.slice(0, 2));
+			const secondPage = await createBuilder<Array<GuildMemberResponse>>(harness, owner.token)
+				.get(`/guilds/${guild.id}/members?limit=2&after=${firstPage[1]!.user.id}`)
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(secondPage.map((entry) => entry.user.id)).toEqual(expectedIds.slice(2));
+		});
+	});
+	describe('Get Member Permission Checks', () => {
+		test('should reject non-member from getting member info', async () => {
+			const {members, guild} = await setupTestGuildWithMembers(harness, 1);
+			const nonMember = await createTestAccount(harness);
+			await createBuilder(harness, nonMember.token)
+				.get(`/guilds/${guild.id}/members/${members[0].userId}`)
+				.expect(HTTP_STATUS.NOT_FOUND)
+				.execute();
+		});
+	});
+	describe('Update Member Nick Permission Checks', () => {
+		test('should block banned profile substrings in community profile bio and pronouns', async () => {
+			const {members, guild} = await setupTestGuildWithMembers(harness, 1);
+			const member = members[0];
+			await ensureSessionStarted(harness, member.token);
+			await grantPremium(harness, member.userId, 2);
+			profileSubstringBlocklistCache.add('bio', 'blockedslug');
+			profileSubstringBlocklistCache.add('pronouns', 'blockedslug');
+			await createBuilder(harness, member.token)
+				.patch(`/guilds/${guild.id}/members/@me`)
+				.body({bio: 'community bio with blockedslug'})
+				.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.CONTENT_BLOCKED)
+				.execute();
+			await createBuilder(harness, member.token)
+				.patch(`/guilds/${guild.id}/members/@me`)
+				.body({pronouns: 'blockedslug'})
+				.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.CONTENT_BLOCKED)
+				.execute();
+		});
+		test('should ignore a disallowed self nickname change while still updating other profile fields', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+			const member = members[0];
+			await ensureSessionStarted(harness, member.token);
+			await grantPremium(harness, member.userId, 2);
+			await createBuilder(harness, owner.token)
+				.patch(`/guilds/${guild.id}/roles/${guild.id}`)
+				.body({
+					permissions: (Permissions.VIEW_CHANNEL | Permissions.SEND_MESSAGES).toString(),
+				})
+				.execute();
+			const updatedMember = await createBuilder<GuildMemberResponse>(harness, member.token)
+				.patch(`/guilds/${guild.id}/members/@me`)
+				.body({nick: 'Ignored Nick', avatar: getPngDataUrl()})
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(updatedMember.nick ?? null).toBeNull();
+			expect(updatedMember.avatar).toBeTruthy();
+		});
+	});
+	describe('Kick Member Permission Checks', () => {
+		test('should not allow member to kick someone with higher role', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 2);
+			const [moderator, target] = members;
+			const modRole = await createRole(harness, owner.token, guild.id, {
+				name: 'Moderator',
+				permissions: Permissions.KICK_MEMBERS.toString(),
+			});
+			const targetRole = await createRole(harness, owner.token, guild.id, {
+				name: 'Target Role',
+			});
+			await updateRolePositions(harness, owner.token, guild.id, [
+				{id: targetRole.id, position: 3},
+				{id: modRole.id, position: 2},
+			]);
+			await addMemberRole(harness, owner.token, guild.id, moderator.userId, modRole.id);
+			await addMemberRole(harness, owner.token, guild.id, target.userId, targetRole.id);
+			await createBuilder(harness, moderator.token)
+				.delete(`/guilds/${guild.id}/members/${target.userId}`)
+				.expect(HTTP_STATUS.FORBIDDEN)
+				.execute();
+		});
+		test('should not allow member to kick themselves', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+			const member = members[0];
+			const modRole = await createRole(harness, owner.token, guild.id, {
+				name: 'Moderator',
+				permissions: Permissions.KICK_MEMBERS.toString(),
+			});
+			await addMemberRole(harness, owner.token, guild.id, member.userId, modRole.id);
+			await createBuilder(harness, member.token)
+				.delete(`/guilds/${guild.id}/members/${member.userId}`)
+				.expect(HTTP_STATUS.NOT_FOUND)
+				.execute();
+		});
+	});
+	describe('Voice Mute and Deafen Permission Checks', () => {
+		test('should not allow member with MUTE_MEMBERS only to deafen a member', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 2);
+			const [moderator, target] = members;
+			const modRole = await createRole(harness, owner.token, guild.id, {
+				name: 'Muter',
+				permissions: Permissions.MUTE_MEMBERS.toString(),
+			});
+			await addMemberRole(harness, owner.token, guild.id, moderator.userId, modRole.id);
+			await createBuilder(harness, moderator.token)
+				.patch(`/guilds/${guild.id}/members/${target.userId}`)
+				.body({deaf: true})
+				.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.MISSING_PERMISSIONS)
+				.execute();
+		});
+		test('should not allow member with DEAFEN_MEMBERS only to mute a member', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 2);
+			const [moderator, target] = members;
+			const modRole = await createRole(harness, owner.token, guild.id, {
+				name: 'Deafener',
+				permissions: Permissions.DEAFEN_MEMBERS.toString(),
+			});
+			await addMemberRole(harness, owner.token, guild.id, moderator.userId, modRole.id);
+			await createBuilder(harness, moderator.token)
+				.patch(`/guilds/${guild.id}/members/${target.userId}`)
+				.body({mute: true})
+				.expect(HTTP_STATUS.FORBIDDEN, APIErrorCodes.MISSING_PERMISSIONS)
+				.execute();
+		});
+	});
+	describe('Member Avatar Upload Validation', () => {
+		test('should reject member avatar upload without premium', async () => {
+			const {members, guild} = await setupTestGuildWithMembers(harness, 1);
+			const member = members[0];
+			await ensureSessionStarted(harness, member.token);
+			const memberInfo = await createBuilder<GuildMemberResponse>(harness, member.token)
+				.patch(`/guilds/${guild.id}/members/@me`)
+				.body({avatar: getPngDataUrl()})
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(memberInfo.avatar).toBeNull();
+		});
+	});
+	describe('Member Banner Upload Validation', () => {
+		test('should reject member banner upload without premium', async () => {
+			const {members, guild} = await setupTestGuildWithMembers(harness, 1);
+			const member = members[0];
+			await ensureSessionStarted(harness, member.token);
+			const memberInfo = await createBuilder<GuildMemberResponse>(harness, member.token)
+				.patch(`/guilds/${guild.id}/members/@me`)
+				.body({banner: getPngDataUrl()})
+				.expect(HTTP_STATUS.OK)
+				.execute();
+			expect(memberInfo.banner).toBeNull();
+		});
+	});
+	describe('Member Role Assignment/Removal', () => {
+		test('should not allow removing role higher than own highest role', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 2);
+			const [moderator, target] = members;
+			const highRole = await createRole(harness, owner.token, guild.id, {
+				name: 'High Role',
+				permissions: '0',
+			});
+			const modRole = await createRole(harness, owner.token, guild.id, {
+				name: 'Moderator',
+				permissions: '268435456',
+			});
+			await updateRolePositions(harness, owner.token, guild.id, [
+				{id: highRole.id, position: 3},
+				{id: modRole.id, position: 2},
+			]);
+			await updateMember(harness, owner.token, guild.id, moderator.userId, {
+				roles: [modRole.id],
+			});
+			await updateMember(harness, owner.token, guild.id, target.userId, {
+				roles: [highRole.id],
+			});
+			await createBuilder(harness, moderator.token)
+				.delete(`/guilds/${guild.id}/members/${target.userId}/roles/${highRole.id}`)
+				.expect(HTTP_STATUS.FORBIDDEN)
+				.execute();
+		});
+		test('should not allow member without MANAGE_ROLES to remove roles', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 2);
+			const [member1, member2] = members;
+			const role = await createRole(harness, owner.token, guild.id, {
+				name: 'Test Role',
+			});
+			await addMemberRole(harness, owner.token, guild.id, member2.userId, role.id);
+			await createBuilder(harness, member1.token)
+				.delete(`/guilds/${guild.id}/members/${member2.userId}/roles/${role.id}`)
+				.expect(HTTP_STATUS.FORBIDDEN)
+				.execute();
+		});
+	});
+});

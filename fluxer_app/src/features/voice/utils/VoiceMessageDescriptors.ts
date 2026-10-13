@@ -1,0 +1,475 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {CAMERA_DESCRIPTOR} from '@app/features/i18n/utils/CommonMessageDescriptors';
+import {
+	resolveEffectiveScreenShareDimensions,
+	type ScreenShareTarget,
+} from '@app/features/voice/utils/ScreenShareOptions';
+import {
+	getVoiceAudioDeviceMetadata,
+	type VoiceAudioDefaultDevicePlatform,
+} from '@app/features/voice/utils/VoiceDeviceManager';
+import {SCREEN_SHARE_STATUS_SOURCE_RESOLUTION_DESCRIPTOR} from '@app/features/voice/utils/VoiceSharedMessageDescriptors';
+import type {I18n} from '@lingui/core';
+import {msg} from '@lingui/core/macro';
+
+const WINDOWS_DEFAULT_AUDIO_DEVICE_DESCRIPTOR = msg({
+	message: 'Windows default',
+	comment: 'Audio device label prefix for the operating system default audio device on Windows.',
+});
+const MACOS_DEFAULT_AUDIO_DEVICE_DESCRIPTOR = msg({
+	message: 'macOS default',
+	comment: 'Audio device label prefix for the operating system default audio device on macOS.',
+});
+const LINUX_DEFAULT_AUDIO_DEVICE_DESCRIPTOR = msg({
+	message: 'Linux default',
+	comment: 'Audio device label prefix for the operating system default audio device on Linux.',
+});
+const BROWSER_DEFAULT_AUDIO_DEVICE_DESCRIPTOR = msg({
+	message: 'Browser default',
+	comment: 'Audio device label prefix for the browser-managed default audio device.',
+});
+const DEFAULT_AUDIO_DEVICE_WITH_ENDPOINT_DESCRIPTOR = msg({
+	message: '{defaultDeviceLabel} ({endpointLabel})',
+	comment:
+		'Audio device label for a default route with the concrete microphone or speaker endpoint in parentheses. defaultDeviceLabel is already localized, for example "Windows Default".',
+});
+export const VOICE_CALL_DESCRIPTOR = msg({
+	message: 'Voice call',
+	comment: 'Short label for a voice call (lobby header, DM action, settings section).',
+});
+export const VOICE_MUTED_BY_MODERATORS_DESCRIPTOR = msg({
+	message: 'Muted by moderators',
+	comment:
+		'Voice chat status label. A moderator muted the user in this community, so they cannot speak but can still hear others.',
+});
+export const VOICE_NO_SPEAK_PERMISSION_DESCRIPTOR = msg({
+	message: "You can't speak in this channel",
+	comment: 'Voice control tooltip shown when channel permissions prevent the current user from speaking.',
+});
+const VOICE_PARTICIPANT_NO_SPEAK_PERMISSION_DESCRIPTOR = msg({
+	message: "This participant can't speak in this channel",
+	comment:
+		'Voice participant status tooltip shown when channel permissions or voice suppression prevent another participant from speaking.',
+});
+export const VOICE_DEAFENED_BY_MODERATORS_DESCRIPTOR = msg({
+	message: 'Deafened by moderators',
+	comment: 'Voice chat status label. A moderator deafened the user in this community, so they cannot hear voice chat.',
+});
+const VOICE_SELF_DEAFENED_BY_MODERATORS_DESCRIPTOR = msg({
+	message: 'You were deafened by moderators',
+	comment: 'Voice chat status tooltip for the current user. A moderator deafened them so they cannot hear voice chat.',
+});
+const VOICE_PARTICIPANT_DEAFENED_BY_MODERATORS_DESCRIPTOR = msg({
+	message: 'This participant was deafened by moderators',
+	comment:
+		'Voice participant status tooltip for another user. A moderator deafened that participant so they cannot hear voice chat.',
+});
+const VOICE_SELF_DEAFENED_STATUS_DESCRIPTOR = msg({
+	message: 'You are deafened',
+	comment: 'Voice participant status tooltip for the current user. They cannot hear voice chat. Distinct from muted.',
+});
+const VOICE_PARTICIPANT_DEAFENED_STATUS_DESCRIPTOR = msg({
+	message: 'This participant is deafened',
+	comment: 'Voice participant status tooltip for another user. They cannot hear voice chat. Distinct from muted.',
+});
+export const VOICE_DEAFEN_DESCRIPTOR = msg({
+	message: 'Deafen',
+	comment: 'Voice action label. Turns off what the user hears in voice chat. Distinct from microphone mute.',
+});
+export const VOICE_UNDEAFEN_DESCRIPTOR = msg({
+	message: 'Undeafen',
+	comment: 'Voice action label. Restores what the user hears in voice chat. Distinct from microphone unmute.',
+});
+export const VOICE_DISCONNECT_DESCRIPTOR = msg({
+	message: 'Disconnect',
+	comment: 'Voice action label. Leaves the current voice call or disconnects a user from voice chat.',
+});
+export const INCOMING_CALL_ACCEPT_ACTION_DESCRIPTOR = msg({
+	message: 'Accept',
+	context: 'incoming-call-action',
+	comment:
+		'Button label for accepting an incoming direct call. Means answering a ringing call, not approving a request.',
+});
+export const INCOMING_CALL_REJECT_ACTION_DESCRIPTOR = msg({
+	message: 'Reject',
+	comment: 'Button label for rejecting an incoming direct call.',
+});
+export const INCOMING_CALL_IGNORE_ACTION_DESCRIPTOR = msg({
+	message: 'Ignore',
+	comment: 'Button label for silencing an incoming direct call without joining.',
+});
+export const VOICE_DISCONNECT_DEVICE_DESCRIPTOR = msg({
+	message: 'Disconnect device',
+	comment: 'Voice menu action that disconnects one active device or session from voice chat.',
+});
+export const VOICE_DISCONNECT_ALL_DEVICES_DESCRIPTOR = msg({
+	message: 'Disconnect all devices',
+	comment: 'Voice menu action that disconnects every active device or session from voice chat.',
+});
+export const VOICE_MUTE_ALL_DEVICES_DESCRIPTOR = msg({
+	message: 'Mute all devices',
+	comment: "Voice menu action that mutes every device or session's microphone for this user.",
+});
+export const VOICE_UNMUTE_ALL_DEVICES_DESCRIPTOR = msg({
+	message: 'Unmute all devices',
+	comment: 'Voice menu action that unmutes every device or session for this user.',
+});
+export const VOICE_COMMUNITY_MUTE_DESCRIPTOR = msg({
+	message: 'Community mute',
+	comment: "Moderation voice menu label. Mutes a member's microphone in this community voice chat.",
+});
+export const VOICE_DEAFEN_SELF_DESCRIPTOR = msg({
+	message: 'Deafen yourself',
+	comment: 'Voice control label. Turns off what the current user hears in voice chat. Distinct from microphone mute.',
+});
+export const VOICE_UNDEAFEN_SELF_DESCRIPTOR = msg({
+	message: 'Undeafen yourself',
+	comment: 'Voice control label. Restores what the current user hears in voice chat. Distinct from microphone unmute.',
+});
+export const VOICE_DEAFEN_DEVICE_DESCRIPTOR = msg({
+	message: 'Deafen device',
+	comment:
+		'Voice menu action. Deafens one active device or session so it stops hearing voice audio. Distinct from muting its microphone.',
+});
+export const VOICE_DEAFEN_ALL_DEVICES_DESCRIPTOR = msg({
+	message: 'Deafen all devices',
+	comment: 'Voice menu action that deafens every device or session so this user cannot hear voice chat.',
+});
+export const VOICE_UNDEAFEN_ALL_DEVICES_DESCRIPTOR = msg({
+	message: 'Undeafen all devices',
+	comment: 'Voice menu action that restores voice audio on every device or session for this user.',
+});
+export const VOICE_COMMUNITY_DEAFEN_DESCRIPTOR = msg({
+	message: 'Community deafen',
+	comment:
+		'Moderation voice menu label. Makes a member unable to hear others in this community voice chat. Distinct from community mute.',
+});
+export const VOICE_TOGGLE_DEAFEN_DESCRIPTOR = msg({
+	message: 'Toggle deafen',
+	comment:
+		'Keyboard shortcut label. Toggles voice deafen, which controls whether the user hears voice chat. Distinct from microphone mute.',
+});
+export const VOICE_DEAFEN_SHORTCUT_DESCRIPTOR = msg({
+	message: 'Deafen shortcut',
+	comment:
+		'Settings label for the keyboard shortcut that toggles voice deafen. Deafen controls hearing voice chat, not microphone mute.',
+});
+export const VOICE_SET_DEAFEN_SHORTCUT_DESCRIPTOR = msg({
+	message: 'Set deafen shortcut',
+	comment:
+		'Settings description for assigning the keyboard shortcut that toggles voice deafen. Deafen controls hearing voice chat, not microphone mute.',
+});
+export const VOICE_DEAFEN_SOUND_DESCRIPTOR = msg({
+	message: 'Voice deafen',
+	comment:
+		'Notification sound label for the event where the user becomes deafened in voice chat. Distinct from voice mute.',
+});
+export const VOICE_UNDEAFEN_SOUND_DESCRIPTOR = msg({
+	message: 'Voice undeafen',
+	comment:
+		'Notification sound label for the event where the user is no longer deafened in voice chat. Distinct from voice unmute.',
+});
+export const VOICE_IN_CHAT_DESCRIPTOR = msg({
+	message: 'In voice chat',
+	comment: 'Short status label shown when the user is currently connected to voice chat.',
+});
+export const VOICE_INPUT_DEVICE_DESCRIPTOR = msg({
+	message: 'Input device',
+	comment: 'Voice settings label for selecting a microphone input device.',
+});
+export const VOICE_OUTPUT_DEVICE_DESCRIPTOR = msg({
+	message: 'Output device',
+	comment: 'Voice settings label for selecting a speaker or output device.',
+});
+export const VOICE_INPUT_VOLUME_DESCRIPTOR = msg({
+	message: 'Input volume',
+	comment: 'Voice settings slider label for microphone volume.',
+});
+export const VOICE_OUTPUT_VOLUME_DESCRIPTOR = msg({
+	message: 'Output volume',
+	comment: 'Voice settings slider label for speaker or output volume.',
+});
+export const VOICE_FOCUSED_VOICE_PROFILE_DESCRIPTOR = msg({
+	message: 'Focused voice',
+	comment: 'Voice input processing profile optimized for spoken voice.',
+});
+export const VOICE_DIRECT_INPUT_PROFILE_DESCRIPTOR = msg({
+	message: 'Direct input',
+	comment: 'Voice input processing profile with raw microphone audio.',
+});
+export const VOICE_NOISE_SUPPRESSION_DESCRIPTOR = msg({
+	message: 'Noise suppression',
+	comment: 'Voice setting label for microphone background-noise filtering.',
+});
+export const VOICE_ECHO_CANCELLATION_DESCRIPTOR = msg({
+	message: 'Echo cancellation',
+	comment: 'Voice setting label for preventing speaker audio from feeding into the microphone.',
+});
+export const VOICE_AUTOMATIC_GAIN_CONTROL_DESCRIPTOR = msg({
+	message: 'Automatic gain control',
+	comment: 'Voice setting label for automatically evening out microphone volume.',
+});
+export const VOICE_TURN_ON_CAMERA_DESCRIPTOR = msg({
+	message: 'Turn on camera',
+	comment: 'Voice control button or tooltip label for enabling the camera.',
+});
+export const VOICE_SHARE_SCREEN_DESCRIPTOR = msg({
+	message: 'Share your screen',
+	comment: 'Voice control button or tooltip label for starting screen sharing.',
+});
+export const VOICE_INPUT_SETTINGS_DESCRIPTOR = msg({
+	message: 'Input settings',
+	comment: 'Voice control dropdown label or menu item for microphone input settings.',
+});
+export const VOICE_OUTPUT_SETTINGS_DESCRIPTOR = msg({
+	message: 'Output settings',
+	comment: 'Voice control dropdown label or menu item for speaker/output settings.',
+});
+export const VOICE_CAMERA_SETTINGS_DESCRIPTOR = msg({
+	message: 'Camera settings',
+	comment: 'Voice control dropdown label or menu item for camera settings.',
+});
+export const VOICE_SCREEN_SHARE_SETTINGS_DESCRIPTOR = msg({
+	message: 'Screen share settings',
+	comment: 'Voice control dropdown label or menu item for screen sharing and stream quality settings.',
+});
+export const VOICE_STOP_WATCHING_DESCRIPTOR = msg({
+	message: 'Stop watching',
+	comment: 'Voice control action for stopping the currently focused or selected stream.',
+});
+export const VOICE_USER_VOLUME_DESCRIPTOR = msg({
+	message: 'User volume',
+	comment: 'Voice menu slider label for the saved volume of a specific user.',
+});
+const VOICE_VIDEO_SETTINGS_MENU_DESCRIPTOR = msg({
+	message: 'Voice & video settings',
+	comment: 'Voice menu item that opens the user settings tab for microphone, speaker, camera, and call stats.',
+});
+const OPEN_VOICE_VIDEO_SETTINGS_DESCRIPTOR = msg({
+	message: 'Open voice & video settings',
+	comment: 'Accessible button label that opens the user settings tab for microphone, speaker, camera, and call stats.',
+});
+
+export function getVoiceVideoSettingsLabel(i18n: I18n): string {
+	return i18n._(VOICE_VIDEO_SETTINGS_MENU_DESCRIPTOR);
+}
+
+export function getOpenVoiceVideoSettingsLabel(i18n: I18n): string {
+	return i18n._(OPEN_VOICE_VIDEO_SETTINGS_DESCRIPTOR);
+}
+
+export function getVoiceNoSpeakPermissionLabel(i18n: I18n, isCurrentUser: boolean): string {
+	return i18n._(
+		isCurrentUser ? VOICE_NO_SPEAK_PERMISSION_DESCRIPTOR : VOICE_PARTICIPANT_NO_SPEAK_PERMISSION_DESCRIPTOR,
+	);
+}
+
+export function getVoiceDeafenedByModeratorsStatusLabel(i18n: I18n, isCurrentUser: boolean): string {
+	return i18n._(
+		isCurrentUser ? VOICE_SELF_DEAFENED_BY_MODERATORS_DESCRIPTOR : VOICE_PARTICIPANT_DEAFENED_BY_MODERATORS_DESCRIPTOR,
+	);
+}
+
+export function getVoiceDeafenedStatusLabel(i18n: I18n, isCurrentUser: boolean): string {
+	return i18n._(isCurrentUser ? VOICE_SELF_DEAFENED_STATUS_DESCRIPTOR : VOICE_PARTICIPANT_DEAFENED_STATUS_DESCRIPTOR);
+}
+
+export function formatFallbackCameraLabel(i18n: I18n): string {
+	return i18n._(CAMERA_DESCRIPTOR);
+}
+
+function getDefaultAudioDeviceLabel(i18n: I18n, platform: VoiceAudioDefaultDevicePlatform): string {
+	switch (platform) {
+		case 'windows':
+			return i18n._(WINDOWS_DEFAULT_AUDIO_DEVICE_DESCRIPTOR);
+		case 'macos':
+			return i18n._(MACOS_DEFAULT_AUDIO_DEVICE_DESCRIPTOR);
+		case 'linux':
+			return i18n._(LINUX_DEFAULT_AUDIO_DEVICE_DESCRIPTOR);
+		case 'browser':
+			return i18n._(BROWSER_DEFAULT_AUDIO_DEVICE_DESCRIPTOR);
+	}
+}
+
+export function formatVoiceAudioDeviceLabel(i18n: I18n, device: MediaDeviceInfo, fallbackLabel: string): string {
+	const metadata = getVoiceAudioDeviceMetadata(device);
+	if (metadata?.role === 'default' && metadata.defaultPlatform) {
+		const defaultDeviceLabel = getDefaultAudioDeviceLabel(i18n, metadata.defaultPlatform);
+		return metadata.endpointLabel
+			? i18n._(DEFAULT_AUDIO_DEVICE_WITH_ENDPOINT_DESCRIPTOR, {
+					defaultDeviceLabel,
+					endpointLabel: metadata.endpointLabel,
+				})
+			: defaultDeviceLabel;
+	}
+	return device.label || fallbackLabel;
+}
+
+export const VOICE_CHANNEL_E2EE_ENCRYPTED_DESCRIPTOR = msg({
+	message: 'Microphone, camera, and screen share content are end-to-end encrypted.',
+	comment:
+		'Pre-join indicator shown beneath the Join button on a voice channel where every connected participant supports E2EE.',
+});
+export const VOICE_CALL_E2EE_ENCRYPTED_DESCRIPTOR = msg({
+	message: 'This call is end-to-end encrypted.',
+	comment:
+		'Pre-join indicator shown beneath the Join button on a DM or group DM call where every connected participant supports E2EE.',
+});
+export const VOICE_CHANNEL_E2EE_BROKEN_DESCRIPTOR = msg({
+	message: 'End-to-end encryption is unavailable because an unsupported participant is in this voice channel.',
+	comment:
+		'Pre-join indicator shown beneath the Join button on a voice channel where at least one connected participant (typically an outdated bot) does not support E2EE.',
+});
+export const VOICE_CALL_E2EE_BROKEN_DESCRIPTOR = msg({
+	message: 'End-to-end encryption is unavailable because an unsupported participant is in this call.',
+	comment:
+		'Pre-join indicator shown beneath the Join button on a DM or group DM call where at least one connected participant (typically an outdated bot) does not support E2EE.',
+});
+export const VOICE_P2P_INDICATOR_DESCRIPTOR = msg({
+	message: 'P2P',
+	comment:
+		'Short indicator shown beneath the Join button and in the call footer when the call is peer-to-peer. P2P means peer-to-peer: audio and video go directly between participants instead of through a server.',
+});
+export const VOICE_P2P_INDICATOR_TOOLTIP_DESCRIPTOR = msg({
+	message: 'Direct connection. Media is encrypted between participants.',
+	comment: 'Tooltip on the P2P indicator of a peer-to-peer call.',
+});
+export const VOICE_P2P_START_TITLE_DESCRIPTOR = msg({
+	message: 'Start in P2P mode?',
+	comment:
+		'Title of the dialog offering to start a call in peer-to-peer mode, where audio and video go directly between participants.',
+});
+export const VOICE_P2P_JOIN_TITLE_DESCRIPTOR = msg({
+	message: 'Join a P2P call?',
+	comment:
+		'Title of the dialog shown before joining a peer-to-peer call, where audio and video go directly between participants.',
+});
+export const VOICE_P2P_DIRECT_MEDIA_DESCRIPTOR = msg({
+	message: 'Audio and video go directly between participants.',
+	comment: 'Lead sentence of the P2P call dialog explaining peer-to-peer mode.',
+});
+export const VOICE_P2P_LOWER_LATENCY_DESCRIPTOR = msg({
+	message: 'Lower latency.',
+	comment: 'Bullet point in the P2P call dialog. A benefit of peer-to-peer mode.',
+});
+export const VOICE_P2P_STREAM_QUALITY_DESCRIPTOR = msg({
+	message: 'Everyone in the call gets Plutonium stream quality for free: up to 4K source resolution and 60 fps.',
+	comment:
+		'Bullet point in the P2P call dialog. Plutonium is the name of the paid subscription and must not be translated. 4K and fps are video terms.',
+});
+export const VOICE_P2P_IP_ADDRESS_DESCRIPTOR = msg({
+	message: 'Other participants can see your IP address.',
+	comment: 'Bullet point in the P2P call dialog. A privacy drawback of peer-to-peer mode.',
+});
+export const VOICE_P2P_MAX_PARTICIPANTS_DESCRIPTOR = msg({
+	message: 'Up to {maxParticipants, plural, one {# person} other {# people}}.',
+	comment:
+		'Bullet point in the P2P call dialog. maxParticipants is the participant cap of a peer-to-peer call, a number from 2 to 4.',
+});
+export const VOICE_P2P_CONNECT_DIRECTLY_DESCRIPTOR = msg({
+	message: 'Anyone who cannot connect directly cannot take part until someone switches the call to a standard call.',
+	comment:
+		'Bullet point in the P2P call dialog. Some networks block direct connections. A standard call goes through a server.',
+});
+export const VOICE_P2P_START_CONFIRM_DESCRIPTOR = msg({
+	message: 'Start in P2P mode',
+	comment: 'Primary button in the dialog offering to start a call in peer-to-peer mode.',
+});
+export const VOICE_P2P_START_STANDARD_DESCRIPTOR = msg({
+	message: 'Start standard call',
+	comment:
+		'Button in the dialog offering to start a call in peer-to-peer mode. Starts an ordinary call that goes through a server instead.',
+});
+export const VOICE_P2P_JOIN_CONFIRM_DESCRIPTOR = msg({
+	message: 'Join',
+	comment: 'Primary button in the dialog shown before joining a peer-to-peer call.',
+	context: 'voice-p2p-consent',
+});
+export const VOICE_P2P_ALWAYS_AGREE_DESCRIPTOR = msg({
+	message: 'Do not ask again, always agree',
+	comment:
+		'Checkbox in the dialog shown before joining a peer-to-peer call. When checked, future joins skip the dialog.',
+});
+export const VOICE_P2P_ALWAYS_AGREE_SETTING_DESCRIPTOR = msg({
+	message: 'Join P2P calls without asking',
+	comment:
+		'Switch label in the keyboard accessibility settings. When on, joining a peer-to-peer call skips the confirmation dialog.',
+});
+export const VOICE_P2P_ALWAYS_AGREE_SETTING_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Other participants in a P2P call can see your IP address.',
+	comment: 'Description under the switch that skips the confirmation dialog before joining a peer-to-peer call.',
+});
+export const VOICE_P2P_SWITCH_TO_STANDARD_DESCRIPTOR = msg({
+	message: 'Switch to standard call',
+	comment:
+		'Action that converts the current peer-to-peer call into an ordinary call that goes through a server. Everyone in the call moves over.',
+});
+export const VOICE_P2P_START_CALL_DESCRIPTOR = msg({
+	message: 'Start P2P call',
+	comment:
+		'Context-menu action on an empty voice channel that starts a peer-to-peer call there, where audio and video go directly between participants.',
+});
+export const VOICE_P2P_PEER_FAILED_TITLE_DESCRIPTOR = msg({
+	message: "Couldn't connect to {names}",
+	comment:
+		'Title of the dialog shown when a direct connection to one or more participants of a peer-to-peer call failed. names is a localized list of display names.',
+});
+export const VOICE_P2P_PEER_FAILED_DESCRIPTION_DESCRIPTOR = msg({
+	message: "A direct connection couldn't be made. You can't hear or see each other.",
+	comment: 'Body of the dialog shown when a direct connection to a participant of a peer-to-peer call failed.',
+});
+export const VOICE_P2P_PEER_FAILED_SWITCH_HINT_DESCRIPTOR = msg({
+	message: 'A standard call goes through a server and works for everyone.',
+	comment:
+		'Second sentence of the peer-to-peer connection failure dialog, shown when the call can be switched to an ordinary call.',
+});
+export const VOICE_P2P_STAY_DESCRIPTOR = msg({
+	message: 'Stay',
+	comment:
+		'Button in the peer-to-peer connection failure dialog that closes the dialog and keeps the user in the call with the participants they can reach.',
+});
+export const VOICE_P2P_UNAVAILABLE_DESCRIPTOR = msg({
+	message: 'P2P calls are unavailable right now.',
+	comment: 'Error shown when the server refuses to start or join a peer-to-peer call.',
+});
+export const VOICE_P2P_CONSENT_REQUIRED_DESCRIPTOR = msg({
+	message: "Couldn't join the P2P call. Try again.",
+	comment: 'Error shown when the server refused to join a peer-to-peer call even though the user agreed to it.',
+});
+export const CHANNEL_RTC_P2P_SETTING_DESCRIPTOR = msg({
+	message: 'P2P calls only',
+	comment:
+		'Switch label in voice channel settings. When on, every call in this channel is peer-to-peer, where audio and video go directly between participants.',
+});
+export const CHANNEL_RTC_P2P_SETTING_DESCRIPTION_DESCRIPTOR = msg({
+	message:
+		"Audio and video go directly between participants, up to {maxParticipants, plural, one {# person} other {# people}}. Everyone agrees before joining and can see each other's IP address.",
+	comment:
+		'Description under the P2P calls only switch in voice channel settings. maxParticipants is the participant cap, a number from 2 to 4.',
+});
+
+const RESOLUTION_LABEL_HEIGHTS = [480, 720, 1080, 1440, 2160];
+const RESOLUTION_LABEL_ASPECT = 16 / 9;
+const RESOLUTION_LABEL_ASPECT_TOLERANCE = 0.01;
+
+function formatScreenShareResolutionLabel(width: number, height: number): string {
+	const matchesAspect = Math.abs(width / height / RESOLUTION_LABEL_ASPECT - 1) <= RESOLUTION_LABEL_ASPECT_TOLERANCE;
+	if (matchesAspect && RESOLUTION_LABEL_HEIGHTS.includes(height)) {
+		return `${height}p`;
+	}
+	return `${width}×${height}`;
+}
+
+const SCREEN_SHARE_SOURCE_BOX = resolveEffectiveScreenShareDimensions('source', null);
+
+export function formatScreenShareTargetLabel(i18n: I18n, target: ScreenShareTarget): string {
+	if (
+		target.resolution === 'source' &&
+		target.width === SCREEN_SHARE_SOURCE_BOX.width &&
+		target.height === SCREEN_SHARE_SOURCE_BOX.height
+	) {
+		return i18n._(SCREEN_SHARE_STATUS_SOURCE_RESOLUTION_DESCRIPTOR);
+	}
+	return formatScreenShareResolutionLabel(target.width, target.height);
+}

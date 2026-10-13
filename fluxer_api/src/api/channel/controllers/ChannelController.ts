@@ -1,0 +1,404 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {requireSudoMode} from '@app/api/auth/services/SudoVerificationService';
+import {createChannelID, createUserID} from '@app/api/BrandedTypes';
+import {GatedJsonValidator} from '@app/api/channel/threads/GatedJsonValidator';
+import {viewerActive, viewerFromCtx} from '@app/api/experiment/ChannelThreadsGate';
+import {DefaultUserOnly, LoginRequired} from '@app/api/middleware/AuthMiddleware';
+import {GroupDmRecipientAddProtectionMiddleware} from '@app/api/middleware/GroupDmProtectionMiddleware';
+import {RateLimitMiddleware} from '@app/api/middleware/RateLimitMiddleware';
+import {OpenAPI} from '@app/api/middleware/ResponseTypeMiddleware';
+import {SudoModeMiddleware} from '@app/api/middleware/SudoModeMiddleware';
+import {RateLimitConfigs} from '@app/api/RateLimitConfig';
+import type {HonoApp, HonoEnv} from '@app/api/types/HonoEnv';
+import {lookupGeoip} from '@app/api/utils/IpUtils';
+import {Validator} from '@app/api/Validator';
+import {ANNOUNCEMENT_CONVERTIBLE_CHANNEL_TYPES} from '@fluxer/constants/src/ChannelConstants';
+import {TEXT_THREAD_PARENT_CHANNEL_TYPES, THREAD_ONLY_CHANNEL_TYPES} from '@fluxer/constants/src/ThreadConstants';
+import {ChannelTypeConversionNotSupportedError} from '@fluxer/errors/src/domains/channel/ChannelTypeConversionNotSupportedError';
+import {UnknownChannelError} from '@fluxer/errors/src/domains/channel/UnknownChannelError';
+import {isRecord} from '@fluxer/record_utils/src/RecordGuards';
+import {SudoVerificationSchema} from '@fluxer/schema/src/domains/auth/AuthSchemas';
+import {
+	ChannelUpdateGatedRequest,
+	ChannelUpdateRequest,
+	ChannelUpdateRequestBody,
+	DeleteChannelQuery,
+	PermissionOverwriteCreateRequest,
+} from '@fluxer/schema/src/domains/channel/ChannelRequestSchemas';
+import {
+	ChannelResponse,
+	ChannelSlowmodeStateResponse,
+	RtcRegionListResponse,
+} from '@fluxer/schema/src/domains/channel/ChannelSchemas';
+import {
+	ChannelIdOverwriteIdParam,
+	ChannelIdParam,
+	ChannelIdUserIdParam,
+} from '@fluxer/schema/src/domains/common/CommonParamSchemas';
+import type {Context} from 'hono';
+
+const THREAD_PARENT_DEFAULT_KEYS = ['default_auto_archive_duration', 'default_thread_rate_limit_per_user'];
+
+export function ChannelController(app: HonoApp) {
+	app.get(
+		'/channels/:channel_id',
+		RateLimitMiddleware(RateLimitConfigs.CHANNEL_GET),
+		LoginRequired,
+		Validator('param', ChannelIdParam),
+		OpenAPI({
+			operationId: 'get_channel',
+			summary: 'Fetch a channel',
+			description:
+				'Retrieves the channel object including metadata, member list, and settings. Requires the user to be a member of the channel with view permissions.',
+			responseSchema: ChannelResponse,
+			statusCode: 200,
+			security: ['botToken', 'bearerToken', 'sessionToken'],
+			tags: 'Channels',
+		}),
+		async (ctx) => {
+			const userId = ctx.get('user').id;
+			const channelId = createChannelID(ctx.req.valid('param').channel_id);
+			const requestCache = ctx.get('requestCache');
+			const channelRequestService = ctx.get('channelRequestService');
+			return ctx.json(
+				await channelRequestService.getChannelResponse({viewer: viewerFromCtx(ctx), userId, channelId, requestCache}),
+			);
+		},
+	);
+	app.get(
+		'/channels/:channel_id/slowmode',
+		RateLimitMiddleware(RateLimitConfigs.CHANNEL_GET),
+		LoginRequired,
+		Validator('param', ChannelIdParam),
+		OpenAPI({
+			operationId: 'get_channel_slowmode_state',
+			summary: 'Fetch slowmode state',
+			description:
+				'Returns the current slowmode rate-limit state for the calling user in this channel, including the configured interval and the time at which they are next allowed to send a message. Lets clients restore slowmode countdowns across devices without relying on local persistence.',
+			responseSchema: ChannelSlowmodeStateResponse,
+			statusCode: 200,
+			security: ['botToken', 'bearerToken', 'sessionToken'],
+			tags: 'Channels',
+		}),
+		async (ctx) => {
+			const user = ctx.get('user');
+			const channelId = createChannelID(ctx.req.valid('param').channel_id);
+			const channelRequestService = ctx.get('channelRequestService');
+			return ctx.json(await channelRequestService.getSlowmodeState({viewer: viewerFromCtx(ctx), user, channelId}));
+		},
+	);
+	app.get(
+		'/channels/:channel_id/rtc-regions',
+		RateLimitMiddleware(RateLimitConfigs.CHANNEL_GET),
+		LoginRequired,
+		DefaultUserOnly,
+		Validator('param', ChannelIdParam),
+		OpenAPI({
+			operationId: 'list_rtc_regions',
+			summary: 'List RTC regions',
+			description:
+				'Returns available voice and video calling regions for the channel, used to optimise connection quality. Requires membership with call permissions.',
+			responseSchema: RtcRegionListResponse,
+			statusCode: 200,
+			security: ['bearerToken', 'sessionToken'],
+			tags: 'Channels',
+		}),
+		async (ctx) => {
+			const userId = ctx.get('user').id;
+			const channelId = createChannelID(ctx.req.valid('param').channel_id);
+			const channelRequestService = ctx.get('channelRequestService');
+			return ctx.json(await channelRequestService.listRtcRegions({viewer: viewerFromCtx(ctx), userId, channelId}));
+		},
+	);
+	app.patch(
+		'/channels/:channel_id',
+		RateLimitMiddleware(RateLimitConfigs.CHANNEL_UPDATE),
+		LoginRequired,
+		Validator('param', ChannelIdParam, {
+			post: async (result, ctx: Context<HonoEnv>) => {
+				if (!result.success) {
+					return undefined;
+				}
+				const channelId = createChannelID(result.data.channel_id);
+				const existing = await ctx.get('channelService').channelData.operations.getChannel({
+					viewer: viewerFromCtx(ctx),
+					userId: ctx.get('user').id,
+					channelId,
+					skipNsfwValidation: true,
+				});
+				ctx.set('channelUpdateType', existing.type);
+				ctx.set('channelUpdateGuildId', existing.guildId?.toString());
+				return undefined;
+			},
+		}),
+		GatedJsonValidator(ChannelUpdateRequest, ChannelUpdateGatedRequest, {
+			pre: async (raw: unknown, ctx: Context<HonoEnv>) => {
+				const channelType = ctx.get('channelUpdateType');
+				if (channelType === undefined) {
+					throw new UnknownChannelError();
+				}
+				const body = isRecord(raw) ? raw : {};
+				const requestedType = body.type;
+				if (
+					requestedType === undefined ||
+					requestedType === null ||
+					requestedType === channelType ||
+					!ANNOUNCEMENT_CONVERTIBLE_CHANNEL_TYPES.has(channelType)
+				) {
+					return {...body, type: channelType};
+				}
+				if (typeof requestedType !== 'number' || !ANNOUNCEMENT_CONVERTIBLE_CHANNEL_TYPES.has(requestedType)) {
+					throw new ChannelTypeConversionNotSupportedError();
+				}
+				return {...body, type: requestedType};
+			},
+			touchesGate: (body, ctx) => {
+				const channelType = ctx.get('channelUpdateType');
+				if (channelType === undefined) return false;
+				if (THREAD_ONLY_CHANNEL_TYPES.has(channelType)) return true;
+				return (
+					TEXT_THREAD_PARENT_CHANNEL_TYPES.has(channelType) &&
+					isRecord(body) &&
+					THREAD_PARENT_DEFAULT_KEYS.some((key) => body[key] !== undefined)
+				);
+			},
+			active: (ctx) => {
+				const guildId = ctx.get('channelUpdateGuildId');
+				return guildId !== undefined && viewerActive(viewerFromCtx(ctx), guildId);
+			},
+		}),
+		OpenAPI({
+			operationId: 'update_channel',
+			requestSchema: ChannelUpdateRequestBody,
+			summary: 'Update channel settings',
+			description:
+				'Modifies channel properties such as name, description, topic, nsfw flag, and slowmode. Requires management permissions in the channel.',
+			responseSchema: ChannelResponse,
+			statusCode: 200,
+			security: ['botToken', 'bearerToken', 'sessionToken'],
+			tags: 'Channels',
+		}),
+		async (ctx) => {
+			const userId = ctx.get('user').id;
+			const channelId = createChannelID(ctx.req.valid('param').channel_id);
+			const data = ctx.req.valid('json');
+			const existingType = ctx.get('channelUpdateType');
+			const typeConversion =
+				existingType !== undefined && data.type !== existingType ? {from: existingType, to: data.type} : null;
+			const clientFeatures = ctx.get('clientFeatures');
+			const requestCache = ctx.get('requestCache');
+			const auditLogReason = ctx.get('auditLogReason') ?? null;
+			const channelRequestService = ctx.get('channelRequestService');
+			const {countryCode} = await lookupGeoip(ctx.req.raw);
+			return ctx.json(
+				await channelRequestService.updateChannel({
+					viewer: viewerFromCtx(ctx),
+					userId,
+					channelId,
+					data,
+					clientFeatures,
+					requestCache,
+					auditLogReason,
+					typeConversion,
+					countryCode,
+				}),
+			);
+		},
+	);
+	app.delete(
+		'/channels/:channel_id',
+		RateLimitMiddleware(RateLimitConfigs.CHANNEL_DELETE),
+		LoginRequired,
+		Validator('param', ChannelIdParam),
+		Validator('query', DeleteChannelQuery),
+		SudoModeMiddleware,
+		Validator('json', SudoVerificationSchema),
+		OpenAPI({
+			operationId: 'delete_channel',
+			summary: 'Delete a channel',
+			description:
+				"Permanently removes a channel and all its content. Only server administrators or the channel owner can delete channels. When `delete_messages` is set on a group DM, the caller's authored messages in the group are deleted before leaving and sudo mode verification is required.",
+			requestSchema: SudoVerificationSchema,
+			requestBodyRequired: false,
+			responseSchema: null,
+			statusCode: 204,
+			security: ['botToken', 'bearerToken', 'sessionToken'],
+			tags: 'Channels',
+		}),
+		async (ctx) => {
+			const user = ctx.get('user');
+			const userId = user.id;
+			const channelId = createChannelID(ctx.req.valid('param').channel_id);
+			const {silent, delete_messages} = ctx.req.valid('query');
+			const body = ctx.req.valid('json');
+			const requestCache = ctx.get('requestCache');
+			const auditLogReason = ctx.get('auditLogReason') ?? null;
+			const channelRequestService = ctx.get('channelRequestService');
+			await ctx
+				.get('channelService')
+				.channelData.operations.getChannel({viewer: viewerFromCtx(ctx), userId, channelId});
+			if (delete_messages) {
+				await requireSudoMode(ctx, user, body);
+				await ctx.get('channelService').userMessageDeletion.deleteUserMessagesInScope(userId, {
+					channelIds: [channelId],
+				});
+			}
+			await channelRequestService.deleteChannel({
+				viewer: viewerFromCtx(ctx),
+				userId,
+				channelId,
+				requestCache,
+				silent,
+				auditLogReason,
+			});
+			return ctx.body(null, 204);
+		},
+	);
+	app.put(
+		'/channels/:channel_id/recipients/:user_id',
+		RateLimitMiddleware(RateLimitConfigs.CHANNEL_UPDATE),
+		LoginRequired,
+		Validator('param', ChannelIdUserIdParam),
+		GroupDmRecipientAddProtectionMiddleware,
+		OpenAPI({
+			operationId: 'add_group_dm_recipient',
+			summary: 'Add recipient to group DM',
+			description:
+				'Adds a user to a group direct message channel. The requesting user must be a member of the group DM. Requires a solved captcha challenge (X-Captcha-Token).',
+			responseSchema: null,
+			statusCode: 204,
+			security: ['botToken', 'bearerToken', 'sessionToken'],
+			tags: 'Channels',
+		}),
+		async (ctx) => {
+			const userId = ctx.get('user').id;
+			const channelId = createChannelID(ctx.req.valid('param').channel_id);
+			const recipientId = createUserID(ctx.req.valid('param').user_id);
+			const requestCache = ctx.get('requestCache');
+			await ctx.get('channelService').groupDms.addRecipientToChannel({
+				userId,
+				channelId,
+				recipientId,
+				requestCache,
+			});
+			return ctx.body(null, 204);
+		},
+	);
+	app.delete(
+		'/channels/:channel_id/recipients/:user_id',
+		RateLimitMiddleware(RateLimitConfigs.CHANNEL_UPDATE),
+		LoginRequired,
+		Validator('param', ChannelIdUserIdParam),
+		Validator('query', DeleteChannelQuery),
+		SudoModeMiddleware,
+		Validator('json', SudoVerificationSchema),
+		OpenAPI({
+			operationId: 'remove_group_dm_recipient',
+			summary: 'Remove recipient from group DM',
+			description:
+				'Removes a user from a group direct message channel. The requesting user must be a member with appropriate permissions. When the caller removes themself with `delete_messages`, their authored messages in the group are deleted before leaving and sudo mode verification is required.',
+			requestSchema: SudoVerificationSchema,
+			requestBodyRequired: false,
+			responseSchema: null,
+			statusCode: 204,
+			security: ['botToken', 'bearerToken', 'sessionToken'],
+			tags: 'Channels',
+		}),
+		async (ctx) => {
+			const userId = ctx.get('user').id;
+			const channelId = createChannelID(ctx.req.valid('param').channel_id);
+			const recipientId = createUserID(ctx.req.valid('param').user_id);
+			const {silent, delete_messages} = ctx.req.valid('query');
+			const body = ctx.req.valid('json');
+			const requestCache = ctx.get('requestCache');
+			if (delete_messages && recipientId === userId) {
+				await ctx
+					.get('channelService')
+					.channelData.operations.getChannel({viewer: viewerFromCtx(ctx), userId, channelId});
+				await requireSudoMode(ctx, ctx.get('user'), body);
+				await ctx.get('channelService').userMessageDeletion.deleteUserMessagesInScope(userId, {
+					channelIds: [channelId],
+				});
+			}
+			await ctx
+				.get('channelService')
+				.groupDms.removeRecipientFromChannel({userId, channelId, recipientId, requestCache, silent});
+			return ctx.body(null, 204);
+		},
+	);
+	app.put(
+		'/channels/:channel_id/permissions/:overwrite_id',
+		RateLimitMiddleware(RateLimitConfigs.CHANNEL_UPDATE),
+		LoginRequired,
+		Validator('param', ChannelIdOverwriteIdParam),
+		Validator('json', PermissionOverwriteCreateRequest),
+		OpenAPI({
+			operationId: 'set_channel_permission_overwrite',
+			summary: 'Set permission overwrite for channel',
+			description:
+				'Creates or updates permission overrides for a role or user in the channel. Allows fine-grained control over who can view, send messages, or manage the channel.',
+			responseSchema: null,
+			statusCode: 204,
+			security: ['botToken', 'bearerToken', 'sessionToken'],
+			tags: 'Channels',
+		}),
+		async (ctx) => {
+			const userId = ctx.get('user').id;
+			const channelId = createChannelID(ctx.req.valid('param').channel_id);
+			const overwriteId = ctx.req.valid('param').overwrite_id;
+			const data = ctx.req.valid('json');
+			const clientFeatures = ctx.get('clientFeatures');
+			const requestCache = ctx.get('requestCache');
+			const auditLogReason = ctx.get('auditLogReason') ?? null;
+			await ctx.get('channelService').channelData.operations.setChannelPermissionOverwrite({
+				userId,
+				channelId,
+				overwriteId,
+				overwrite: {
+					type: data.type,
+					allow_: data.allow ? data.allow : 0n,
+					deny_: data.deny ? data.deny : 0n,
+				},
+				clientFeatures,
+				viewer: viewerFromCtx(ctx),
+				requestCache,
+				auditLogReason,
+			});
+			return ctx.body(null, 204);
+		},
+	);
+	app.delete(
+		'/channels/:channel_id/permissions/:overwrite_id',
+		RateLimitMiddleware(RateLimitConfigs.CHANNEL_UPDATE),
+		LoginRequired,
+		Validator('param', ChannelIdOverwriteIdParam),
+		OpenAPI({
+			operationId: 'delete_channel_permission_overwrite',
+			summary: 'Delete permission overwrite',
+			description:
+				'Removes a permission override from a role or user in the channel, restoring default permissions. Requires channel management rights.',
+			responseSchema: null,
+			statusCode: 204,
+			security: ['botToken', 'bearerToken', 'sessionToken'],
+			tags: 'Channels',
+		}),
+		async (ctx) => {
+			const userId = ctx.get('user').id;
+			const channelId = createChannelID(ctx.req.valid('param').channel_id);
+			const overwriteId = ctx.req.valid('param').overwrite_id;
+			const requestCache = ctx.get('requestCache');
+			const auditLogReason = ctx.get('auditLogReason') ?? null;
+			await ctx.get('channelService').channelData.operations.deleteChannelPermissionOverwrite({
+				userId,
+				channelId,
+				overwriteId,
+				clientFeatures: ctx.get('clientFeatures'),
+				viewer: viewerFromCtx(ctx),
+				requestCache,
+				auditLogReason,
+			});
+			return ctx.body(null, 204);
+		},
+	);
+}

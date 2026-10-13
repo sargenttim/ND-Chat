@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import type {GuildID, UserID} from '@app/api/BrandedTypes';
+import {mapGuildToGuildResponse} from '@app/api/guild/GuildModel';
+import type {GuildRepository} from '@app/api/guild/repositories/GuildRepository';
+import type {GuildDataHelpers} from '@app/api/guild/services/data/GuildDataHelpers';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import {serializeGuildForAudit} from '@app/api/utils/AuditSerializationUtils';
+import {AuditLogActionType} from '@fluxer/constants/src/AuditLogActionType';
+import {MissingAccessError} from '@fluxer/errors/src/domains/core/MissingAccessError';
+import {MissingPermissionsError} from '@fluxer/errors/src/domains/core/MissingPermissionsError';
+import {CannotTransferOwnershipToBotError} from '@fluxer/errors/src/domains/guild/CannotTransferOwnershipToBotError';
+import {UnknownGuildError} from '@fluxer/errors/src/domains/guild/UnknownGuildError';
+import {UnknownGuildMemberError} from '@fluxer/errors/src/domains/guild/UnknownGuildMemberError';
+import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
+
+const OWNERSHIP_AUDIT_KEYS: ReadonlySet<string> = new Set(['owner_id']);
+
+export class GuildOwnershipService {
+	constructor(
+		private readonly guildRepository: GuildRepository,
+		private readonly userRepository: UserRepository,
+		private readonly helpers: GuildDataHelpers,
+	) {}
+
+	async transferOwnership(
+		params: {
+			userId: UserID;
+			guildId: GuildID;
+			newOwnerId: UserID;
+		},
+		auditLogReason?: string | null,
+	): Promise<GuildResponse> {
+		const {userId, guildId, newOwnerId} = params;
+		const {guildData} = await this.helpers.getGuildAuthenticated({userId, guildId});
+		if (guildData.owner_id !== userId.toString()) {
+			throw new MissingPermissionsError();
+		}
+		const user = await this.userRepository.findUnique(userId);
+		if (!user) throw new MissingAccessError();
+		const newOwner = await this.guildRepository.getMember(guildId, newOwnerId);
+		if (!newOwner) {
+			throw new UnknownGuildMemberError();
+		}
+		const newOwnerUser = await this.userRepository.findUnique(newOwnerId);
+		if (newOwnerUser?.isBot) {
+			throw new CannotTransferOwnershipToBotError();
+		}
+		const guild = await this.guildRepository.findUnique(guildId);
+		if (!guild) throw new UnknownGuildError();
+		const previousSnapshot = serializeGuildForAudit(guild);
+		const previousOwnerId = guild.ownerId;
+		const updatedGuild = await this.guildRepository.upsertPartial(
+			guildId,
+			{owner_id: newOwnerId},
+			guild.toRow(),
+			previousOwnerId,
+		);
+		await this.helpers.dispatchGuildUpdate(updatedGuild);
+		await this.helpers.guildAuditLogService.record({
+			guildId,
+			userId,
+			action: AuditLogActionType.GUILD_UPDATE,
+			targetId: guildId,
+			auditLogReason: auditLogReason ?? null,
+			changes: this.helpers.computeGuildChanges(previousSnapshot, updatedGuild, OWNERSHIP_AUDIT_KEYS),
+		});
+		return mapGuildToGuildResponse(updatedGuild);
+	}
+}

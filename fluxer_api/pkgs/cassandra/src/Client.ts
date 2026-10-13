@@ -1,0 +1,128 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import cassandra from 'cassandra-driver';
+
+const distance = cassandra.types.distance;
+
+const MAX_REQUESTS_PER_CONNECTION = 2048;
+const CONNECT_TIMEOUT_MS = 5000;
+const DEFAULT_READ_TIMEOUT_MS = 5000;
+
+export const BACKGROUND_READ_TIMEOUT_MS = 12000;
+
+interface CassandraConfig {
+	hosts: Array<string>;
+	port?: number | undefined;
+	keyspace: string;
+	localDc: string;
+	username?: string | undefined;
+	password?: string | undefined;
+	readTimeoutMs?: number | undefined;
+}
+
+interface DefaultClientState {
+	client: CassandraClient | null;
+}
+
+const defaultClientState: DefaultClientState = {
+	client: null,
+};
+
+class CassandraClient {
+	private readonly config: CassandraConfig;
+	private client: cassandra.Client | null;
+
+	public constructor(config: CassandraConfig) {
+		this.config = {
+			hosts: [...config.hosts],
+			port: config.port,
+			keyspace: config.keyspace,
+			localDc: config.localDc,
+			username: config.username,
+			password: config.password,
+			readTimeoutMs: config.readTimeoutMs,
+		};
+		this.client = null;
+	}
+
+	public async connect(): Promise<void> {
+		if (this.client !== null) {
+			return;
+		}
+		const authProvider = this.config.username
+			? new cassandra.auth.PlainTextAuthProvider(this.config.username, this.config.password ?? '')
+			: undefined;
+		const client = new cassandra.Client({
+			contactPoints: this.config.hosts,
+			keyspace: this.config.keyspace,
+			localDataCenter: this.config.localDc,
+			protocolOptions: {
+				port: this.config.port ?? 9042,
+			},
+			pooling: {
+				maxRequestsPerConnection: MAX_REQUESTS_PER_CONNECTION,
+				coreConnectionsPerHost: {
+					[distance.local]: 4,
+					[distance.remote]: 2,
+				},
+			},
+			socketOptions: {
+				connectTimeout: CONNECT_TIMEOUT_MS,
+				readTimeout: this.config.readTimeoutMs ?? DEFAULT_READ_TIMEOUT_MS,
+			},
+			encoding: {
+				map: Map,
+				set: Set,
+				useBigIntAsLong: true,
+				useBigIntAsVarint: true,
+			},
+			...(authProvider ? {authProvider} : {}),
+		});
+		await client.connect();
+		this.client = client;
+	}
+
+	public async shutdown(): Promise<void> {
+		if (this.client === null) {
+			return;
+		}
+		const activeClient = this.client;
+		this.client = null;
+		await activeClient.shutdown();
+	}
+
+	public getNativeClient(): cassandra.Client {
+		if (this.client === null) {
+			throw new Error('Cassandra client is not connected. Call connect() first.');
+		}
+		return this.client;
+	}
+}
+
+export async function initCassandra(config: CassandraConfig): Promise<void> {
+	if (defaultClientState.client !== null) {
+		await defaultClientState.client.shutdown();
+	}
+	const client = new CassandraClient(config);
+	await client.connect();
+	defaultClientState.client = client;
+}
+
+export async function shutdownCassandra(): Promise<void> {
+	if (defaultClientState.client === null) {
+		return;
+	}
+	await defaultClientState.client.shutdown();
+	defaultClientState.client = null;
+}
+
+function getDefaultCassandraClient(): CassandraClient {
+	if (defaultClientState.client === null) {
+		throw new Error('Cassandra client is not initialized. Call initCassandra() first.');
+	}
+	return defaultClientState.client;
+}
+
+export function getClient(): cassandra.Client {
+	return getDefaultCassandraClient().getNativeClient();
+}

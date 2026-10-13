@@ -1,0 +1,155 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import * as Modal from '@app/features/app/components/dialogs/Modal';
+import * as ModalCommands from '@app/features/ui/commands/ModalCommands';
+import type {ComboboxOption} from '@app/features/ui/components/form/FormCombobox';
+import {Switch} from '@app/features/ui/components/form/FormSwitch';
+import {RadioGroup, type RadioOption} from '@app/features/ui/radio_group/RadioGroup';
+import {CompactComboboxRow} from '@app/features/user/components/modals/tabs/components/CompactComboboxRow';
+import * as VoiceSettingsCommands from '@app/features/voice/commands/VoiceSettingsCommands';
+import styles from '@app/features/voice/components/VoiceConnectionStatus.module.css';
+import VoiceSettings from '@app/features/voice/state/VoiceSettings';
+import type {VoiceNoiseSuppressionBackend} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionBackends';
+import {
+	getNoiseSuppressionChoiceValues,
+	getSelectedNoiseSuppressionChoice,
+	setNoiseSuppressionChoice,
+} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionChoices';
+import {
+	getNoiseSuppressionChoiceLabel,
+	getNoiseSuppressionFallbackMessage,
+} from '@app/features/voice/utils/noise_suppression/NoiseSuppressionLabels';
+import {
+	VOICE_AUTOMATIC_GAIN_CONTROL_DESCRIPTOR,
+	VOICE_DIRECT_INPUT_PROFILE_DESCRIPTOR,
+	VOICE_ECHO_CANCELLATION_DESCRIPTOR,
+	VOICE_FOCUSED_VOICE_PROFILE_DESCRIPTOR,
+	VOICE_NOISE_SUPPRESSION_DESCRIPTOR,
+} from '@app/features/voice/utils/VoiceMessageDescriptors';
+import {getActiveVoiceProcessingMode, type VoiceProcessingMode} from '@app/features/voice/utils/VoiceProcessingProfile';
+import {CUSTOM_DESCRIPTOR_2 as CUSTOM_DESCRIPTOR} from '@app/features/voice/utils/VoiceSharedMessageDescriptors';
+import {msg} from '@lingui/core/macro';
+import {useLingui} from '@lingui/react/macro';
+import {observer} from 'mobx-react-lite';
+
+const FOCUSED_VOICE_OPTION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Cleans up your mic for clear speech.',
+	comment: 'Description for the focused-voice option in the voice processing settings radio group.',
+});
+const DIRECT_INPUT_OPTION_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Sends raw mic audio with no processing.',
+	comment: 'Description for the studio / direct-input option in the voice processing settings radio group.',
+});
+
+const TUNE_THE_PROCESSING_YOURSELF_DESCRIPTOR = msg({
+	message: 'Tune the processing yourself.',
+	comment: 'Description for the custom option in the voice processing settings radio group.',
+});
+const AUDIO_PROCESSING_DESCRIPTOR = msg({
+	message: 'Audio processing',
+	comment: 'Voice settings modal title for microphone processing options.',
+});
+const VOICE_PROCESSING_DESCRIPTOR = msg({
+	message: 'Voice processing',
+	comment: 'Voice settings radio group label for microphone processing profile.',
+});
+const STOPS_YOUR_SPEAKERS_FROM_LOOPING_BACK_INTO_YOUR_DESCRIPTOR = msg({
+	message: 'Stops your speakers from looping back into your mic.',
+	comment: 'Description for the echo cancellation toggle in the custom voice processing settings.',
+});
+const AUTO_GAIN_DESCRIPTION_DESCRIPTOR = msg({
+	message: 'Evens out your mic volume so you are not too quiet.',
+	comment: 'Description for the automatic gain control toggle in the voice processing settings.',
+});
+export const AudioProcessingModal = observer(() => {
+	const {i18n} = useLingui();
+	const mode = getActiveVoiceProcessingMode(VoiceSettings);
+	const noiseSuppressionChoice = getSelectedNoiseSuppressionChoice();
+	const noiseSuppressionFallbackMessage = getNoiseSuppressionFallbackMessage(i18n);
+	const modeOptions: Array<RadioOption<VoiceProcessingMode>> = [
+		{
+			value: 'voice',
+			name: i18n._(VOICE_FOCUSED_VOICE_PROFILE_DESCRIPTOR),
+			desc: i18n._(FOCUSED_VOICE_OPTION_DESCRIPTION_DESCRIPTOR),
+		},
+		{
+			value: 'studio',
+			name: i18n._(VOICE_DIRECT_INPUT_PROFILE_DESCRIPTOR),
+			desc: i18n._(DIRECT_INPUT_OPTION_DESCRIPTION_DESCRIPTOR),
+		},
+		{
+			value: 'custom',
+			name: i18n._(CUSTOM_DESCRIPTOR),
+			desc: i18n._(TUNE_THE_PROCESSING_YOURSELF_DESCRIPTOR),
+		},
+	];
+	const noiseSuppressionOptions: Array<ComboboxOption<VoiceNoiseSuppressionBackend>> =
+		getNoiseSuppressionChoiceValues().map((backend) => ({
+			value: backend,
+			label: getNoiseSuppressionChoiceLabel(i18n, backend),
+		}));
+	return (
+		<Modal.Root
+			size="small"
+			centered
+			onClose={ModalCommands.pop}
+			data-flx="voice.voice-connection-status.audio-processing-modal.modal-root"
+		>
+			<Modal.Header
+				title={i18n._(AUDIO_PROCESSING_DESCRIPTOR)}
+				data-flx="voice.voice-connection-status.audio-processing-modal.modal-header"
+			/>
+			<Modal.Content data-flx="voice.voice-connection-status.audio-processing-modal.modal-content">
+				<div
+					className={styles.nsModalContent}
+					data-flx="voice.voice-connection-status.audio-processing-modal.ns-modal-content"
+				>
+					<RadioGroup
+						options={modeOptions}
+						value={mode}
+						onChange={(value) => VoiceSettingsCommands.setActiveInputVoiceProcessingMode(value)}
+						aria-label={i18n._(VOICE_PROCESSING_DESCRIPTOR)}
+						data-flx="voice.voice-connection-status.audio-processing-modal.radio-group.update"
+					/>
+					{mode === 'voice' && noiseSuppressionFallbackMessage && (
+						<p data-flx="voice.voice-connection-status.audio-processing-modal.p">{noiseSuppressionFallbackMessage}</p>
+					)}
+					{mode === 'custom' && (
+						<div
+							className={styles.nsOptions}
+							data-flx="voice.voice-connection-status.audio-processing-modal.ns-options"
+						>
+							<CompactComboboxRow<VoiceNoiseSuppressionBackend>
+								label={i18n._(VOICE_NOISE_SUPPRESSION_DESCRIPTOR)}
+								description={noiseSuppressionFallbackMessage}
+								value={noiseSuppressionChoice}
+								options={noiseSuppressionOptions}
+								onChange={setNoiseSuppressionChoice}
+								isSearchable={false}
+								controlWidth="small"
+								dataFlx="voice.voice-connection-status.audio-processing-modal.select.set-noise-suppression-method"
+								data-flx="voice.voice-connection-status.audio-processing-modal.compact-select-row.set-noise-suppression-method"
+							/>
+							<Switch
+								label={i18n._(VOICE_ECHO_CANCELLATION_DESCRIPTOR)}
+								description={i18n._(STOPS_YOUR_SPEAKERS_FROM_LOOPING_BACK_INTO_YOUR_DESCRIPTOR)}
+								value={VoiceSettings.echoCancellation}
+								onChange={(checked) => VoiceSettingsCommands.update({echoCancellation: checked})}
+								compact
+								data-flx="voice.voice-connection-status.audio-processing-modal.switch.update"
+							/>
+							<Switch
+								label={i18n._(VOICE_AUTOMATIC_GAIN_CONTROL_DESCRIPTOR)}
+								description={i18n._(AUTO_GAIN_DESCRIPTION_DESCRIPTOR)}
+								value={VoiceSettings.autoGainControl}
+								onChange={(checked) => VoiceSettingsCommands.update({autoGainControl: checked})}
+								compact
+								data-flx="voice.voice-connection-status.audio-processing-modal.switch.update--2"
+							/>
+						</div>
+					)}
+				</div>
+			</Modal.Content>
+		</Modal.Root>
+	);
+});

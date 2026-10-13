@@ -1,0 +1,174 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import type {ChannelID, GuildID} from '@app/api/BrandedTypes';
+import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
+import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
+import type {RequestCache} from '@app/api/middleware/RequestCacheMiddleware';
+import type {Channel} from '@app/api/models/Channel';
+import type {Invite} from '@app/api/models/Invite';
+
+import {InviteTypes} from '@fluxer/constants/src/ChannelConstants';
+import {UnknownInviteError} from '@fluxer/errors/src/domains/invite/UnknownInviteError';
+import type {ChannelPartialResponse} from '@fluxer/schema/src/domains/channel/ChannelSchemas';
+import type {GuildPartialResponse} from '@fluxer/schema/src/domains/guild/GuildResponseSchemas';
+import type {
+	GroupDmInviteMetadataResponse,
+	GroupDmInviteResponse,
+	GuildInviteMetadataResponse,
+	GuildInviteResponse,
+} from '@fluxer/schema/src/domains/invite/InviteSchemas';
+
+interface MapInviteToGuildInviteResponseParams {
+	invite: Invite;
+	userCacheService: UserCacheService;
+	requestCache: RequestCache;
+	getChannelResponse: (channelId: ChannelID) => Promise<ChannelPartialResponse>;
+	getGuildResponse: (guildId: GuildID) => Promise<GuildPartialResponse>;
+	getGuildCounts: (guildId: GuildID) => Promise<{
+		memberCount: number;
+		presenceCount: number;
+	}>;
+	gatewayService: IGatewayService;
+}
+
+interface MapInviteToGroupDmInviteResponseParams {
+	invite: Invite;
+	userCacheService: UserCacheService;
+	requestCache: RequestCache;
+	getChannelResponse: (channelId: ChannelID) => Promise<ChannelPartialResponse>;
+	getChannelSystem: (channelId: ChannelID) => Promise<Channel | null>;
+	getChannelMemberCount: (channelId: ChannelID) => Promise<number>;
+}
+
+export async function mapInviteToGuildInviteResponse({
+	invite,
+	userCacheService,
+	requestCache,
+	getChannelResponse,
+	getGuildResponse,
+	getGuildCounts,
+	gatewayService,
+}: MapInviteToGuildInviteResponseParams): Promise<GuildInviteResponse> {
+	if (!invite.guildId) {
+		throw new UnknownInviteError();
+	}
+	let channelId = invite.channelId;
+	if (!channelId) {
+		const resolvedChannelId = await gatewayService.getFirstViewableTextChannel(invite.guildId);
+		if (!resolvedChannelId) {
+			throw new UnknownInviteError();
+		}
+		channelId = resolvedChannelId;
+	}
+	const [channel, guild, inviter, counts] = await Promise.all([
+		getChannelResponse(channelId),
+		getGuildResponse(invite.guildId),
+		invite.inviterId ? userCacheService.getUserPartialResponse(invite.inviterId, requestCache) : null,
+		getGuildCounts(invite.guildId),
+	]);
+	const expiresAt = invite.maxAge > 0 ? new Date(invite.createdAt.getTime() + invite.maxAge * 1000) : null;
+	return {
+		code: invite.code,
+		type: InviteTypes.GUILD,
+		guild,
+		channel,
+		inviter,
+		member_count: counts.memberCount,
+		presence_count: counts.presenceCount,
+		expires_at: expiresAt?.toISOString() ?? null,
+		temporary: invite.temporary,
+	};
+}
+
+export async function mapInviteToGuildInviteMetadataResponse({
+	invite,
+	userCacheService,
+	requestCache,
+	getChannelResponse,
+	getGuildResponse,
+	getGuildCounts,
+	gatewayService,
+}: MapInviteToGuildInviteResponseParams): Promise<GuildInviteMetadataResponse> {
+	const baseResponse = await mapInviteToGuildInviteResponse({
+		invite,
+		userCacheService,
+		requestCache,
+		getChannelResponse,
+		getGuildResponse,
+		getGuildCounts,
+		gatewayService,
+	});
+	return {
+		...baseResponse,
+		created_at: invite.createdAt.toISOString(),
+		uses: invite.uses,
+		max_uses: invite.maxUses,
+		max_age: invite.maxAge,
+	};
+}
+
+export async function mapInviteToGroupDmInviteResponse({
+	invite,
+	userCacheService,
+	requestCache,
+	getChannelResponse,
+	getChannelSystem,
+	getChannelMemberCount,
+}: MapInviteToGroupDmInviteResponseParams): Promise<GroupDmInviteResponse> {
+	if (!invite.channelId) {
+		throw new UnknownInviteError();
+	}
+	const [channel, inviter, memberCount, channelSystem] = await Promise.all([
+		getChannelResponse(invite.channelId),
+		invite.inviterId ? userCacheService.getUserPartialResponse(invite.inviterId, requestCache) : null,
+		getChannelMemberCount(invite.channelId),
+		getChannelSystem(invite.channelId),
+	]);
+	if (!channelSystem) {
+		throw new UnknownInviteError();
+	}
+	const recipientIds = Array.from(channelSystem.recipientIds);
+	const recipientPartials = await userCacheService.getUserPartialResponses(recipientIds, requestCache);
+	const recipients = recipientIds.map((recipientId) => {
+		const recipientPartial = recipientPartials.get(recipientId);
+		if (!recipientPartial) {
+			throw new UnknownInviteError();
+		}
+		return {username: recipientPartial.username};
+	});
+	const channelWithRecipients = {...channel, recipients};
+	const expiresAt = invite.maxAge > 0 ? new Date(invite.createdAt.getTime() + invite.maxAge * 1000) : null;
+	return {
+		code: invite.code,
+		type: InviteTypes.GROUP_DM,
+		channel: channelWithRecipients,
+		inviter,
+		member_count: memberCount,
+		expires_at: expiresAt?.toISOString() ?? null,
+		temporary: invite.temporary,
+	};
+}
+
+export async function mapInviteToGroupDmInviteMetadataResponse({
+	invite,
+	userCacheService,
+	requestCache,
+	getChannelResponse,
+	getChannelSystem,
+	getChannelMemberCount,
+}: MapInviteToGroupDmInviteResponseParams): Promise<GroupDmInviteMetadataResponse> {
+	const baseResponse = await mapInviteToGroupDmInviteResponse({
+		invite,
+		userCacheService,
+		requestCache,
+		getChannelResponse,
+		getChannelSystem,
+		getChannelMemberCount,
+	});
+	return {
+		...baseResponse,
+		created_at: invite.createdAt.toISOString(),
+		uses: invite.uses,
+		max_uses: invite.maxUses,
+	};
+}

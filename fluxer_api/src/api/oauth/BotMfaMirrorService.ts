@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import type {UserID} from '@app/api/BrandedTypes';
+import type {IGatewayService} from '@app/api/infrastructure/IGatewayService';
+import type {Application} from '@app/api/models/Application';
+import type {User} from '@app/api/models/User';
+import type {ApplicationRepository} from '@app/api/oauth/repositories/ApplicationRepository';
+import type {UserRepository} from '@app/api/user/repositories/UserRepository';
+import {dispatchUserUpdate} from '@app/api/user/UserMappers';
+
+export class BotMfaMirrorService {
+	constructor(
+		private readonly applicationRepository: ApplicationRepository,
+		private readonly userRepository: UserRepository,
+		private readonly gatewayService: IGatewayService,
+	) {}
+
+	private cloneAuthenticatorTypes(source: User): Set<number> {
+		return source.authenticatorTypes ? new Set(source.authenticatorTypes) : new Set();
+	}
+
+	private hasSameAuthenticatorTypes(target: User, desired: Set<number>): boolean {
+		const current = target.authenticatorTypes ?? new Set<number>();
+		if (current.size !== desired.size) return false;
+		for (const value of current) {
+			if (!desired.has(value)) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private async listApplications(ownerUserId: UserID): Promise<Array<Application>> {
+		return this.applicationRepository.listApplicationsByOwner(ownerUserId);
+	}
+
+	async syncAuthenticatorTypesForOwner(owner: User): Promise<void> {
+		if (owner.isBot) return;
+		const desiredTypes = this.cloneAuthenticatorTypes(owner);
+		const applications = await this.listApplications(owner.id);
+		await Promise.all(
+			applications.map(async (application) => {
+				if (application.botUserId === null) return;
+				const botUserId = application.botUserId;
+				if (!botUserId) return;
+				const botUser = await this.userRepository.findUnique(botUserId);
+				if (!botUser) return;
+				if (this.hasSameAuthenticatorTypes(botUser, desiredTypes)) {
+					return;
+				}
+				const updatedBotUser = await this.userRepository.patchUpsert(
+					botUserId,
+					{
+						authenticator_types: desiredTypes,
+					},
+					botUser.toRow(),
+				);
+				if (updatedBotUser) {
+					await dispatchUserUpdate(this.gatewayService, updatedBotUser);
+				}
+			}),
+		);
+	}
+}

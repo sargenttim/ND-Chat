@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {Logger} from '@app/features/platform/utils/AppLogger';
+import EventEmitter from 'eventemitter3';
+
+export type ComponentActionType =
+	| 'CHANNEL_DETAILS_OPEN'
+	| 'CHANNEL_MEMBER_LIST_TOGGLE'
+	| 'CHANNEL_PINS_OPEN'
+	| 'THREAD_BROWSER_OPEN'
+	| 'COMPACT_VOICE_CALL_EXPANSION_TOGGLE'
+	| 'EMOJI_PICKER_OPEN'
+	| 'EMOJI_PICKER_RERENDER'
+	| 'ESCAPE_PRESSED'
+	| 'EDITING_EXPRESSION_PICKER_TAB_TOGGLE'
+	| 'EXPRESSION_PICKER_TAB_TOGGLE'
+	| 'FAVORITE_MEME_SELECT'
+	| 'FOCUS_BOTTOMMOST_MESSAGE'
+	| 'FOCUS_TEXTAREA'
+	| 'FORCE_JUMP_TO_PRESENT'
+	| 'GIF_SELECT'
+	| 'INBOX_OPEN'
+	| 'INSERT_MENTION'
+	| 'LAYOUT_RESIZED'
+	| 'MESSAGE_REVEAL'
+	| 'MESSAGE_SEARCH_OPEN'
+	| 'MESSAGE_SENT'
+	| 'SCROLL_PAGE_DOWN'
+	| 'SCROLL_PAGE_UP'
+	| 'SOUNDBOARD_TOGGLE'
+	| 'STICKER_PICKER_RERENDER'
+	| 'STICKER_SELECT'
+	| 'TEXTAREA_SEND_VOICE_MESSAGE'
+	| 'TEXTAREA_DISMISS_AFFORDANCE'
+	| 'TEXTAREA_UPLOAD_FILE'
+	| 'USER_SETTINGS_TAB_SELECT';
+type ComponentBusEvents = {
+	[K in ComponentActionType]: (...args: Array<unknown>) => unknown;
+};
+
+class Dispatch extends EventEmitter<ComponentBusEvents> {
+	private bufferedDispatches: Partial<Record<ComponentActionType, Array<unknown>>> = {};
+	private logger = new Logger('ComponentBus');
+
+	dispatchOrBuffer(type: ComponentActionType, args?: unknown) {
+		if (!this.hasSubscribers(type)) {
+			if (!this.bufferedDispatches[type]) {
+				this.bufferedDispatches[type] = [];
+			}
+			this.bufferedDispatches[type].push(args);
+			return;
+		}
+		this.dispatch(type, args);
+	}
+
+	dispatch(type: ComponentActionType, args?: unknown) {
+		this.emit(type, args);
+	}
+
+	dispatchToFirstResult(type: ComponentActionType, args: unknown, predicate: (result: unknown) => boolean): unknown {
+		for (const listener of this.listeners(type)) {
+			const result = listener(args);
+			if (predicate(result)) return result;
+		}
+		return undefined;
+	}
+
+	hasSubscribers(type: ComponentActionType) {
+		return this.listenerCount(type) > 0;
+	}
+
+	private flushBufferedDispatches(type: ComponentActionType) {
+		if (this.bufferedDispatches[type]) {
+			for (const args of this.bufferedDispatches[type]) {
+				this.dispatch(type, args);
+			}
+			delete this.bufferedDispatches[type];
+		}
+	}
+
+	subscribe(type: ComponentActionType, callback: (...args: Array<unknown>) => void): () => void {
+		if (this.listeners(type).includes(callback)) {
+			this.logger.warn('Ignoring duplicate subscriber for component action', type);
+			return () => {
+				this.unsubscribe(type, callback);
+			};
+		}
+		this.on(type, callback);
+		this.flushBufferedDispatches(type);
+		return () => {
+			this.unsubscribe(type, callback);
+		};
+	}
+
+	unsubscribe(type: ComponentActionType, callback: (...args: Array<unknown>) => void) {
+		this.removeListener(type, callback);
+	}
+}
+
+export const ComponentBus = new Dispatch();

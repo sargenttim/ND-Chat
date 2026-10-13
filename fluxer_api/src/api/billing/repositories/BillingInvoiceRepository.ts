@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {mapStripeInvoiceToRow} from '@app/api/billing/mappers/StripeToBillingMapper';
+import type {BillingPaymentRepository} from '@app/api/billing/repositories/BillingPaymentRepository';
+import {upsertVersionedMirrorRow} from '@app/api/billing/repositories/BillingRepoHelpers';
+import {
+	fetchMany,
+	fetchOne,
+	fetchPage,
+	type PagedQueryResult,
+	upsertOne,
+} from '@app/api/database/CassandraQueryExecution';
+import type {BillingInvoiceRow} from '@app/api/database/types/BillingTypes';
+import {BILLING_INVOICE_COLUMNS} from '@app/api/database/types/BillingTypes';
+import {BillingInvoices, BillingInvoicesByCustomer} from '@app/api/Tables';
+import type Stripe from 'stripe';
+
+const FETCH_BY_ID = BillingInvoices.selectCql({
+	where: BillingInvoices.where.eq('provider_id'),
+	limit: 1,
+});
+const FETCH_BY_CUSTOMER_PARTITION = BillingInvoicesByCustomer.selectCql({
+	where: BillingInvoicesByCustomer.where.eq('customer_id'),
+});
+const FETCH_BY_PROVIDER_IDS = BillingInvoices.selectCql({
+	where: BillingInvoices.where.in('provider_id', 'provider_ids'),
+});
+
+export class BillingInvoiceRepository {
+	constructor(private paymentsRepo: BillingPaymentRepository) {}
+
+	async findById(providerId: string): Promise<BillingInvoiceRow | null> {
+		return fetchOne<BillingInvoiceRow>(FETCH_BY_ID, {provider_id: providerId});
+	}
+
+	async listByCustomer(
+		customerId: string,
+		page?: {
+			pageSize: number;
+			pageState?: string | null;
+		},
+	): Promise<PagedQueryResult<BillingInvoiceRow>> {
+		const refsPage = await fetchPage<{
+			provider_id: string;
+		}>(
+			FETCH_BY_CUSTOMER_PARTITION,
+			{customer_id: customerId},
+			{pageSize: page?.pageSize ?? 50, pageState: page?.pageState ?? null},
+		);
+		if (refsPage.rows.length === 0) {
+			return {rows: [], pageState: refsPage.pageState};
+		}
+		const ids = refsPage.rows.map((r) => r.provider_id);
+		const rows = await fetchMany<BillingInvoiceRow>(FETCH_BY_PROVIDER_IDS, {provider_ids: ids});
+		return {rows, pageState: refsPage.pageState};
+	}
+
+	async upsertFromStripe(
+		inv: Stripe.Invoice,
+		hints?: {
+			knownUserId?: bigint;
+		},
+	): Promise<{
+		changed: boolean;
+		row: BillingInvoiceRow;
+	}> {
+		const mapped = mapStripeInvoiceToRow(inv, hints);
+		const existing = await this.findById(mapped.primary.provider_id);
+		const result = await upsertVersionedMirrorRow(BillingInvoices, BILLING_INVOICE_COLUMNS, existing, mapped.primary);
+		if (result.changed) {
+			await upsertOne(BillingInvoicesByCustomer.upsertAll(mapped.byCustomer));
+		}
+		for (const p of mapped.payments) await this.paymentsRepo.upsertFromStripeMapped(p);
+		return result;
+	}
+}

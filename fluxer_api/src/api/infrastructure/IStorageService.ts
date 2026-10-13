@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import type {Readable} from 'node:stream';
+
+export class StorageObjectRangeNotSatisfiableError extends Error {
+	readonly bucket: string;
+	readonly key: string;
+	readonly range: string;
+
+	constructor(bucket: string, key: string, range: string) {
+		super(`Requested range ${range} is not satisfiable for ${bucket}/${key}`);
+		this.name = 'StorageObjectRangeNotSatisfiableError';
+		this.bucket = bucket;
+		this.key = key;
+		this.range = range;
+	}
+}
+
+export class StorageObjectListingOverflowError extends Error {
+	readonly bucket: string;
+	readonly prefix: string;
+	readonly maxObjects: number;
+
+	constructor(bucket: string, prefix: string, maxObjects: number) {
+		super(`Object listing exceeds maximum of ${maxObjects} objects for ${bucket}/${prefix}`);
+		this.name = 'StorageObjectListingOverflowError';
+		this.bucket = bucket;
+		this.prefix = prefix;
+		this.maxObjects = maxObjects;
+	}
+}
+
+export interface ProcessedStorageObjectMetadata {
+	contentType: string;
+	contentLength: number;
+	contentHash: string;
+	width?: number;
+	height?: number;
+}
+
+export interface IStorageService {
+	uploadObject(params: {
+		bucket: string;
+		key: string;
+		body: Uint8Array | Readable;
+		contentType?: string;
+		expiresAt?: Date;
+	}): Promise<void>;
+	uploadObjectFromFile(params: {
+		bucket: string;
+		key: string;
+		filePath: string;
+		contentType?: string;
+		contentLength?: number;
+		expiresAt?: Date;
+	}): Promise<void>;
+	deleteObject(bucket: string, key: string): Promise<void>;
+	getObjectMetadata(
+		bucket: string,
+		key: string,
+	): Promise<{
+		contentLength: number;
+		contentType: string;
+		etag?: string;
+		lastModified?: Date;
+	} | null>;
+	computeObjectSha256(bucket: string, key: string): Promise<string>;
+	readObject(bucket: string, key: string, maxBytes?: number): Promise<Uint8Array>;
+	streamObject(params: {bucket: string; key: string; range?: string}): Promise<{
+		body: Readable;
+		contentLength: number;
+		contentRange?: string | null;
+		contentType?: string | null;
+		etag?: string | null;
+		lastModified?: Date | null;
+	} | null>;
+	writeObjectToDisk(bucket: string, key: string, filePath: string): Promise<void>;
+	copyObject(params: {
+		sourceBucket: string;
+		sourceKey: string;
+		destinationBucket: string;
+		destinationKey: string;
+		newContentType?: string;
+	}): Promise<void>;
+	copyObjectWithMetadataStripping(params: {
+		sourceBucket: string;
+		sourceKey: string;
+		destinationBucket: string;
+		destinationKey: string;
+		contentType: string;
+		sourceLocalPath?: string;
+	}): Promise<ProcessedStorageObjectMetadata | null>;
+	getPresignedDownloadURL(params: {
+		bucket: string;
+		key: string;
+		expiresIn?: number;
+		responseContentType?: string;
+		responseContentDisposition?: string;
+	}): Promise<string>;
+	getPresignedUploadURL(params: {
+		bucket: string;
+		key: string;
+		contentType?: string;
+		contentLength?: number;
+		expiresIn?: number;
+	}): Promise<string>;
+	getPresignedUploadPartURL(params: {
+		bucket: string;
+		key: string;
+		uploadId: string;
+		partNumber: number;
+		contentLength?: number;
+		expiresIn?: number;
+	}): Promise<string>;
+	uploadAvatar(params: {prefix: string; key: string; body: Uint8Array}): Promise<void>;
+	deleteAvatar(params: {prefix: string; key: string}): Promise<void>;
+	listObjects(params: {bucket: string; prefix: string; maxObjects?: number}): Promise<
+		ReadonlyArray<{
+			key: string;
+			lastModified?: Date;
+		}>
+	>;
+	createMultipartUpload(params: {bucket: string; key: string; contentType?: string}): Promise<{
+		uploadId: string;
+	}>;
+	listParts(params: {bucket: string; key: string; uploadId: string}): Promise<
+		Array<{
+			partNumber: number;
+			etag: string;
+			size?: number;
+		}>
+	>;
+	completeMultipartUpload(params: {
+		bucket: string;
+		key: string;
+		uploadId: string;
+		parts: Array<{
+			partNumber: number;
+			etag: string;
+		}>;
+	}): Promise<void>;
+	abortMultipartUpload(params: {bucket: string; key: string; uploadId: string}): Promise<void>;
+}

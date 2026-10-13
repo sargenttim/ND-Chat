@@ -1,0 +1,133 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.title {
+	margin: 0 0 1.25rem;
+	text-align: center;
+	font-size: 1.25rem;
+	font-weight: 600;
+	letter-spacing: 0.025em;
+	color: var(--text-primary);
+}
+
+.loginContainer {
+	max-width: 26.25rem;
+	margin: 3rem auto;
+	padding: 0 1rem;
+}
+
+.loginNotice {
+	margin: 0 0 1rem;
+	padding: 0.75rem 1rem;
+	border-radius: 0.625rem;
+	background: var(--background-secondary);
+	border: 0.0625rem solid var(--background-modifier-accent);
+	font-size: 0.875rem;
+	color: var(--text-primary);
+	text-align: center;
+}
+
+.form {
+	display: flex;
+	flex-direction: column;
+	gap: 1.125rem;
+}
+
+.formLinks {
+	display: flex;
+	flex-direction: column;
+	gap: 0.25rem;
+}
+
+.link {
+	font-size: 0.875rem;
+	color: var(--text-tertiary);
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.link:hover {
+	color: var(--text-primary);
+	text-decoration: underline;
+}
+
+.ssoBlock {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+	margin-bottom: 1rem;
+}
+
+.ssoPane {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.ssoPane {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+}
+
+.ssoSubtitle {
+	font-size: 0.875rem;
+	color: var(--text-secondary);
+	text-align: center;
+}
+
+@keyframes handoffSpin {
+	from {
+		transform: rotate(0deg);
+	}
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.ssoCallbackActions {
+	display: flex;
+	gap: 0.75rem;
+	justify-content: center;
+	margin-top: 1.5rem;
+}
+
+.ssoRetryButton {
+	display: inline-block;
+	padding: 0.75rem 1.5rem;
+	border-radius: 0.625rem;
+	border: none;
+	background: var(--accent-primary);
+	color: var(--text-on-brand-primary);
+	font-weight: 600;
+	font-size: 0.95rem;
+	cursor: pointer;
+	text-decoration: none;
+	transition: background 120ms ease;
+}
+
+.ssoRetryButton:hover {
+	background: var(--accent-primary);
+}
+
+.ssoBackButton {
+	padding: 0.75rem 1.5rem;
+	border-radius: 0.625rem;
+	border: 0.0625rem solid var(--background-modifier-accent);
+	background: var(--background-secondary);
+	color: var(--text-primary);
+	font-weight: 600;
+	font-size: 0.95rem;
+	cursor: pointer;
+	transition: background 120ms ease;
+}
+
+.ssoBackButton:hover {
+	background: var(--background-tertiary);
+}
+
+.ssoProcessingHint {
+	margin-top: 1rem;
+	text-align: center;
+	font-size: 0.875rem;
+	color: var(--text-tertiary);
+}

@@ -1,0 +1,421 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {getPremiumProductFullName, shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
+import {guessPlatform, isDesktop} from '@app/features/ui/utils/NativeUtils';
+import {
+	ADVANCED_SETTINGS_TAG_LABELS,
+	isAdvancedSettingsCategorySectionId,
+} from '@app/features/user/components/modals/tabs/advanced_settings_tab/AdvancedSettingsCategories';
+import {ACCOUNT_NESTED_TAB_TYPES} from '@app/features/user/components/settings_utils/SettingsNavigationGroups';
+import {
+	getAllSectionDefinitions as registryGetAllSectionDefinitions,
+	getSectionDefinition as registryGetSectionDefinition,
+	getSectionIdsForTab as registryGetSectionIdsForTab,
+	getSectionsForTab as registryGetSectionsForTab,
+	getVisibleSectionsForTab as registryGetVisibleSectionsForTab,
+	tabHasMultipleLinkableSections as registryTabHasMultipleLinkableSections,
+	type SettingsSectionConfig,
+	type SettingsSectionId,
+	type UserSettingsTabType,
+} from '@app/features/user/components/settings_utils/SettingsSectionRegistry';
+import {
+	ACCESSIBILITY_DESCRIPTOR,
+	ACCOUNT_DESCRIPTOR as ACCOUNT_SECURITY_DESCRIPTOR,
+	APPLICATIONS_DESCRIPTOR,
+	AUTHORIZED_APPS_DESCRIPTOR,
+	BLOCKED_USERS_DESCRIPTOR,
+	DESKTOP_SETTINGS_FALLBACK_DESCRIPTOR as DESKTOP_SETTINGS_DESCRIPTOR,
+	DESKTOP_SETTINGS_FALLBACK_DESCRIPTOR,
+	EMBED_DEBUGGER_DESCRIPTOR,
+	LANGUAGE_DESCRIPTOR as LANGUAGE_AND_TIME_DESCRIPTOR,
+	DEVICES_DESCRIPTOR as LINKED_DEVICES_DESCRIPTOR,
+	PRIVACY_DESCRIPTOR as PRIVACY_SAFETY_DESCRIPTOR,
+	SHORTCUTS_DESCRIPTOR,
+} from '@app/features/user/components/settings_utils/section_registry/SharedDescriptors';
+import Users from '@app/features/user/state/Users';
+import {
+	GIFTS_DESCRIPTOR as GIFTS_AND_CODES_DESCRIPTOR,
+	LOOK_AND_FEEL_DESCRIPTOR,
+	MESSAGES_AND_MEDIA_DESCRIPTOR,
+} from '@app/features/user/utils/UserMessageDescriptors';
+import type {I18n, MessageDescriptor} from '@lingui/core';
+import {msg} from '@lingui/core/macro';
+import {Trans} from '@lingui/react/macro';
+import {
+	BellIcon,
+	ChatCircleIcon,
+	CodeIcon,
+	CrownIcon,
+	DesktopIcon,
+	DevicesIcon,
+	EyeSlashIcon,
+	GearIcon,
+	GiftIcon,
+	type Icon,
+	type IconWeight,
+	KeyboardIcon,
+	MicrophoneIcon,
+	PaintBrushIcon,
+	PaletteIcon,
+	PersonSimpleCircleIcon,
+	ProhibitIcon,
+	RobotIcon,
+	ShieldIcon,
+	TranslateIcon,
+	UserIcon,
+	UserListIcon,
+} from '@phosphor-icons/react';
+import type React from 'react';
+
+const WINDOWS_SETTINGS_DESCRIPTOR = msg({
+	message: 'Windows app',
+	comment: 'User settings tab label shown on Windows desktop builds. Refers to the Microsoft Windows OS.',
+});
+const LINUX_SETTINGS_DESCRIPTOR = msg({
+	message: 'Linux app',
+	comment: 'User settings tab label shown on Linux desktop builds.',
+});
+const MACOS_SETTINGS_DESCRIPTOR = msg({
+	message: 'macOS app',
+	comment: 'User settings tab label shown on macOS desktop builds.',
+});
+const PROFILE_DESCRIPTOR = msg({
+	message: 'Profile',
+	comment: 'User settings tab for editing the current user profile.',
+});
+
+const CONNECTIONS_DESCRIPTOR = msg({
+	message: 'Connections',
+	context: 'user-settings-tab',
+	comment: 'User settings tab for linked external accounts.',
+});
+
+const AUDIO_AND_VIDEO_DESCRIPTOR = msg({
+	message: 'Voice & video',
+	comment: 'User settings tab for microphone, speaker, camera, and call stats.',
+});
+const NOTIFICATIONS_DESCRIPTOR = msg({
+	message: 'Notifications',
+	context: 'user-settings-tab',
+	comment: 'User settings tab for notification and alert sound controls.',
+});
+const ADVANCED_SETTINGS_DESCRIPTOR = msg({
+	message: 'Advanced',
+	comment: 'User settings tab for power-user and experimental application preferences.',
+});
+const DESIGN_SYSTEM_DESCRIPTOR = msg({
+	message: 'Design system',
+	comment: 'Developer settings tab showing UI component examples.',
+});
+export type UserSettingsSubtabType = SettingsSectionId;
+type UserSettingsTabCategories = 'user_settings' | 'billing' | 'app_settings' | 'developer';
+
+export interface SettingsTab {
+	type: UserSettingsTabType;
+	category: UserSettingsTabCategories;
+	label: string;
+	icon: Icon;
+	iconWeight?: IconWeight;
+}
+
+type SettingsTabLabel = MessageDescriptor | string | (() => string);
+
+interface SettingsTabDescriptor {
+	type: UserSettingsTabType;
+	category: UserSettingsTabCategories;
+	label: SettingsTabLabel;
+	icon: Icon;
+	iconWeight?: IconWeight;
+}
+
+export function getCategoryLabel(category: UserSettingsTabCategories): React.ReactElement {
+	switch (category) {
+		case 'user_settings':
+			return <Trans>Your account</Trans>;
+		case 'billing':
+			return <Trans>Billing</Trans>;
+		case 'app_settings':
+			return <Trans>App settings</Trans>;
+		case 'developer':
+			return <Trans>Developer</Trans>;
+	}
+}
+
+const ALL_TABS_DESCRIPTORS: Array<SettingsTabDescriptor> = [
+	{
+		type: 'my_profile',
+		category: 'user_settings',
+		label: PROFILE_DESCRIPTOR,
+		icon: UserIcon,
+	},
+	{
+		type: 'account_security',
+		category: 'user_settings',
+		label: ACCOUNT_SECURITY_DESCRIPTOR,
+		icon: ShieldIcon,
+	},
+	{
+		type: 'privacy_safety',
+		category: 'user_settings',
+		label: PRIVACY_SAFETY_DESCRIPTOR,
+		icon: EyeSlashIcon,
+	},
+	{
+		type: 'linked_accounts',
+		category: 'user_settings',
+		label: CONNECTIONS_DESCRIPTOR,
+		icon: UserListIcon,
+	},
+	{
+		type: 'authorized_apps',
+		category: 'user_settings',
+		label: AUTHORIZED_APPS_DESCRIPTOR,
+		icon: RobotIcon,
+	},
+	{
+		type: 'blocked_users',
+		category: 'user_settings',
+		label: BLOCKED_USERS_DESCRIPTOR,
+		icon: ProhibitIcon,
+	},
+	{
+		type: 'devices',
+		category: 'user_settings',
+		label: LINKED_DEVICES_DESCRIPTOR,
+		icon: DevicesIcon,
+	},
+	{
+		type: 'plutonium',
+		category: 'billing',
+		label: getPremiumProductFullName,
+		icon: CrownIcon,
+	},
+	{
+		type: 'gift_inventory',
+		category: 'billing',
+		label: GIFTS_AND_CODES_DESCRIPTOR,
+		icon: GiftIcon,
+	},
+	{
+		type: 'appearance',
+		category: 'app_settings',
+		label: LOOK_AND_FEEL_DESCRIPTOR,
+		icon: PaintBrushIcon,
+	},
+	{
+		type: 'notifications',
+		category: 'app_settings',
+		label: NOTIFICATIONS_DESCRIPTOR,
+		icon: BellIcon,
+	},
+	{
+		type: 'chat_settings',
+		category: 'app_settings',
+		label: MESSAGES_AND_MEDIA_DESCRIPTOR,
+		icon: ChatCircleIcon,
+	},
+	{
+		type: 'voice_video',
+		category: 'app_settings',
+		label: AUDIO_AND_VIDEO_DESCRIPTOR,
+		icon: MicrophoneIcon,
+	},
+	{
+		type: 'accessibility',
+		category: 'app_settings',
+		label: ACCESSIBILITY_DESCRIPTOR,
+		icon: PersonSimpleCircleIcon,
+	},
+	{
+		type: 'language',
+		category: 'app_settings',
+		label: LANGUAGE_AND_TIME_DESCRIPTOR,
+		icon: TranslateIcon,
+		iconWeight: 'bold',
+	},
+	{
+		type: 'keybinds',
+		category: 'app_settings',
+		label: SHORTCUTS_DESCRIPTOR,
+		icon: KeyboardIcon,
+	},
+	{
+		type: 'desktop_settings',
+		category: 'app_settings',
+		label: DESKTOP_SETTINGS_DESCRIPTOR,
+		icon: DesktopIcon,
+	},
+	{
+		type: 'advanced_settings',
+		category: 'app_settings',
+		label: ADVANCED_SETTINGS_DESCRIPTOR,
+		icon: GearIcon,
+	},
+	{
+		type: 'applications',
+		category: 'developer',
+		label: APPLICATIONS_DESCRIPTOR,
+		icon: CodeIcon,
+		iconWeight: 'bold',
+	},
+	{
+		type: 'embed_debugger',
+		category: 'developer',
+		label: EMBED_DEBUGGER_DESCRIPTOR,
+		icon: CodeIcon,
+		iconWeight: 'bold',
+	},
+	{
+		type: 'component_gallery',
+		category: 'developer',
+		label: DESIGN_SYSTEM_DESCRIPTOR,
+		icon: PaletteIcon,
+	},
+];
+export const USER_SETTINGS_LABEL_DESCRIPTOR = msg({
+	message: 'User settings',
+	comment: 'Root label for the current user settings modal and settings search paths.',
+});
+export const USER_SETTINGS_PRIVACY_REVIEW_NEEDED_DESCRIPTOR = msg({
+	message: 'User settings, privacy review needed',
+	comment: 'Accessible label for the user settings button while the user has not yet reviewed who can message them.',
+});
+export const PRIVACY_REVIEW_NEEDED_DESCRIPTOR = msg({
+	message: 'Review needed',
+	comment:
+		'Screen reader text read after the Privacy item in the settings sidebar while the user has not yet reviewed who can message them. A red dot marks the item visually.',
+});
+
+export function getUserSettingsTabLabel(i18n: I18n, tabType: UserSettingsTabType): string {
+	const tab = ALL_TABS_DESCRIPTORS.find((candidate) => candidate.type === tabType);
+	if (!tab) return '';
+	if (tab.type === 'desktop_settings') return getDesktopSettingsTabLabel(i18n);
+	if (typeof tab.label === 'string') return tab.label;
+	if (typeof tab.label === 'function') return tab.label();
+	return i18n._(tab.label);
+}
+
+export function getUserSettingsTabIconDescriptor(
+	tabType: UserSettingsTabType,
+): {icon: Icon; iconWeight?: IconWeight} | null {
+	const tab = ALL_TABS_DESCRIPTORS.find((candidate) => candidate.type === tabType);
+	return tab ? {icon: tab.icon, iconWeight: tab.iconWeight} : null;
+}
+
+export function getUserSettingsSectionLabel(
+	i18n: I18n,
+	sectionId: string,
+	tabType?: UserSettingsTabType,
+): string | null {
+	if (tabType === 'advanced_settings' && isAdvancedSettingsCategorySectionId(sectionId)) {
+		const tag = sectionId.slice('advanced-settings-'.length) as keyof typeof ADVANCED_SETTINGS_TAG_LABELS;
+		const descriptor = ADVANCED_SETTINGS_TAG_LABELS[tag];
+		if (descriptor) return i18n._(descriptor);
+	}
+	const section = tabType
+		? registryGetAllSectionDefinitions().find(
+				(candidate) => candidate.id === sectionId && candidate.tabType === tabType,
+			)
+		: registryGetSectionDefinition(sectionId);
+	if (!section) return null;
+	return i18n._(section.label);
+}
+
+export function formatUserSettingsPath(
+	i18n: I18n,
+	tabType: UserSettingsTabType,
+	sectionId?: UserSettingsSubtabType,
+): string {
+	const parts = [i18n._(USER_SETTINGS_LABEL_DESCRIPTOR), getUserSettingsTabLabel(i18n, tabType)];
+	if (sectionId) {
+		const sectionLabel = getUserSettingsSectionLabel(i18n, sectionId, tabType);
+		if (sectionLabel) parts.push(sectionLabel);
+	}
+	return parts.filter(Boolean).join(' > ');
+}
+
+export const getSettingsTabs = (i18n: I18n): Array<SettingsTab> => {
+	const allTabs = ALL_TABS_DESCRIPTORS.map((tab) => ({
+		...tab,
+		label: getUserSettingsTabLabel(i18n, tab.type),
+	}));
+	const showPremium = shouldShowPremiumFeatures();
+	const showClaimedAccountUi = shouldShowClaimedAccountUi();
+	return allTabs.filter((tab) => {
+		if (!showClaimedAccountUi && (tab.type === 'my_profile' || tab.type === 'linked_accounts')) {
+			return false;
+		}
+		if (ACCOUNT_NESTED_TAB_TYPES.some((tabType) => tabType === tab.type)) {
+			return false;
+		}
+		if (!showPremium && (tab.type === 'plutonium' || tab.type === 'gift_inventory')) {
+			return false;
+		}
+		if (tab.type === 'desktop_settings' && !isDesktop()) {
+			return false;
+		}
+		return true;
+	});
+};
+
+export interface SettingsSubtab {
+	type: UserSettingsSubtabType;
+	parentTab: UserSettingsTabType;
+	label: string;
+}
+
+function shouldShowClaimedAccountUi(): boolean {
+	return Users.getCurrentUser()?.isClaimed() ?? true;
+}
+
+function getDesktopSettingsTabLabel(i18n: I18n): string {
+	switch (guessPlatform()) {
+		case 'windows':
+			return i18n._(WINDOWS_SETTINGS_DESCRIPTOR);
+		case 'linux':
+			return i18n._(LINUX_SETTINGS_DESCRIPTOR);
+		case 'macos':
+			return i18n._(MACOS_SETTINGS_DESCRIPTOR);
+		default:
+			return i18n._(DESKTOP_SETTINGS_FALLBACK_DESCRIPTOR);
+	}
+}
+
+export const getSettingsSubtabs = (i18n: I18n): Array<SettingsSubtab> => {
+	const showClaimedAccountUi = shouldShowClaimedAccountUi();
+	return registryGetAllSectionDefinitions()
+		.filter((section) => {
+			if (!showClaimedAccountUi && (section.id === 'account' || section.id === 'security')) {
+				return false;
+			}
+			if ('isVisible' in section && section.isVisible && !section.isVisible()) {
+				return false;
+			}
+			return true;
+		})
+		.map((section) => ({
+			type: section.id,
+			parentTab: section.tabType,
+			label: i18n._(section.label),
+		}));
+};
+
+export function getSubtabsForTab(tabType: UserSettingsTabType, i18n: I18n): Array<SettingsSubtab> {
+	return registryGetVisibleSectionsForTab(tabType).map((section) => ({
+		type: section.id,
+		parentTab: section.tabType,
+		label: i18n._(section.label),
+	}));
+}
+
+export function getSectionsForTab(tabType: UserSettingsTabType, i18n: I18n): Array<SettingsSectionConfig> {
+	return registryGetSectionsForTab(tabType, i18n);
+}
+
+export function tabHasMultipleLinkableSections(tabType: UserSettingsTabType): boolean {
+	return registryTabHasMultipleLinkableSections(tabType);
+}
+
+export function getSectionIdsForTab(tabType: UserSettingsTabType): Array<string> {
+	return registryGetSectionIdsForTab(tabType);
+}

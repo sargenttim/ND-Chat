@@ -1,0 +1,150 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {createTestAccount} from '@app/api/auth/tests/AuthTestUtils';
+import {
+	addMemberRole,
+	createGuild,
+	createRole,
+	setupTestGuildWithMembers,
+	updateGuild,
+	updateRolePositions,
+} from '@app/api/guild/tests/GuildTestUtils';
+import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
+import {HTTP_STATUS} from '@app/api/test/TestConstants';
+import {createBuilder} from '@app/api/test/TestRequestBuilder';
+import {Permissions} from '@fluxer/constants/src/ChannelConstants';
+import {GuildFeatures} from '@fluxer/constants/src/GuildConstants';
+import {afterEach, beforeEach, describe, expect, test} from 'vitest';
+
+interface AuditLogEntry {
+	id: string;
+	action_type: number;
+	user_id: string | null;
+	target_id: string | null;
+	reason?: string;
+	options?: Record<string, unknown>;
+	changes?: Array<{
+		key: string;
+		old_value?: unknown;
+		new_value?: unknown;
+	}>;
+}
+
+interface AuditLogResponse {
+	audit_log_entries: Array<AuditLogEntry>;
+	users: Array<{
+		id: string;
+	}>;
+	webhooks: Array<unknown>;
+}
+
+describe('Guild Features', () => {
+	let harness: ApiTestHarness;
+	beforeEach(async () => {
+		harness = await createApiTestHarness();
+	});
+	afterEach(async () => {
+		await harness?.shutdown();
+	});
+	describe('Guild Audit Log Does Not Leak IP Addresses in Ban Entries', () => {
+		test('should not include IP address in ban audit log changes', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+			const targetMember = members[0];
+			await createBuilder(harness, owner.token)
+				.put(`/guilds/${guild.id}/bans/${targetMember.userId}`)
+				.body({reason: 'Test ban for audit log check'})
+				.expect(HTTP_STATUS.NO_CONTENT)
+				.execute();
+			const auditLogResponse = await createBuilder<AuditLogResponse>(harness, owner.token)
+				.get(`/guilds/${guild.id}/audit-logs?action_type=22`)
+				.execute();
+			expect(auditLogResponse.audit_log_entries.length).toBeGreaterThan(0);
+			for (const entry of auditLogResponse.audit_log_entries) {
+				if (entry.changes) {
+					for (const change of entry.changes) {
+						expect(change.key).not.toBe('ip');
+						expect(change.key).not.toBe('ip_address');
+					}
+				}
+				if (entry.options) {
+					expect(entry.options).not.toHaveProperty('ip');
+					expect(entry.options).not.toHaveProperty('ip_address');
+				}
+			}
+		});
+	});
+	describe('CHANGE_NICKNAME Permission Enforcement', () => {
+		test('should not allow CHANGE_NICKNAME holder to change other member nicknames', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 2);
+			const [member1, member2] = members;
+			const changeNickRole = await createRole(harness, owner.token, guild.id, {
+				name: 'Change Nick Only',
+				permissions: Permissions.CHANGE_NICKNAME.toString(),
+			});
+			await addMemberRole(harness, owner.token, guild.id, member1.userId, changeNickRole.id);
+			await createBuilder(harness, member1.token)
+				.patch(`/guilds/${guild.id}/members/${member2.userId}`)
+				.body({nick: 'Should Fail'})
+				.expect(HTTP_STATUS.FORBIDDEN)
+				.execute();
+		});
+	});
+	describe('Guild Feature Flags Validation', () => {
+		test('should preserve base features when toggling user-controlled features', async () => {
+			const account = await createTestAccount(harness);
+			const guild = await createGuild(harness, account.token, 'Base Features Test');
+			expect(guild.features).toContain(GuildFeatures.ANIMATED_ICON);
+			expect(guild.features).toContain(GuildFeatures.BANNER);
+			const updatedGuild = await updateGuild(harness, account.token, guild.id, {
+				features: [...guild.features, GuildFeatures.INVITES_DISABLED],
+			});
+			expect(updatedGuild.features).toContain(GuildFeatures.ANIMATED_ICON);
+			expect(updatedGuild.features).toContain(GuildFeatures.BANNER);
+			expect(updatedGuild.features).toContain(GuildFeatures.INVITES_DISABLED);
+		});
+		test('should reject toggling deprecated clone features', async () => {
+			const account = await createTestAccount(harness);
+			const guild = await createGuild(harness, account.token, 'Deprecated Clone Test');
+			for (const feature of [GuildFeatures.CLONE_EMOJI_DISABLED, GuildFeatures.CLONE_STICKER_DISABLED]) {
+				await createBuilder(harness, account.token)
+					.patch(`/guilds/${guild.id}`)
+					.body({features: [...guild.features, feature]})
+					.expect(HTTP_STATUS.BAD_REQUEST)
+					.execute();
+			}
+		});
+		test('should reject toggling non-toggleable features', async () => {
+			const account = await createTestAccount(harness);
+			const guild = await createGuild(harness, account.token, 'Non Toggleable Feature Test');
+			await createBuilder(harness, account.token)
+				.patch(`/guilds/${guild.id}`)
+				.body({features: [...guild.features, GuildFeatures.DISCOVERABLE]})
+				.expect(HTTP_STATUS.BAD_REQUEST)
+				.execute();
+		});
+	});
+	describe('Role Hierarchy With ADMINISTRATOR', () => {
+		test('should not allow non-owner ADMINISTRATOR to modify roles above their highest role', async () => {
+			const {owner, members, guild} = await setupTestGuildWithMembers(harness, 1);
+			const adminMember = members[0];
+			const highRole = await createRole(harness, owner.token, guild.id, {
+				name: 'High Role',
+				permissions: '0',
+			});
+			const adminRole = await createRole(harness, owner.token, guild.id, {
+				name: 'Admin Role',
+				permissions: Permissions.ADMINISTRATOR.toString(),
+			});
+			await updateRolePositions(harness, owner.token, guild.id, [
+				{id: highRole.id, position: 3},
+				{id: adminRole.id, position: 2},
+			]);
+			await addMemberRole(harness, owner.token, guild.id, adminMember.userId, adminRole.id);
+			await createBuilder(harness, adminMember.token)
+				.patch(`/guilds/${guild.id}/roles/${highRole.id}`)
+				.body({name: 'Trying to Modify'})
+				.expect(HTTP_STATUS.FORBIDDEN)
+				.execute();
+		});
+	});
+});

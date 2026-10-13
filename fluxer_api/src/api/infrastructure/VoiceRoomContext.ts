@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import type {ChannelID, GuildID, UserID} from '@app/api/BrandedTypes';
+import {createChannelID, createGuildID, createUserID} from '@app/api/BrandedTypes';
+import {z} from 'zod';
+
+interface DMRoomContext {
+	readonly type: 'dm';
+	readonly channelId: ChannelID;
+}
+
+interface GuildRoomContext {
+	readonly type: 'guild';
+	readonly channelId: ChannelID;
+	readonly guildId: GuildID;
+}
+
+type VoiceRoomContext = DMRoomContext | GuildRoomContext;
+
+interface DMParticipantContext {
+	readonly type: 'dm';
+	readonly userId: UserID;
+	readonly channelId: ChannelID;
+	readonly connectionId: string;
+}
+
+interface GuildParticipantContext {
+	readonly type: 'guild';
+	readonly userId: UserID;
+	readonly channelId: ChannelID;
+	readonly connectionId: string;
+	readonly guildId: GuildID;
+}
+
+type ParticipantContext = DMParticipantContext | GuildParticipantContext;
+
+const SnowflakeStringSchema = z.string().regex(/^\d+$/, 'Must be a numeric string');
+const DMParticipantMetadataSchema = z.object({
+	user_id: SnowflakeStringSchema,
+	channel_id: SnowflakeStringSchema,
+	connection_id: z.string().min(1),
+	dm_call: z.union([z.literal('true'), z.literal(true)]),
+	token_nonce: z.string().min(1),
+	issued_at: z.string().regex(/^\d+$/),
+	region_id: z.string().optional(),
+	server_id: z.string().optional(),
+});
+const GuildParticipantMetadataSchema = z.object({
+	user_id: SnowflakeStringSchema,
+	channel_id: SnowflakeStringSchema,
+	connection_id: z.string().min(1),
+	guild_id: SnowflakeStringSchema,
+	token_nonce: z.string().min(1),
+	issued_at: z.string().regex(/^\d+$/),
+	region_id: z.string().optional(),
+	server_id: z.string().optional(),
+});
+const ParticipantMetadataSchema = z.union([DMParticipantMetadataSchema, GuildParticipantMetadataSchema]);
+
+type RawParticipantMetadata = z.infer<typeof ParticipantMetadataSchema>;
+
+const DM_ROOM_PREFIX = 'dm_channel_';
+const GUILD_ROOM_PREFIX = 'guild_';
+
+export function parseRoomName(roomName: string): VoiceRoomContext | null {
+	if (roomName.startsWith(DM_ROOM_PREFIX)) {
+		const channelIdStr = roomName.slice(DM_ROOM_PREFIX.length);
+		try {
+			return {
+				type: 'dm',
+				channelId: createChannelID(BigInt(channelIdStr)),
+			};
+		} catch {
+			return null;
+		}
+	}
+	if (roomName.startsWith(GUILD_ROOM_PREFIX)) {
+		const parts = roomName.split('_');
+		if (parts.length === 4 && parts[0] === 'guild' && parts[2] === 'channel') {
+			try {
+				return {
+					type: 'guild',
+					guildId: createGuildID(BigInt(parts[1])),
+					channelId: createChannelID(BigInt(parts[3])),
+				};
+			} catch {
+				return null;
+			}
+		}
+	}
+	return null;
+}
+
+export function parseParticipantMetadataWithRaw(metadata: string): {
+	context: ParticipantContext;
+	raw: RawParticipantMetadata;
+} | null {
+	try {
+		const parsed = JSON.parse(metadata);
+		const result = ParticipantMetadataSchema.safeParse(parsed);
+		if (!result.success) {
+			return null;
+		}
+		const data = result.data;
+		const userId = createUserID(BigInt(data.user_id));
+		const channelId = createChannelID(BigInt(data.channel_id));
+		const connectionId = data.connection_id;
+		if ('dm_call' in data) {
+			return {
+				context: {
+					type: 'dm',
+					userId,
+					channelId,
+					connectionId,
+				},
+				raw: data,
+			};
+		}
+		return {
+			context: {
+				type: 'guild',
+				userId,
+				channelId,
+				connectionId,
+				guildId: createGuildID(BigInt(data.guild_id)),
+			},
+			raw: data,
+		};
+	} catch {
+		return null;
+	}
+}
+
+export function isDMRoom(context: VoiceRoomContext): context is DMRoomContext {
+	return context.type === 'dm';
+}

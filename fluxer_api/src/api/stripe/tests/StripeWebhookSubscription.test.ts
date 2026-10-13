@@ -1,0 +1,715 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import {createTestAccount} from '@app/api/auth/tests/AuthTestUtils';
+import {createUserID} from '@app/api/BrandedTypes';
+import {Config} from '@app/api/Config';
+import {ProductType} from '@app/api/stripe/ProductRegistry';
+import {
+	sendStripeWebhook,
+	sendStripeWebhookExpectStripeError,
+	setupSyncStripeWebhookWorker,
+} from '@app/api/stripe/tests/StripeWebhookTestUtils';
+import {type ApiTestHarness, createApiTestHarness} from '@app/api/test/ApiTestHarness';
+import {
+	createStripeApiHandlers,
+	createSubscriptionDeletedEvent,
+	createSubscriptionUpdatedEvent,
+	type StripeApiHandlers,
+} from '@app/api/test/msw/handlers/StripeApiHandlers';
+import {server} from '@app/api/test/msw/server';
+import {createBuilder} from '@app/api/test/TestRequestBuilder';
+import {PaymentRepository} from '@app/api/user/repositories/PaymentRepository';
+import {UserRepository} from '@app/api/user/repositories/UserRepository';
+import {getPremiumPaymentRecoveryGraceMs, PREMIUM_GRACE_PERIOD_MS} from '@app/api/user/UserHelpers';
+import {UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
+import {HttpResponse, http} from 'msw';
+import {afterAll, afterEach, beforeAll, beforeEach, describe, expect, test} from 'vitest';
+
+const MOCK_PRICES = {
+	monthlyUsd: 'price_monthly_usd',
+	yearlyUsd: 'price_yearly_usd',
+};
+
+describe('Stripe Webhook Subscription Lifecycle', () => {
+	let harness: ApiTestHarness;
+	let stripeHandlers: StripeApiHandlers;
+	let originalWebhookSecret: string | undefined;
+	let originalPrices: typeof Config.stripe.prices | undefined;
+	let paymentRepository: PaymentRepository;
+	let userRepository: UserRepository;
+	beforeAll(async () => {
+		harness = await createApiTestHarness();
+		setupSyncStripeWebhookWorker();
+		originalWebhookSecret = Config.stripe.webhookSecret;
+		originalPrices = Config.stripe.prices;
+		Config.stripe.webhookSecret = 'whsec_test_secret';
+		Config.stripe.prices = MOCK_PRICES;
+		stripeHandlers = createStripeApiHandlers();
+		server.use(...stripeHandlers.handlers);
+		paymentRepository = new PaymentRepository();
+		userRepository = new UserRepository();
+	});
+	afterAll(async () => {
+		await harness.shutdown();
+		Config.stripe.webhookSecret = originalWebhookSecret;
+		Config.stripe.prices = originalPrices;
+	});
+	beforeEach(async () => {
+		server.use(...stripeHandlers.handlers);
+		await harness.resetData();
+		stripeHandlers.reset();
+	});
+	afterEach(() => {
+		server.resetHandlers();
+		server.use(...stripeHandlers.handlers);
+	});
+	describe('customer.subscription.updated', () => {
+		test('updates subscription cancellation status when cancel_at_period_end is true', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_monthly';
+			const sessionId = `cs_test_cancel_${Date.now()}`;
+			const cancelAt = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.monthlyUsd,
+				product_type: ProductType.MONTHLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_1',
+				status: 'completed',
+			});
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_1',
+					premium_since: new Date(),
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const eventData = createSubscriptionUpdatedEvent({
+				subscriptionId,
+				cancelAtPeriodEnd: true,
+			});
+			eventData.data.object.cancel_at = cancelAt;
+			eventData.data.object.items = {
+				data: [{current_period_end: cancelAt}],
+			};
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const response = await harness.requestJson({
+				path: '/users/@me',
+				method: 'GET',
+				headers: {authorization: account.token},
+			});
+			const user = (await response.json()) as {
+				premium_will_cancel: boolean;
+				premium_until: string | null;
+			};
+			expect(user.premium_will_cancel).toBe(true);
+			expect(user.premium_until).not.toBeNull();
+		});
+		test('moves the gifted extension along when the subscription period moves forward', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_gifted';
+			const sessionId = `cs_test_gifted_${Date.now()}`;
+			const currentPeriodEnd = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+			const initialPremiumUntil = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000);
+			const giftExtensionEndsAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.monthlyUsd,
+				product_type: ProductType.MONTHLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_1',
+				status: 'completed',
+			});
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					premium_until: initialPremiumUntil,
+					premium_gift_extension_ends_at: giftExtensionEndsAt,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_1',
+					premium_since: new Date(),
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const eventData = createSubscriptionUpdatedEvent({
+				subscriptionId,
+				cancelAtPeriodEnd: false,
+			});
+			eventData.data.object.cancel_at = null;
+			eventData.data.object.items = {
+				data: [{current_period_end: currentPeriodEnd}],
+			};
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const response = await harness.requestJson({
+				path: '/users/@me',
+				method: 'GET',
+				headers: {authorization: account.token},
+			});
+			const user = (await response.json()) as {
+				premium_will_cancel: boolean;
+				premium_until: string | null;
+			};
+			expect(user.premium_will_cancel).toBe(false);
+			expect(user.premium_until).not.toBeNull();
+			const premiumUntil = new Date(user.premium_until!);
+			expect(premiumUntil.getTime()).toBeGreaterThan(new Date(currentPeriodEnd * 1000).getTime());
+			const updatedUser = await userRepository.findUnique(userId);
+			expect(updatedUser?.premiumUntil?.toISOString()).toBe(new Date(currentPeriodEnd * 1000).toISOString());
+			expect(updatedUser?.premiumGiftExtensionEndsAt?.getTime()).toBe(
+				giftExtensionEndsAt.getTime() + (currentPeriodEnd * 1000 - initialPremiumUntil.getTime()),
+			);
+		});
+		test('does not grant unpaid future time for past_due subscriptions and disables grace', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_past_due';
+			const sessionId = `cs_test_past_due_${Date.now()}`;
+			const existingPremiumUntil = new Date(Date.now() + 45 * 24 * 60 * 60 * 1000);
+			const unpaidFuturePeriodEnd = Math.floor(Date.now() / 1000) + 90 * 24 * 60 * 60;
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.monthlyUsd,
+				product_type: ProductType.MONTHLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_past_due',
+				status: 'completed',
+			});
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					premium_until: existingPremiumUntil,
+					premium_will_cancel: false,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_past_due',
+					premium_since: new Date(),
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const eventData = createSubscriptionUpdatedEvent({
+				subscriptionId,
+				customerId: 'cus_test_past_due',
+				status: 'past_due',
+				cancelAtPeriodEnd: false,
+			});
+			eventData.data.object.cancel_at = null;
+			eventData.data.object.items = {
+				data: [{current_period_end: unpaidFuturePeriodEnd}],
+			};
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const updatedUser = await userRepository.findUnique(userId);
+			expect(updatedUser?.premiumWillCancel).toBe(true);
+			expect(updatedUser?.premiumUntil?.toISOString()).toBe(existingPremiumUntil.toISOString());
+			expect(updatedUser?.stripeSubscriptionId).toBe(subscriptionId);
+			expect(updatedUser?.stripeCustomerId).toBe('cus_test_past_due');
+		});
+		async function seedPastDueUser(subscriptionId: string, premiumUntil: Date) {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const sessionId = `cs_${subscriptionId}_${Date.now()}`;
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.monthlyUsd,
+				product_type: ProductType.MONTHLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_past_due',
+				status: 'completed',
+			});
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					premium_until: premiumUntil,
+					premium_will_cancel: false,
+					premium_billing_cycle: 'monthly',
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_past_due',
+					premium_since: new Date(),
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			return userId;
+		}
+		function pastDueEvent(subscriptionId: string, periodStartSeconds: number, periodEndSeconds: number) {
+			const eventData = createSubscriptionUpdatedEvent({
+				subscriptionId,
+				customerId: 'cus_test_past_due',
+				status: 'past_due',
+				cancelAtPeriodEnd: false,
+			});
+			eventData.data.object.cancel_at = null;
+			eventData.data.object.items = {
+				data: [{current_period_start: periodStartSeconds, current_period_end: periodEndSeconds}],
+			};
+			return eventData;
+		}
+		test('records the payment recovery deadline when past_due arrives before the failed invoice', async () => {
+			const subscriptionId = 'sub_test_past_due_first';
+			const renewalSeconds = Math.floor(Date.now() / 1000) - 60 * 60;
+			const renewalAt = new Date(renewalSeconds * 1000);
+			const userId = await seedPastDueUser(subscriptionId, renewalAt);
+			const result = await sendStripeWebhook(
+				harness,
+				pastDueEvent(subscriptionId, renewalSeconds, renewalSeconds + 30 * 24 * 60 * 60),
+			);
+			expect(result.received).toBe(true);
+			const updatedUser = await userRepository.findUnique(userId);
+			expect(updatedUser?.premiumUntil?.getTime()).toBe(renewalAt.getTime());
+			expect(updatedUser?.premiumGraceEndsAt?.getTime()).toBe(
+				renewalAt.getTime() + getPremiumPaymentRecoveryGraceMs('monthly'),
+			);
+		});
+		test('does not move premium back to the period start for a mid-period past_due', async () => {
+			const subscriptionId = 'sub_test_past_due_mid_period';
+			const periodStartSeconds = Math.floor(Date.now() / 1000) - 20 * 24 * 60 * 60;
+			const periodEndSeconds = periodStartSeconds + 30 * 24 * 60 * 60;
+			const paidThrough = new Date(periodEndSeconds * 1000);
+			const userId = await seedPastDueUser(subscriptionId, paidThrough);
+			const result = await sendStripeWebhook(
+				harness,
+				pastDueEvent(subscriptionId, periodStartSeconds, periodEndSeconds),
+			);
+			expect(result.received).toBe(true);
+			const updatedUser = await userRepository.findUnique(userId);
+			expect(updatedUser?.premiumUntil?.getTime()).toBe(paidThrough.getTime());
+			expect(updatedUser?.premiumGraceEndsAt).toBeNull();
+		});
+		test('does not clear premium when period end is missing', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_missing_period';
+			const sessionId = `cs_test_missing_period_${Date.now()}`;
+			const futureDate = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.monthlyUsd,
+				product_type: ProductType.MONTHLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_1',
+				status: 'completed',
+			});
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					premium_until: futureDate,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_1',
+					premium_since: new Date(),
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const eventData = createSubscriptionUpdatedEvent({
+				subscriptionId,
+				cancelAtPeriodEnd: false,
+			});
+			eventData.data.object.items = {data: []};
+			server.use(
+				http.get('https://api.stripe.com/v1/subscriptions/:id', ({params}) =>
+					HttpResponse.json({
+						id: params.id,
+						object: 'subscription',
+						customer: 'cus_test_1',
+						status: 'active',
+						cancel_at: null,
+						cancel_at_period_end: false,
+						items: {
+							data: [
+								{
+									id: 'si_missing_period',
+									object: 'subscription_item',
+									price: {
+										id: MOCK_PRICES.monthlyUsd,
+										object: 'price',
+										unit_amount: 2500,
+										currency: 'usd',
+										recurring: {interval: 'month', interval_count: 1},
+										type: 'recurring',
+										active: true,
+										livemode: false,
+									},
+									quantity: 1,
+								},
+							],
+						},
+						livemode: false,
+					}),
+				),
+			);
+			await sendStripeWebhookExpectStripeError(harness, eventData);
+			const response = await harness.requestJson({
+				path: '/users/@me',
+				method: 'GET',
+				headers: {authorization: account.token},
+			});
+			const user = (await response.json()) as {
+				premium_until: string | null;
+			};
+			expect(user.premium_until).not.toBeNull();
+			const premiumUntil = new Date(user.premium_until!);
+			expect(premiumUntil.getTime()).toBeGreaterThanOrEqual(futureDate.getTime() - 1000);
+		});
+		test('handles customer.subscription.pending_update_applied like a subscription update', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_pending_update_applied';
+			const sessionId = `cs_test_pending_update_applied_${Date.now()}`;
+			const currentPeriodEnd = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.monthlyUsd,
+				product_type: ProductType.MONTHLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_pending_update_applied',
+				status: 'completed',
+			});
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_pending_update_applied',
+					premium_since: new Date(),
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const eventData = createSubscriptionUpdatedEvent({
+				subscriptionId,
+				customerId: 'cus_test_pending_update_applied',
+				status: 'active',
+				cancelAtPeriodEnd: false,
+			});
+			eventData.type = 'customer.subscription.pending_update_applied';
+			eventData.data.object.items = {
+				data: [{current_period_end: currentPeriodEnd}],
+			};
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const me = await createBuilder<{
+				premium_until: string | null;
+			}>(harness, account.token)
+				.get('/users/@me')
+				.execute();
+			expect(me.premium_until).not.toBeNull();
+		});
+	});
+	describe('customer.subscription.deleted', () => {
+		test('starts grace for non-lifetime users on subscription deletion', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_to_delete';
+			const sessionId = `cs_test_delete_${Date.now()}`;
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.monthlyUsd,
+				product_type: ProductType.MONTHLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_1',
+				status: 'completed',
+			});
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_1',
+					premium_since: new Date(),
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const beforeUser = await userRepository.findUnique(userId);
+			expect(beforeUser?.premiumType).toBe(UserPremiumTypes.SUBSCRIPTION);
+			expect(beforeUser?.stripeSubscriptionId).toBe(subscriptionId);
+			const eventData = createSubscriptionDeletedEvent({subscriptionId});
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const afterUser = await userRepository.findUnique(userId);
+			expect(afterUser?.premiumType).toBe(UserPremiumTypes.SUBSCRIPTION);
+			expect(afterUser?.premiumGraceEndsAt).not.toBeNull();
+			expect(afterUser?.premiumWillCancel).toBe(false);
+			expect(afterUser?.stripeSubscriptionId).toBeNull();
+		});
+		test('preserves lifetime premium on subscription deletion', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_lifetime_user';
+			const sessionId = `cs_test_lifetime_${Date.now()}`;
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.monthlyUsd,
+				product_type: ProductType.MONTHLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_1',
+				status: 'completed',
+			});
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.LIFETIME,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_1',
+					premium_since: new Date(),
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const beforeUser = await userRepository.findUnique(userId);
+			expect(beforeUser?.premiumType).toBe(UserPremiumTypes.LIFETIME);
+			const eventData = createSubscriptionDeletedEvent({subscriptionId});
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const afterUser = await userRepository.findUnique(userId);
+			expect(afterUser?.premiumType).toBe(UserPremiumTypes.LIFETIME);
+			expect(afterUser?.stripeSubscriptionId).toBeNull();
+		});
+		test('cuts premium off at the cancellation moment when the subscription is cancelled before its paid period ends', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_cancel_early';
+			const premiumUntil = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_1',
+					premium_since: new Date(),
+					premium_until: premiumUntil,
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const endedAt = Math.floor(Date.now() / 1000) - 60;
+			const eventData = createSubscriptionDeletedEvent({subscriptionId, endedAt});
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const afterUser = await userRepository.findUnique(userId);
+			expect(afterUser?.premiumUntil?.getTime()).toBe(endedAt * 1000);
+			expect(afterUser?.premiumGraceEndsAt?.getTime()).toBe(endedAt * 1000);
+			expect(afterUser?.stripeSubscriptionId).toBeNull();
+			const {checkHasActivePaidPremium} = await import('@app/api/user/UserHelpers');
+			expect(checkHasActivePaidPremium(afterUser!)).toBe(false);
+		});
+		test('ends premium without grace when the subscription is cancelled at the end of its paid period', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_cancel_natural';
+			const premiumUntil = new Date(Date.now() - 60 * 1000);
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_1',
+					premium_since: new Date(),
+					premium_until: premiumUntil,
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const endedAt = Math.floor(Date.now() / 1000);
+			const eventData = createSubscriptionDeletedEvent({subscriptionId, endedAt});
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const afterUser = await userRepository.findUnique(userId);
+			expect(afterUser?.premiumUntil?.getTime()).toBe(premiumUntil.getTime());
+			expect(afterUser?.premiumGraceEndsAt?.getTime()).toBe(endedAt * 1000);
+			const {checkHasActivePaidPremium} = await import('@app/api/user/UserHelpers');
+			expect(checkHasActivePaidPremium(afterUser!)).toBe(false);
+		});
+		test('keeps the payment recovery deadline when Stripe cancels for non-payment', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_cancel_non_payment';
+			const sessionId = `cs_test_non_payment_${Date.now()}`;
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.monthlyUsd,
+				product_type: ProductType.MONTHLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_1',
+				status: 'completed',
+			});
+			const lapseStart = new Date(Math.floor((Date.now() - 5 * 24 * 60 * 60 * 1000) / 1000) * 1000);
+			const recoveryDeadline = new Date(lapseStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_1',
+					premium_since: new Date(),
+					premium_until: lapseStart,
+					premium_billing_cycle: 'monthly',
+					premium_will_cancel: true,
+					premium_grace_ends_at: recoveryDeadline,
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const endedAt = Math.floor(Date.now() / 1000);
+			const eventData = createSubscriptionDeletedEvent({
+				subscriptionId,
+				endedAt,
+				cancellationReason: 'payment_failed',
+				interval: 'month',
+			});
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const afterUser = await userRepository.findUnique(userId);
+			expect(afterUser?.premiumType).toBe(UserPremiumTypes.SUBSCRIPTION);
+			expect(afterUser?.premiumUntil?.getTime()).toBe(lapseStart.getTime());
+			expect(afterUser?.premiumGraceEndsAt?.getTime()).toBe(recoveryDeadline.getTime());
+			expect(afterUser?.premiumGraceEndsAt?.getTime()).not.toBe(endedAt * 1000 + PREMIUM_GRACE_PERIOD_MS);
+			expect(afterUser?.stripeSubscriptionId).toBeNull();
+			const {checkHasActivePaidPremium} = await import('@app/api/user/UserHelpers');
+			expect(checkHasActivePaidPremium(afterUser!)).toBe(true);
+		});
+		test('records the recovery deadline from the payload cycle when none was recorded', async () => {
+			const account = await createTestAccount(harness);
+			const userId = createUserID(BigInt(account.userId));
+			const subscriptionId = 'sub_test_cancel_non_payment_yearly';
+			const sessionId = `cs_test_non_payment_yearly_${Date.now()}`;
+			await paymentRepository.createPayment({
+				checkout_session_id: sessionId,
+				user_id: userId,
+				price_id: MOCK_PRICES.yearlyUsd,
+				product_type: ProductType.YEARLY_SUBSCRIPTION,
+				status: 'completed',
+				is_gift: false,
+				created_at: new Date(),
+			});
+			await paymentRepository.updatePayment({
+				checkout_session_id: sessionId,
+				subscription_id: subscriptionId,
+				stripe_customer_id: 'cus_test_1',
+				status: 'completed',
+			});
+			const lapseStart = new Date(Math.floor((Date.now() - 10 * 24 * 60 * 60 * 1000) / 1000) * 1000);
+			await userRepository.patchUpsert(
+				userId,
+				{
+					premium_type: UserPremiumTypes.SUBSCRIPTION,
+					stripe_subscription_id: subscriptionId,
+					stripe_customer_id: 'cus_test_1',
+					premium_since: new Date(),
+					premium_until: lapseStart,
+					premium_billing_cycle: null,
+					premium_grace_ends_at: null,
+				},
+				(await userRepository.findUnique(userId))!.toRow(),
+			);
+			const endedAt = Math.floor(Date.now() / 1000);
+			const eventData = createSubscriptionDeletedEvent({
+				subscriptionId,
+				endedAt,
+				cancellationReason: 'payment_failed',
+				interval: 'year',
+			});
+			const result = await sendStripeWebhook(harness, eventData);
+			expect(result.received).toBe(true);
+			const afterUser = await userRepository.findUnique(userId);
+			expect(afterUser?.premiumUntil?.getTime()).toBe(lapseStart.getTime());
+			expect(afterUser?.premiumGraceEndsAt?.getTime()).toBe(
+				lapseStart.getTime() + getPremiumPaymentRecoveryGraceMs('yearly'),
+			);
+			expect(afterUser?.premiumGraceEndsAt?.getTime()).toBe(lapseStart.getTime() + 14 * 24 * 60 * 60 * 1000);
+			const {checkHasActivePaidPremium} = await import('@app/api/user/UserHelpers');
+			expect(checkHasActivePaidPremium(afterUser!)).toBe(true);
+		});
+		test('processes donation subscription deletion', async () => {
+			const subscriptionId = 'sub_donor_delete_test';
+			const donorEmail = 'donor-delete@example.com';
+			const {DonationRepository} = await import('@app/api/donation/DonationRepository');
+			const donationRepository = new DonationRepository();
+			await donationRepository.createDonor({
+				email: donorEmail,
+				stripeCustomerId: 'cus_donor_delete_123',
+				businessName: null,
+				taxId: null,
+				taxIdType: null,
+				stripeSubscriptionId: subscriptionId,
+				subscriptionAmountCents: 2500,
+				subscriptionCurrency: 'usd',
+				subscriptionInterval: 'month',
+				subscriptionCurrentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+			});
+			const donorBefore = await donationRepository.findDonorByEmail(donorEmail);
+			expect(donorBefore).not.toBeNull();
+			expect(donorBefore?.stripeSubscriptionId).toBe(subscriptionId);
+			const deleteEvent = createSubscriptionDeletedEvent({subscriptionId});
+			const deleteResult = await sendStripeWebhook(harness, deleteEvent);
+			expect(deleteResult.received).toBe(true);
+			const donorAfter = await donationRepository.findDonorByEmail(donorEmail);
+			expect(donorAfter?.stripeSubscriptionId).toBeNull();
+		});
+	});
+});

@@ -1,0 +1,495 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.headerContainer {
+	--channel-header-text-primary: var(--text-primary);
+	--channel-header-text-muted: var(--text-primary-muted);
+	--channel-header-text-tertiary: var(--text-tertiary);
+	--channel-header-divider-color: var(--background-modifier-hover);
+	--channel-header-hover-background: color-mix(in srgb, #fff 6%, transparent);
+	--channel-header-update-icon-color: #22c55e;
+	--voice-call-header-text: var(--text-primary);
+	z-index: 3;
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(0, auto);
+	align-items: center;
+	gap: var(--channel-header-gap);
+	height: var(--layout-header-height);
+	min-height: var(--layout-header-height);
+	border-bottom: 0.0625rem solid var(--user-area-divider-color);
+	background-color: var(--background-secondary-lighter);
+	padding: 0 var(--channel-header-padding-inline);
+	color: var(--channel-header-text-primary);
+}
+
+.headerWrapper {
+	--channel-header-background: var(--background-secondary-lighter);
+	background-color: var(--channel-header-background);
+	display: flex;
+	flex-direction: column;
+}
+
+.headerWrapperCallActive {
+	--channel-header-background: transparent;
+	background-color: var(--channel-header-background);
+}
+
+.headerContainerCallActive {
+	--channel-header-text-primary: #fff;
+	--channel-header-text-muted: #fff;
+	--channel-header-text-tertiary: #fff;
+	--channel-header-divider-color: #fff;
+	--channel-header-hover-background: rgb(255 255 255 / 0.16);
+	--voice-call-header-text: #fff;
+	background-color: transparent;
+	border-bottom-color: transparent;
+	color: var(--channel-header-text-primary);
+	position: relative;
+	isolation: isolate;
+}
+
+.headerContainerCallActive::before {
+	content: '';
+	position: absolute;
+	top: 0;
+	right: 0;
+	bottom: -4.5rem;
+	left: 0;
+	background: var(
+		--voice-header-gradient,
+		linear-gradient(to bottom, rgb(0 0 0 / 0.96) 0%, rgb(0 0 0 / 0.86) 42%, rgb(0 0 0 / 0.58) 72%, transparent 100%)
+	);
+	pointer-events: none;
+	z-index: -1;
+}
+
+@keyframes callBannerRing {
+	0% {
+		transform: scale(0.9);
+		opacity: 0.7;
+	}
+	70% {
+		transform: scale(1.15);
+		opacity: 0;
+	}
+	100% {
+		opacity: 0;
+	}
+}
+
+@media (max-width: 767px) {
+	.headerContainer {
+		height: var(--layout-header-height-mobile);
+		min-height: var(--layout-header-height-mobile);
+	}
+}
+
+.headerLeftSection {
+	position: relative;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.backButton {
+	margin-right: var(--channel-header-back-button-gap);
+	flex-shrink: 0;
+	cursor: pointer;
+	-webkit-app-region: no-drag;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: var(--channel-header-back-button-size);
+	width: var(--channel-header-back-button-size);
+	border-radius: var(--radius-full);
+	background-color: transparent;
+	color: var(--channel-header-text-muted);
+	transition: color var(--transition-fast);
+}
+
+:global(:where(html.window-focused, html.unfocused-fully-interactive):not(.window-focus-activation-guard))
+	.backButton:hover {
+	color: var(--channel-header-text-primary);
+}
+
+.backButtonDesktop {
+	composes: backButton;
+}
+
+@media (min-width: 768px) {
+	.backButtonDesktop {
+		display: none;
+	}
+}
+
+.backIcon {
+	height: var(--channel-header-back-icon-size);
+	width: var(--channel-header-back-icon-size);
+}
+
+.backIconBold {
+	composes: backIcon;
+	font-weight: bold;
+}
+
+.leftContentContainer {
+	position: relative;
+	min-width: 0;
+	flex: 1;
+	overflow: hidden;
+	display: flex;
+	align-items: center;
+	gap: var(--spacing-2);
+}
+
+.voiceCallHeaderSupplement {
+	display: flex;
+	align-items: center;
+	height: 2rem;
+	min-width: 0;
+	max-width: min(50%, 26rem);
+	overflow: hidden;
+	flex-shrink: 1;
+	-webkit-app-region: no-drag;
+}
+
+.voiceCallHeaderSupplement:empty {
+	display: none;
+}
+
+.voiceCallHeaderSupplement * {
+	-webkit-app-region: no-drag;
+}
+
+.mobileButton {
+	display: flex;
+	align-items: center;
+	border: none;
+	background-color: transparent;
+	padding: 0;
+	text-align: left;
+	cursor: pointer;
+	-webkit-app-region: no-drag;
+}
+
+.desktopButton {
+	composes: mobileButton;
+	cursor: pointer;
+}
+
+:global(:where(html.window-focused, html.unfocused-fully-interactive):not(.window-focus-activation-guard))
+	.desktopButton:hover {
+	background-color: var(--channel-header-hover-background);
+}
+
+.avatarWrapper {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+}
+
+.groupDmHeaderTrigger {
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	max-width: 100%;
+	cursor: pointer;
+	-webkit-app-region: no-drag;
+}
+
+:global(:where(html.window-focused, html.unfocused-fully-interactive):not(.window-focus-activation-guard))
+	.groupDmHeaderTrigger:hover {
+	background-color: var(--channel-header-hover-background);
+}
+
+.groupDmHeaderInner {
+	display: flex;
+	align-items: center;
+	flex: 1;
+	min-width: 0;
+	max-width: 100%;
+	gap: var(--channel-header-name-gap-group-dm);
+	position: relative;
+	z-index: 1;
+}
+
+.groupDmEditIcon {
+	opacity: 0;
+	color: var(--channel-header-text-muted);
+	flex-shrink: 0;
+	position: relative;
+	margin-left: var(--spacing-2);
+}
+
+:global(:where(html.window-focused, html.unfocused-fully-interactive):not(.window-focus-activation-guard))
+	.groupDmHeaderTrigger:hover
+	.groupDmEditIcon {
+	opacity: 1;
+}
+
+.channelName {
+	margin-left: var(--channel-header-name-gap);
+	min-width: 0;
+	flex-shrink: 1;
+	font-weight: 500;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	line-height: 1.5rem;
+	max-height: 1.5rem;
+}
+
+.groupDmChannelName {
+	margin-left: 0;
+}
+
+.dmNameWrapper {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.15rem;
+	min-width: 0;
+	max-width: 15rem;
+	flex-shrink: 1;
+}
+
+.userTag {
+	margin-left: 0.25rem;
+}
+
+.channelIcon {
+	height: var(--channel-header-icon-size);
+	width: var(--channel-header-icon-size);
+	flex-shrink: 0;
+	color: var(--channel-header-text-muted);
+}
+
+.caretRight {
+	margin-left: var(--channel-header-caret-gap);
+	height: var(--channel-header-caret-size);
+	width: var(--channel-header-caret-size);
+	flex-shrink: 0;
+	color: var(--channel-header-text-muted);
+}
+
+.channelInfoContainer {
+	display: flex;
+	align-items: center;
+	flex: 1 1 auto;
+	min-width: 0;
+	max-width: 100%;
+	overflow: hidden;
+}
+
+.followButton {
+	margin-left: var(--channel-header-name-gap);
+	flex-shrink: 0;
+}
+
+.topicDivider {
+	margin: 0 var(--channel-header-topic-divider-gap);
+	flex-shrink: 0;
+	color: var(--channel-header-divider-color);
+}
+
+.topicContainer {
+	position: relative;
+	display: flex;
+	align-items: center;
+	min-width: 0;
+	flex: 1 1 0;
+	overflow: hidden;
+	max-width: 100%;
+	isolation: isolate;
+}
+
+.topicButton {
+	display: inline-block;
+	width: auto;
+	min-width: 0;
+	max-width: 100%;
+	padding-right: var(--spacing-5);
+	cursor: pointer;
+	border: none;
+	background: transparent;
+	text-align: left;
+	font-size: 0.8125rem !important;
+	line-height: 1.125rem !important;
+	max-height: 1.125rem;
+	color: var(--channel-header-text-tertiary) !important;
+	white-space: nowrap !important;
+	word-break: normal !important;
+	overflow-wrap: normal !important;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	-webkit-app-region: no-drag;
+}
+
+.topicButtonOverflow {
+	mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 2.5rem), transparent 100%);
+	-webkit-mask-image: linear-gradient(90deg, #000 0%, #000 calc(100% - 2.5rem), transparent 100%);
+	mask-repeat: no-repeat;
+	-webkit-mask-repeat: no-repeat;
+}
+
+.topicButton * {
+	white-space: inherit !important;
+	word-break: inherit !important;
+	overflow-wrap: inherit !important;
+	color: inherit !important;
+	font-size: inherit !important;
+	line-height: inherit !important;
+	margin: 0;
+	padding: 0;
+}
+
+.headerRightSection {
+	position: relative;
+	display: flex;
+	align-items: center;
+	justify-content: flex-end;
+	gap: var(--channel-header-actions-gap);
+	flex-shrink: 0;
+	min-width: 0;
+	-webkit-app-region: no-drag;
+}
+
+.messageSearchFocusWrapper {
+	display: flex;
+	flex: 0 0 15.25rem;
+	width: 15.25rem;
+	min-width: 15.25rem;
+	max-width: 15.25rem;
+}
+
+.messageSearchFocusWrapper > :first-child {
+	width: 15.25rem;
+	min-width: 15.25rem;
+	max-width: 15.25rem;
+}
+
+.headerContainerThreadPanelOpen {
+	container-type: inline-size;
+	grid-template-columns: minmax(0, max-content) minmax(min-content, 1fr);
+}
+
+.headerContainerThreadPanelOpen .topicDivider,
+.headerContainerThreadPanelOpen .topicContainer {
+	display: none;
+}
+
+.headerContainerThreadPanelOpen .messageSearchFocusWrapper {
+	flex: 0 1 15.25rem;
+	width: 9rem;
+	min-width: 9rem;
+}
+
+.headerContainerThreadPanelOpen .messageSearchFocusWrapper > :first-child {
+	width: 100%;
+	min-width: 0;
+}
+
+@container (max-width: 32rem) {
+	.headerContainerThreadPanelOpen .messageSearchFocusWrapper {
+		width: var(--channel-header-action-size);
+		min-width: var(--channel-header-action-size);
+	}
+}
+
+.iconButton {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: var(--channel-header-action-size);
+	width: var(--channel-header-action-size);
+	flex-shrink: 0;
+	cursor: pointer;
+	border-radius: var(--radius-full);
+	border: none;
+	background-color: transparent;
+	transition: color var(--transition-fast);
+}
+
+.iconButtonDefault {
+	composes: iconButton;
+	color: var(--channel-header-text-muted);
+	cursor: pointer;
+	transition: color var(--transition-fast);
+}
+
+:global(:where(html.window-focused, html.unfocused-fully-interactive):not(.window-focus-activation-guard))
+	.iconButtonDefault:hover {
+	color: var(--channel-header-text-primary);
+}
+
+.iconButtonSelected {
+	composes: iconButton;
+	color: var(--channel-header-text-primary);
+	background-color: transparent;
+}
+
+.updateIconButton {
+	composes: iconButton;
+	color: var(--channel-header-update-icon-color);
+	background-color: transparent;
+	position: relative;
+}
+
+.updateIcon {
+	height: 1.5rem;
+	width: 1.5rem;
+}
+
+.updateIconSpinning {
+	composes: updateIcon;
+	animation: updateIconSpin 1s linear infinite;
+}
+
+@keyframes updateIconSpin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.updateIconSpinning {
+		animation: none;
+		opacity: 0.6;
+	}
+}
+
+.iconButtonMobile {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: var(--channel-header-action-size-mobile);
+	width: var(--channel-header-action-size-mobile);
+	flex-shrink: 0;
+	border-radius: var(--radius-full);
+	background-color: var(--background-tertiary);
+	color: var(--channel-header-text-primary);
+	cursor: pointer;
+}
+
+.buttonIcon {
+	height: var(--channel-header-action-icon-size);
+	width: var(--channel-header-action-icon-size);
+}
+
+.buttonIconMobile {
+	height: 1.25rem;
+	width: 1.25rem;
+}
+
+.iconButtonWrapper {
+	position: relative;
+	display: inline-flex;
+}
+
+.unreadPinIndicator {
+	position: absolute;
+	bottom: 0.3rem;
+	right: 0.35rem;
+	box-shadow: 0 0 0 0.08rem var(--channel-header-background);
+}

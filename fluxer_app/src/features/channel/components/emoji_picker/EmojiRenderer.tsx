@@ -1,0 +1,237 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+
+import styles from '@app/features/channel/components/EmojiPicker.module.css';
+import {
+	getEmojiSpriteSheetLayout,
+	getSpriteSheetBackground,
+} from '@app/features/channel/components/emoji_picker/EmojiPickerConstants';
+import type {Channel} from '@app/features/channel/models/Channel';
+import EmojiPicker, {getEmojiUsageKey} from '@app/features/emoji/state/EmojiPicker';
+import type {FlatEmoji} from '@app/features/emoji/types/EmojiTypes';
+import {checkEmojiAvailability} from '@app/features/expressions/utils/ExpressionPermissionUtils';
+import {getEmojiDisplayDataWithSkinTone} from '@app/features/expressions/utils/SkinToneUtils';
+import UnicodeEmojis, {EMOJI_SPRITES} from '@app/features/expressions/utils/UnicodeEmojis';
+import {loadImage} from '@app/features/messaging/utils/ImageCacheUtils';
+import {getEmojiRenderUrl} from '@app/features/messaging/utils/markdown/EmojiDetector';
+import {EmojiContextMenuItems} from '@app/features/ui/action_menu/items/EmojiContextMenuItems';
+import * as ContextMenuCommands from '@app/features/ui/commands/ContextMenuCommands';
+import FocusRing from '@app/features/ui/focus_ring/FocusRing';
+import {isFirefoxBrowser} from '@app/features/ui/utils/NativeUtils';
+import {useLingui} from '@lingui/react/macro';
+import {clsx} from 'clsx';
+import React, {useEffect, useImperativeHandle, useMemo, useRef} from 'react';
+
+type PickerEmojiImageProps = React.ImgHTMLAttributes<HTMLImageElement> & {
+	src: string;
+	alt: string;
+};
+
+const PICKER_IMAGE_RETRY_LIMIT = 3;
+
+const PickerEmojiImage = ({src, alt, ...props}: PickerEmojiImageProps) => {
+	const imageRef = useRef<HTMLImageElement | null>(null);
+	const hasLoadedRef = useRef(false);
+	const retriesRef = useRef(0);
+	const cancelRetryRef = useRef<(() => void) | null>(null);
+	useEffect(() => {
+		retriesRef.current = 0;
+		return () => {
+			cancelRetryRef.current?.();
+			cancelRetryRef.current = null;
+		};
+	}, [src]);
+	const handleError = () => {
+		if (retriesRef.current >= PICKER_IMAGE_RETRY_LIMIT) {
+			return;
+		}
+		retriesRef.current += 1;
+		cancelRetryRef.current?.();
+		cancelRetryRef.current = loadImage(src, () => {
+			cancelRetryRef.current = null;
+			const image = imageRef.current;
+			if (image != null && image.getAttribute('src') === src) {
+				image.src = src;
+			}
+		});
+	};
+	const handleLoad = (event: React.SyntheticEvent<HTMLImageElement>) => {
+		const view = event.currentTarget?.ownerDocument?.defaultView ?? window;
+		view.requestAnimationFrame(() => {
+			if (imageRef.current == null) {
+				return;
+			}
+			hasLoadedRef.current = true;
+			imageRef.current.classList.remove(styles.emojiImageLoading);
+		});
+	};
+	return (
+		<img
+			data-flx="channel.emoji-picker.emoji-renderer.picker-emoji-image.emoji-image"
+			{...props}
+			ref={imageRef}
+			src={src}
+			alt={alt}
+			className={hasLoadedRef.current ? styles.emojiImage : clsx(styles.emojiImage, styles.emojiImageLoading)}
+			onLoad={hasLoadedRef.current ? undefined : handleLoad}
+			onError={hasLoadedRef.current ? undefined : handleError}
+		/>
+	);
+};
+
+interface EmojiRendererProps {
+	emoji: FlatEmoji;
+	handleHover: (emoji: FlatEmoji | null) => void;
+	handleSelect: (emoji: FlatEmoji, shiftKey?: boolean) => void;
+	skinTone: string;
+	channel: Channel | null;
+	shouldAnimate: boolean;
+	isHighlighted?: boolean;
+	shouldScrollIntoView?: boolean;
+}
+
+export const EmojiRenderer = React.forwardRef<HTMLButtonElement, EmojiRendererProps>(
+	(
+		{
+			emoji,
+			handleHover,
+			handleSelect,
+			skinTone,
+			channel,
+			shouldAnimate,
+			isHighlighted = false,
+			shouldScrollIntoView = false,
+			...props
+		},
+		forwardedRef,
+	) => {
+		const emojiRef = useRef<HTMLButtonElement | null>(null);
+		const {i18n} = useLingui();
+		useImperativeHandle(forwardedRef, () => emojiRef.current!);
+		useEffect(() => {
+			if (shouldScrollIntoView && emojiRef.current) {
+				emojiRef.current.scrollIntoView({block: 'nearest', inline: 'nearest'});
+			}
+		}, [shouldScrollIntoView]);
+		const availability = checkEmojiAvailability(i18n, emoji, channel);
+		const customEmojiUrl = useMemo(
+			() =>
+				emoji.id
+					? (getEmojiRenderUrl({
+							id: emoji.id,
+							surrogateUrl: null,
+							isAnimatable: Boolean(emoji.animated),
+							animated: shouldAnimate,
+							jumbo: false,
+						}) ?? '')
+					: (emoji.url ?? ''),
+			[emoji.id, emoji.animated, emoji.url, shouldAnimate],
+		);
+		const handleClick = (e: React.MouseEvent) => {
+			if (!availability.canUse) {
+				e.preventDefault();
+				e.stopPropagation();
+				return;
+			}
+			if (e.altKey) {
+				e.preventDefault();
+				e.stopPropagation();
+				EmojiPicker.toggleFavorite(getEmojiUsageKey(emoji));
+				return;
+			}
+			handleSelect(emoji, e.shiftKey);
+		};
+		const handleContextMenu = (e: React.MouseEvent<HTMLButtonElement>) => {
+			e.preventDefault();
+			e.stopPropagation();
+			ContextMenuCommands.openFromEvent(e, (props) => (
+				<EmojiContextMenuItems
+					emoji={emoji}
+					onClose={props.onClose}
+					data-flx="channel.emoji-picker.emoji-renderer.handle-context-menu.emoji-context-menu-items"
+				/>
+			));
+		};
+		const renderButton = (children: React.ReactNode) => {
+			const isDisabled = !availability.canUse;
+			const className = clsx(
+				styles.emojiRenderer,
+				isHighlighted && styles.selectedEmojiRenderer,
+				isDisabled && 'cursor-not-allowed',
+			);
+			return (
+				<FocusRing offset={-2} data-flx="channel.emoji-picker.emoji-renderer.render-button.focus-ring">
+					<button
+						type="button"
+						tabIndex={-1}
+						ref={emojiRef}
+						onMouseEnter={() => handleHover(emoji)}
+						onMouseLeave={() => handleHover(null)}
+						onClick={handleClick}
+						onContextMenu={handleContextMenu}
+						className={className}
+						aria-disabled={isDisabled}
+						aria-selected={isHighlighted}
+						role="option"
+						data-flx="channel.emoji-picker.emoji-renderer.render-button.option.click.button"
+						{...props}
+					>
+						{children}
+					</button>
+				</FocusRing>
+			);
+		};
+		if (emoji.guildId || emoji.id) {
+			const content = (
+				<PickerEmojiImage
+					src={customEmojiUrl}
+					alt={emoji.name}
+					data-flx="channel.emoji-picker.emoji-renderer.emoji-image"
+				/>
+			);
+			return renderButton(content);
+		}
+		if (!emoji.useSpriteSheet) {
+			return renderButton(
+				<PickerEmojiImage
+					src={emoji.url ?? ''}
+					alt={emoji.name}
+					data-flx="channel.emoji-picker.emoji-renderer.emoji-image--2"
+				/>,
+			);
+		}
+		const hasSkinTones = emoji.hasSkinTones && skinTone;
+		const index = hasSkinTones ? emoji.skinToneIndex : emoji.index;
+		if (isFirefoxBrowser()) {
+			const {url} = getEmojiDisplayDataWithSkinTone(emoji, skinTone);
+			if (url) {
+				return renderButton(
+					<PickerEmojiImage src={url} alt={emoji.name} data-flx="channel.emoji-picker.emoji-renderer.emoji-image--4" />,
+				);
+			}
+		}
+		if (index === undefined) {
+			return renderButton(
+				<PickerEmojiImage
+					src={emoji.url ?? ''}
+					alt={emoji.name}
+					data-flx="channel.emoji-picker.emoji-renderer.emoji-image--3"
+				/>,
+			);
+		}
+		const perRow = hasSkinTones ? EMOJI_SPRITES.SkinTonePerRow : EMOJI_SPRITES.BasePerRow;
+		const rows = Math.ceil((hasSkinTones ? UnicodeEmojis.skinToneSpriteCount : UnicodeEmojis.baseSpriteCount) / perRow);
+		const spriteStyle = {
+			backgroundImage: getSpriteSheetBackground(hasSkinTones ? skinTone : ''),
+			...getEmojiSpriteSheetLayout(index, perRow, rows),
+		};
+		return renderButton(
+			<div
+				className={styles.spriteEmoji}
+				style={spriteStyle}
+				data-flx="channel.emoji-picker.emoji-renderer.sprite-emoji"
+			/>,
+		);
+	},
+);
+
+EmojiRenderer.displayName = 'EmojiRenderer';
