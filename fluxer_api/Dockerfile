@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY . .
 
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --no-frozen-lockfile --config.allow-unused-patches=true
 RUN pnpm --filter fluxer_api run build
 RUN pnpm deploy --legacy --filter=fluxer_api --prod --config.allow-unused-patches=true /out
 
