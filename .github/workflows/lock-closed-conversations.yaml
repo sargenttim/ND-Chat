@@ -50,8 +50,8 @@ jobs:
         with:
           client-id: ${{ vars.FLUXER_CI_APP_ID }}
           private-key: ${{ secrets.FLUXER_CI_APP_KEY }}
-          owner: fluxerapp
-          repositories: fluxer
+          owner: nexiorachat
+          repositories: ndchat
           permission-discussions: write
           permission-issues: write
           permission-pull-requests: write
@@ -164,8 +164,8 @@ jobs:
         with:
           client-id: ${{ vars.FLUXER_CI_APP_ID }}
           private-key: ${{ secrets.FLUXER_CI_APP_KEY }}
-          owner: fluxerapp
-          repositories: fluxer
+          owner: nexiorachat
+          repositories: ndchat
           permission-discussions: write
           permission-issues: write
           permission-pull-requests: write

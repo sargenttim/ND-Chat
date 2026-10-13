@@ -75,8 +75,8 @@ jobs:
         with:
           client-id: ${{ vars.FLUXER_CI_APP_ID }}
           private-key: ${{ secrets.FLUXER_CI_APP_KEY }}
-          owner: fluxerapp
-          repositories: fluxer
+          owner: nexiorachat
+          repositories: ndchat
           permission-contents: write
           permission-packages: read
 
