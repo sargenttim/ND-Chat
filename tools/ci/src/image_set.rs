@@ -13,13 +13,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const SCHEMA_VERSION: u8 = 1;
-const DEFAULT_REGISTRY: &str = "ghcr.io/fluxerapp";
+const DEFAULT_REGISTRY: &str = "ghcr.io/nexiorachat";
 const DEFAULT_MOVING_TAGS: &str = "v1,latest";
 const DEFAULT_FROM_TAG: &str = "v1";
 const DEFAULT_OUT_DIR: &str = "release-out";
-const RELEASE_COMPONENT: &str = "fluxer-release";
+const RELEASE_COMPONENT: &str = "ndchat-release";
 const COMPOSE_IMAGE_PREFIX: &str =
-    "${FLUXER_REGISTRY:-ghcr.io/${FLUXER_REGISTRY_OWNER:-fluxerapp}}";
+    "${NDCHAT_REGISTRY:-ghcr.io/${NDCHAT_REGISTRY_OWNER:-nexiorachat}}";
 const OCI_INDEX_MEDIA_TYPE: &str = "application/vnd.oci.image.index.v1+json";
 const DOCKER_MANIFEST_LIST_MEDIA_TYPE: &str =
     "application/vnd.docker.distribution.manifest.list.v2+json";
@@ -1023,7 +1023,7 @@ mod tests {
     fn promote_command_targets_the_digest() {
         let digest = format!("sha256:{}", "0".repeat(64));
         let spec = promote_command(
-            "ghcr.io/fluxerapp/fluxer-api",
+            "ghcr.io/nexiorachat/ndchat-api",
             &digest,
             &["v1".to_string(), "latest".to_string()],
         );
@@ -1035,10 +1035,10 @@ mod tests {
                 "imagetools",
                 "create",
                 "-t",
-                "ghcr.io/fluxerapp/fluxer-api:v1",
+                "ghcr.io/nexiorachat/ndchat-api:v1",
                 "-t",
-                "ghcr.io/fluxerapp/fluxer-api:latest",
-                &format!("ghcr.io/fluxerapp/fluxer-api@{digest}"),
+                "ghcr.io/nexiorachat/ndchat-api:latest",
+                &format!("ghcr.io/nexiorachat/ndchat-api@{digest}"),
             ]
         );
     }
