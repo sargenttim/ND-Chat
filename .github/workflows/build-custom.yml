@@ -24,7 +24,7 @@ jobs:
     - name: Build and push API image
       uses: docker/build-push-action@v5
       with:
-        context: ./fluxer_api
+        context: .
         file: ./fluxer_api/Dockerfile
         push: true
         tags: |
