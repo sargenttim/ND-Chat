@@ -99,6 +99,7 @@ catalog:
   emoji-regex: 11.0.0
   esbuild: 0.28.2
   eslint: 10.10.0
+  fast-xml-parser: 4.5.0
   eslint-plugin-react-google-translate: 1.0.4
   eventemitter3: 5.0.4
   fake-indexeddb: 6.2.5
