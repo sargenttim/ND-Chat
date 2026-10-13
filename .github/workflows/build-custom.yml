@@ -25,7 +25,7 @@ jobs:
       uses: docker/build-push-action@v5
       with:
         context: .
-        file: deploy/self-hosting/Dockerfile.api # Updated path
+        file: Dockerfile.api
         push: true
         tags: |
           ghcr.io/nexiorachat/fluxer-api:v1
