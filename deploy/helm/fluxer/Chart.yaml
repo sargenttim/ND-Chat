@@ -7,7 +7,7 @@ appVersion: "v1"
 kubeVersion: ">=1.29.0-0"
 home: https://docs.fluxer.app/operator/kubernetes/
 sources:
-  - https://github.com/fluxerapp/fluxer/tree/main/deploy/helm/fluxer
+  - https://github.com/nexiorachat/ndchat/tree/main/deploy/helm/fluxer
 keywords:
   - fluxer
   - chat

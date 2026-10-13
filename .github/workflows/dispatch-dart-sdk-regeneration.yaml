@@ -17,7 +17,7 @@ concurrency:
 jobs:
   dispatch:
     name: Dispatch regeneration
-    if: github.repository == 'fluxerapp/fluxer'
+    if: github.repository == 'nexiorachat/ndchat'
     runs-on: ubuntu-latest
     steps:
       - name: Create token

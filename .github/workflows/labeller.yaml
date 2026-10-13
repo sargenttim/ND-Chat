@@ -5,7 +5,7 @@ permissions: {}
 jobs:
   label:
     name: Label
-    if: github.repository == 'fluxerapp/fluxer'
+    if: github.repository == 'nexiorachat/ndchat'
     runs-on: ubuntu-latest
     steps:
       - name: Create token

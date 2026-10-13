@@ -50,7 +50,7 @@ set -eu
 LC_ALL=C
 export LC_ALL
 
-FLUXER_RAW_BASE='https://raw.githubusercontent.com/fluxerapp/fluxer'
+FLUXER_RAW_BASE='https://raw.githubusercontent.com/nexiorachat/ndchat'
 FLUXER_INSTALLER_URL='https://fluxer.dev/install.sh'
 FLUXER_STACK_PATH='deploy/self-hosting'
 FLUXER_MIN_ENGINE='24.0.0'
@@ -858,7 +858,7 @@ fluxer_open_scratch() {
 }
 
 # By hand, for one file:
-#   curl -fsSL https://raw.githubusercontent.com/fluxerapp/fluxer/main/deploy/self-hosting/docker-compose.yml -o docker-compose.yml
+#   curl -fsSL https://raw.githubusercontent.com/nexiorachat/ndchat/main/deploy/self-hosting/docker-compose.yml -o docker-compose.yml
 #
 # The files come from a git ref and the images come from FLUXER_IMAGE_TAG. The
 # ref is derived from the tag unless --ref names one. A pinned CalVer tag names
@@ -2114,7 +2114,7 @@ fluxer_set_image_tag() {
 #   recorded image IDs are still on the host until a prune removes them, so the
 #   old ID goes back onto the tag it had.
 #
-#     By hand: docker image tag <recorded id> ghcr.io/fluxerapp/fluxer-api:v1
+#     By hand: docker image tag <recorded id> ghcr.io/nexiorachat/ndchat-api:v1
 #
 # Neither shape pulls. A pull is what moved the instance forward in the first
 # place, and running one here would undo the rollback in the same breath.

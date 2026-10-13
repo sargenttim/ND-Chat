@@ -133,7 +133,7 @@ jobs:
             exit 1
           fi
           gh release create "fluxer-release@${VERSION}" \
-            --repo fluxerapp/fluxer \
+            --repo nexiorachat/ndchat \
             --target "${BUNDLE_COMMIT}" \
             --title "fluxer-release ${VERSION}" \
             --latest=true \
