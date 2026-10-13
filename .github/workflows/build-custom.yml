@@ -1,8 +1,7 @@
-name: Build Custom Fluxer Images
+name: Build Custom Fluxer Image
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -11,54 +10,23 @@ jobs:
       contents: read
       packages: write
 
-    strategy:
-      matrix:
-        include:
-          - name: api
-            file: Dockerfile.api
-          - name: admin
-            file: Dockerfile.admin
-          - name: gateway
-            file: Dockerfile.gateway
-          - name: messages
-            file: Dockerfile.messages
-          - name: users
-            file: Dockerfile.users
-          - name: media-proxy
-            file: Dockerfile.media-proxy
-          - name: push
-            file: Dockerfile.push
-          - name: static
-            file: Dockerfile.static
-          - name: snowflakes
-            file: Dockerfile.snowflakes
-          - name: gifs
-            file: Dockerfile.gifs
-          - name: unfurl
-            file: Dockerfile.unfurl
-          - name: app-proxy-self-hosted
-            file: Dockerfile.app-proxy-self-hosted
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ${{ matrix.file }}
-          push: true
-          tags: |
-            ghcr.io/nexiorachat/fluxer-${{ matrix.name }}:v1
-            ghcr.io/nexiorachat/fluxer-${{ matrix.name }}:latest
+    - name: Build and push API image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile.api
+        push: true
+        tags: |
+          ghcr.io/nexiorachat/fluxer-api:v1
+          ghcr.io/nexiorachat/fluxer-api:latest
