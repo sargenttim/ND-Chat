@@ -164,6 +164,7 @@ jobs:
           SOURCE_SHA: ${{ github.sha }}
           VERSION: ${{ needs.meta.outputs.build_version }}
           RELEASE_BASELINE_SHA: ${{ vars.RELEASE_BASELINE_SHA }}
+          RUST_BACKTRACE: 1
         run: >-
           tools/ci/run.sh release
           publish
