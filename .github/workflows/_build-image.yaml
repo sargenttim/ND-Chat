@@ -165,7 +165,7 @@ jobs:
           VERSION: ${{ needs.meta.outputs.build_version }}
           RELEASE_BASELINE_SHA: ${{ vars.RELEASE_BASELINE_SHA }}
           RUST_BACKTRACE: 1
-        run: >-
+        run: |
           tools/ci/run.sh release
           publish
           --component "${{ inputs.image }}"
