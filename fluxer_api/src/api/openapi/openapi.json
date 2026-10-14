@@ -34446,7 +34446,8 @@
 						"description": "IDs of the tags applied to the post (max 5)"
 					}
 				},
-				"x-fluxer-experiment": "channel_threads",
+				"x-fluxer-experiment": "channel_threads"
+			},
 			"BuiltinBadgeIconsResponse": {
 				"type": "object",
 				"properties": {
