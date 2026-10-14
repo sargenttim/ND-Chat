@@ -92,7 +92,6 @@ pub(crate) fn float_to_u64(value: f64, field: &str) -> ApiResult<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::number_to_u64;
     use super::{number_to_u64, types::*};
 
     #[test]

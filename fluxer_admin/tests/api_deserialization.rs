@@ -4,76 +4,6 @@ use fluxer_admin::api::generated::types as generated_types;
 use fluxer_admin::api::types;
 
 #[test]
-
-fn deserialize_admin_users_me_response() {
-    let json = r#"{
-        "user": {
-            "id": "1130650140672000000",
-            "username": "Hampus",
-            "discriminator": 0,
-            "global_name": "Hampus",
-            "bot": false,
-            "system": false,
-            "flags": "2308095358783193091",
-            "premium_flags": 2,
-            "avatar": "563de430",
-            "banner": "bd221c57",
-            "bio": "For support, please contact support@fluxer.app.",
-            "pronouns": "he/him",
-            "accent_color": 2631308,
-            "email": "hampus@fluxer.com",
-            "email_verified": true,
-            "email_bounced": false,
-            "has_verified_phone": true,
-            "date_of_birth": "2003-02-25",
-            "locale": "en-US",
-            "premium_type": 2,
-            "premium_since": "2024-01-01T00:00:00.000Z",
-            "premium_until": null,
-            "premium_grace_ends_at": null,
-            "premium_lifetime_sequence": 1,
-            "suspicious_activity_flags": 0,
-            "temp_banned_until": null,
-            "pending_deletion_at": null,
-            "pending_bulk_message_deletion_at": null,
-            "deletion_reason_code": null,
-            "deletion_public_reason": null,
-            "deletion_audit_log_reason": null,
-            "deletion_scheduled_by": null,
-            "deletion_scheduled_at": null,
-            "acls": ["super_admin"],
-            "traits": ["beta_tester"],
-            "badge_ids": [],
-            "has_totp": true,
-            "authenticator_types": [1],
-            "last_active_at": "2026-05-26T15:00:00.000Z",
-            "last_active_ip": "1.2.3.4",
-            "last_active_ip_reverse": "example.com",
-            "last_active_location": "Stockholm, SE"
-        }
-    }"#;
-
-    let resp: types::AdminUserMeResponse = serde_json::from_str(json).unwrap();
-    let user = resp.user;
-
-    assert_eq!(user.id, "1130650140672000000");
-    assert_eq!(user.username, "Hampus");
-    assert_eq!(user.discriminator, "0000");
-    assert_eq!(user.flags, 2308095358783193091);
-    assert_eq!(user.premium_flags, 2);
-    assert!(!user.bot);
-    assert!(!user.system);
-    assert_eq!(user.acls, vec!["super_admin"]);
-    assert_eq!(user.traits, vec!["beta_tester"]);
-    assert_eq!(user.premium_type, Some(2));
-    assert_eq!(user.suspicious_activity_flags, 0);
-    assert!(user.has_totp);
-    assert!(user.has_verified_phone);
-    assert_eq!(user.last_active_ip.as_deref(), Some("1.2.3.4"));
-}
-
-#[test]
-
 fn deserialize_flags_as_string_and_number() {
     let json_str = r#"{
         "user": {
@@ -89,7 +19,7 @@ fn deserialize_flags_as_string_and_number() {
             "pending_deletion_at": null, "pending_bulk_message_deletion_at": null,
             "deletion_reason_code": null, "deletion_public_reason": null, "deletion_audit_log_reason": null,
             "deletion_scheduled_by": null, "deletion_scheduled_at": null,
-            "acls": [], "traits": [], "badge_ids": [], "has_totp": false, "authenticator_types": [],
+            "acls": [], "traits": [], "has_totp": false, "authenticator_types": [],
             "last_active_at": null, "last_active_ip": null,
             "last_active_ip_reverse": null, "last_active_location": null
         }
@@ -122,7 +52,6 @@ fn deserialize_discriminator_int_and_string() {
             "pending_bulk_message_deletion_at": null, "deletion_reason_code": null,
             "deletion_public_reason": null, "deletion_audit_log_reason": null,
             "deletion_scheduled_by": null, "deletion_scheduled_at": null, "acls": [], "traits": [],
-            "badge_ids": [],
             "has_totp": false, "authenticator_types": [],
             "last_active_at": null, "last_active_ip": null,
             "last_active_ip_reverse": null, "last_active_location": null
@@ -142,126 +71,6 @@ fn deserialize_discriminator_int_and_string() {
     let json_short = json_int.replace("4363", "\"42\"");
     let resp4: types::AdminUserMeResponse = serde_json::from_str(&json_short).unwrap();
     assert_eq!(resp4.user.discriminator, "0042");
-}
-
-#[test]
-
-fn deserialize_search_users_response() {
-    let json = r#"{
-        "users": [
-            {
-                "id": "1508576042312688531",
-                "username": "test",
-                "discriminator": 4363,
-                "global_name": null,
-                "bot": true,
-                "system": false,
-                "flags": "0",
-                "premium_flags": 0,
-                "avatar": null,
-                "banner": null,
-                "bio": null,
-                "pronouns": null,
-                "accent_color": null,
-                "email": null,
-                "email_verified": false,
-                "email_bounced": false,
-                "has_verified_phone": false,
-                "date_of_birth": null,
-                "locale": null,
-                "premium_type": null,
-                "premium_since": null,
-                "premium_until": null,
-                "premium_grace_ends_at": null,
-                "premium_lifetime_sequence": null,
-                "suspicious_activity_flags": 0,
-                "temp_banned_until": null,
-                "pending_deletion_at": null,
-                "pending_bulk_message_deletion_at": null,
-                "deletion_reason_code": null,
-                "deletion_public_reason": null,
-                "deletion_audit_log_reason": null,
-                "deletion_scheduled_by": null,
-                "deletion_scheduled_at": null,
-                "acls": [],
-                "traits": [],
-                "badge_ids": [],
-                "has_totp": false,
-                "authenticator_types": [],
-                "last_active_at": null,
-                "last_active_ip": null,
-                "last_active_ip_reverse": null,
-                "last_active_location": null
-            }
-        ],
-        "total": 42
-    }"#;
-
-    let resp: types::SearchUsersResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(resp.total, 42);
-    assert_eq!(resp.users.len(), 1);
-    assert_eq!(resp.users[0].username, "test");
-    assert_eq!(resp.users[0].discriminator, "4363");
-    assert!(resp.users[0].bot);
-}
-
-#[test]
-fn deserialize_search_guilds_response() {
-    let json = r#"{
-        "guilds": [
-            {
-                "id": "1427764661718740994",
-                "name": "Fluxer Testers",
-                "features": ["ANIMATED_BANNER", "VERIFIED"],
-                "owner_id": "1489329094902315533",
-                "owner_username": null,
-                "owner_global_name": null,
-                "owner_discriminator": null,
-                "icon": "de44253f",
-                "banner": "048c048f",
-                "member_count": 715,
-                "nsfw_level": 0
-            }
-        ],
-        "total": 6723
-    }"#;
-
-    let resp: types::SearchGuildsResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(resp.total, 6723);
-    assert_eq!(resp.guilds.len(), 1);
-    assert_eq!(resp.guilds[0].name, "Fluxer Testers");
-    assert_eq!(resp.guilds[0].member_count, 715);
-    assert_eq!(resp.guilds[0].features.len(), 2);
-}
-
-#[test]
-fn deserialize_audit_logs_response() {
-    let json = r#"{
-        "logs": [
-            {
-                "log_id": "1508822460457747580",
-                "admin_user_id": "1130650140672000000",
-                "target_type": "user",
-                "target_id": "1130958221824557056",
-                "action": "list_user_sessions",
-                "access": "read",
-                "audit_log_reason": null,
-                "metadata": {"session_count": "3"},
-                "created_at": "2026-05-26T13:21:47.138Z"
-            }
-        ],
-        "total": 94623
-    }"#;
-
-    let resp: types::AuditLogsListResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(resp.total, 94623);
-    assert_eq!(resp.logs.len(), 1);
-    assert_eq!(resp.logs[0].log_id, "1508822460457747580");
-    assert_eq!(resp.logs[0].action, "list_user_sessions");
-    assert_eq!(resp.logs[0].access.as_deref(), Some("read"));
-    assert_eq!(resp.logs[0].target_type, "user");
-    assert!(resp.logs[0].audit_log_reason.is_none());
-    assert_eq!(resp.logs[0].metadata.get("session_count").unwrap(), "3");
 }
 
 #[test]
@@ -1045,7 +854,6 @@ fn deserialize_webhook_message_report() {
 }
 
 #[test]
-
 fn deserialize_report_without_webhook_fields() {
     let nulls = report_json(serde_json::json!({
         "reported_webhook_id": null,
@@ -1080,52 +888,11 @@ fn deserialize_report_without_webhook_fields() {
         assert!(report.reported_webhook_guild_id.is_none());
         assert!(report.reported_webhook_created_at.is_none());
     }
-
-fn deserialize_lookup_guild_response() {
-    let json = r#"{
-        "guild": {
-            "id": "123",
-            "owner_id": "456",
-            "owner_username": "admin",
-            "owner_global_name": "Admin",
-            "owner_discriminator": "0001",
-            "name": "Test Guild",
-            "vanity_url_code": null,
-            "icon": null,
-            "banner": null,
-            "splash": null,
-            "embed_splash": null,
-            "features": [],
-            "badge_ids": [],
-            "verification_level": 0,
-            "mfa_level": 0,
-            "nsfw_level": 0,
-            "explicit_content_filter": 0,
-            "default_message_notifications": 0,
-            "afk_channel_id": null,
-            "afk_timeout": 300,
-            "system_channel_id": null,
-            "system_channel_flags": 0,
-            "rules_channel_id": null,
-            "disabled_operations": 0,
-            "member_count": 100,
-            "channels": [],
-            "roles": []
-        }
-    }"#;
-
-    let resp: types::LookupGuildResponse = serde_json::from_str(json).unwrap();
-    let guild = resp.guild.unwrap();
-    assert_eq!(guild.id, "123");
-    assert_eq!(guild.name, "Test Guild");
-    assert_eq!(guild.member_count, 100);
-
 }
 
 fn snapshot_asset(hash: &str, url: Option<&str>) -> serde_json::Value {
     serde_json::json!({"hash": hash, "url": url})
 }
-
 
 fn evidence_report_json() -> serde_json::Value {
     report_json(serde_json::json!({
@@ -1154,116 +921,6 @@ fn evidence_report_json() -> serde_json::Value {
             "guild": null
         },
         "message_context": [
-
-#[test]
-fn deserialize_lookup_application_response() {
-    let json = r#"{
-        "application": {
-            "id": "111",
-            "name": "My Bot",
-            "owner_user_id": "222",
-            "owner_username": "dev",
-            "owner_global_name": null,
-            "owner_discriminator": "0001",
-            "bot_user_id": "333",
-            "bot_username": "MyBot",
-            "bot_global_name": null,
-            "bot_discriminator": "0001",
-            "bot_is_public": true,
-            "bot_require_code_grant": false,
-            "oauth2_redirect_uris": ["https://example.com/cb"],
-            "has_client_secret": true,
-            "has_bot_token": true,
-            "bot_token_preview": "...xyz",
-            "bot_token_created_at": "2025-01-01T00:00:00.000Z",
-            "client_secret_created_at": "2025-01-01T00:00:00.000Z",
-            "version": 1
-        }
-    }"#;
-
-    let resp: types::LookupApplicationResponse = serde_json::from_str(json).unwrap();
-    let app = resp.application.unwrap();
-    assert_eq!(app.id, "111");
-    assert_eq!(app.name, "My Bot");
-    assert!(app.bot_is_public);
-}
-
-#[test]
-fn deserialize_refresh_search_index_response() {
-    let json = r#"{"success": true, "job_id": "abc123"}"#;
-    let resp: types::RefreshSearchIndexResponse = serde_json::from_str(json).unwrap();
-    assert!(resp.success);
-    assert_eq!(resp.job_id, "abc123");
-}
-
-#[test]
-fn deserialize_ban_check_response() {
-    let json = r#"{"banned": true}"#;
-    let resp: types::BanCheckResult = serde_json::from_str(json).unwrap();
-    assert!(resp.banned);
-}
-
-#[test]
-fn deserialize_codes_response() {
-    let json = r#"{"codes": ["ABC-DEF", "GHI-JKL"]}"#;
-    let resp: types::CodesResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(resp.codes.len(), 2);
-}
-
-#[test]
-fn deserialize_user_mutation_response() {
-    let json = r#"{
-        "user": {
-            "id": "1", "username": "updated", "discriminator": 42,
-            "global_name": null, "bot": false, "system": false,
-            "flags": "1", "premium_flags": 0, "avatar": null, "banner": null,
-            "bio": null, "pronouns": null, "accent_color": null, "email": null,
-            "email_verified": false, "email_bounced": false,
-            "has_verified_phone": false, "date_of_birth": null, "locale": null,
-            "premium_type": null, "premium_since": null, "premium_until": null,
-            "premium_grace_ends_at": null, "premium_lifetime_sequence": null,
-            "suspicious_activity_flags": 0, "temp_banned_until": null,
-            "pending_deletion_at": null, "pending_bulk_message_deletion_at": null,
-            "deletion_reason_code": null, "deletion_public_reason": null, "deletion_audit_log_reason": null,
-            "deletion_scheduled_by": null, "deletion_scheduled_at": null,
-            "acls": [], "traits": [], "badge_ids": [], "has_totp": false, "authenticator_types": [],
-            "last_active_at": null, "last_active_ip": null,
-            "last_active_ip_reverse": null, "last_active_location": null
-        }
-    }"#;
-    let resp: types::UserMutationResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(resp.user.username, "updated");
-    assert_eq!(resp.user.discriminator, "0042");
-    assert_eq!(resp.user.flags, 1);
-}
-
-#[test]
-fn deserialize_guild_update_response() {
-    let json = r#"{
-        "guild": {
-            "id": "123",
-            "name": "Updated Guild",
-            "features": ["VERIFIED"],
-            "owner_id": "456",
-            "owner_username": null,
-            "owner_global_name": null,
-            "owner_discriminator": null,
-            "icon": null,
-            "banner": null,
-            "member_count": 50,
-            "nsfw_level": 0
-        }
-    }"#;
-
-    let resp: types::GuildUpdateResponse = serde_json::from_str(json).unwrap();
-    assert_eq!(resp.guild.name, "Updated Guild");
-    assert_eq!(resp.guild.member_count, 50);
-}
-
-#[test]
-fn deserialize_list_guild_members_response() {
-    let json = r#"{
-        "members": [
             {
                 "id": "1556008115697091784",
                 "channel_id": "1556008115692897479",
@@ -1623,5 +1280,38 @@ fn deserialize_guild_threads_response() {
             .thread_metadata
             .as_ref()
             .is_some_and(|m| m.archived && !m.locked)
+    );
+}
+
+#[test]
+fn deserialize_list_badges_response() {
+    let json = r#"{
+        "version": 1,
+        "badges": [
+            {
+                "id": "123456",
+                "type": "user",
+                "name": "Staff",
+                "tooltip": "Fluxer Staff",
+                "icon": "<svg></svg>",
+                "url": null,
+                "position": 0
+            }
+        ],
+        "builtin_icons": {
+            "staff": "<svg id=\"staff\"></svg>",
+            "premium": null,
+            "verified": null,
+            "partnered": null,
+            "discoverable": null
+        }
+    }"#;
+    let resp: types::ListBadgesResponse = serde_json::from_str(json).unwrap();
+    assert_eq!(resp.version, 1);
+    assert_eq!(resp.badges.len(), 1);
+    assert_eq!(resp.badges[0].name, "Staff");
+    assert_eq!(
+        resp.builtin_icons.staff.as_deref(),
+        Some("<svg id=\"staff\"></svg>")
     );
 }

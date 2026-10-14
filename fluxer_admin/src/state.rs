@@ -3,8 +3,10 @@
 use crate::{
     api::{
         client::{AdminApiClient, ApiResultExt},
-        types::{AccountIdentityMode, AccountIdentitySettings, PremiumBranding, ReportReasonEntry},
-        types::{ListBadgesResponse, PremiumBranding},
+        types::{
+            AccountIdentityMode, AccountIdentitySettings, ListBadgesResponse, PremiumBranding,
+            ReportReasonEntry,
+        },
     },
     config::AdminConfig,
 };
@@ -172,6 +174,8 @@ impl AppState {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
     pub fn remember_badges(&self, badges: ListBadgesResponse) {
         *self
             .inner

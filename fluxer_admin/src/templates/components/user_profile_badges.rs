@@ -1,9 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-use crate::admin_flags::user_flag_bits;
-use crate::utils::timestamps::format_admin_timestamp;
-use maud::{Markup, html};
 use crate::{admin_flags::user_flag_bits, api::types::ListBadgesResponse};
+use crate::utils::timestamps::format_admin_timestamp;
 use maud::{Markup, PreEscaped, html};
 
 pub mod premium_types {

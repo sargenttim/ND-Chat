@@ -25,8 +25,7 @@ pub fn overview_tab(
     change_log: Option<&ListUserChangeLogResponse>,
 ) -> Markup {
     render_overview_tab(
-        config, user, admin_acls, csrf_token, change_log, None, false, false,
-        config, user, admin_acls, csrf_token, change_log, None, None, false,
+        config, user, admin_acls, csrf_token, change_log, None, None, false, false,
     )
 }
 
