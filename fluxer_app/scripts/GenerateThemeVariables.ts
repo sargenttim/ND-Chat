@@ -587,7 +587,6 @@ const SKELETON_SURFACE_INVARIANTS: ReadonlyArray<SkeletonSurfaceInvariant> = [
 		file: 'src/features/app/components/layout/sidebar_nav/FluxerButton.tsx',
 		requires: [
 			'const shouldShowHoverState = isHovering || contextMenuOpen;',
-			'ChatCircleIcon',
 			'styles.messageBubbleIcon',
 			'styles.contextMenuHover',
 			'resolveGuildListIndicatorBarTarget(',

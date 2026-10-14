@@ -27,6 +27,7 @@ import {RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
 import ndLogoUrl from '@app/media/images/nd-logo.png';
+// ChatCircleIcon
 import {clsx} from 'clsx';
 import {AnimatePresence, motion} from 'framer-motion';
 import {observer} from 'mobx-react-lite';
