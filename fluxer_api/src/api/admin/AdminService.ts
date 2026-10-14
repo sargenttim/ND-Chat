@@ -5,6 +5,7 @@ import type {AdminRepository} from '@app/api/admin/AdminRepository';
 import {AdminApplicationService} from '@app/api/admin/services/AdminApplicationService';
 import {AdminAssetPurgeService} from '@app/api/admin/services/AdminAssetPurgeService';
 import {AdminAuditService} from '@app/api/admin/services/AdminAuditService';
+import {AdminBadgeService} from '@app/api/admin/services/AdminBadgeService';
 import {AdminBanManagementService} from '@app/api/admin/services/AdminBanManagementService';
 import {AdminCodeGenerationService} from '@app/api/admin/services/AdminCodeGenerationService';
 import {AdminGuildService} from '@app/api/admin/services/AdminGuildService';
@@ -31,7 +32,11 @@ import type {UserCacheService} from '@app/api/infrastructure/UserCacheService';
 import type {InviteRepository} from '@app/api/invite/InviteRepository';
 import {JobAdminService} from '@app/api/jobs/JobAdminService';
 import type {JobLedgerRepository} from '@app/api/jobs/JobLedgerRepository';
-import {getGuildDiscoveryRepository, getKVAccountDeletionQueue} from '@app/api/middleware/ServiceSingletons';
+import {
+	getGuildDiscoveryRepository,
+	getInstanceConfigRepository,
+	getKVAccountDeletionQueue,
+} from '@app/api/middleware/ServiceSingletons';
 import type {ApplicationRepository} from '@app/api/oauth/repositories/ApplicationRepository';
 import type {ReportService} from '@app/api/report/ReportService';
 import type {StoreEntitlementService} from '@app/api/store_billing/StoreEntitlementService';
@@ -50,6 +55,7 @@ export class AdminService {
 	readonly messageDeletionService: AdminMessageDeletionService;
 	readonly reportServiceAggregate: AdminReportService;
 	readonly voiceService: AdminVoiceService;
+	readonly badgeService: AdminBadgeService;
 	readonly searchService: AdminSearchService;
 	readonly codeGenerationService: AdminCodeGenerationService;
 	readonly assetPurgeService: AdminAssetPurgeService;
@@ -124,6 +130,7 @@ export class AdminService {
 			entityAssetService: this.entityAssetService,
 			auditService: this.auditService,
 			discoveryRepository: getGuildDiscoveryRepository(),
+			instanceConfigRepository: getInstanceConfigRepository(),
 		});
 		this.assetPurgeService = new AdminAssetPurgeService({
 			guildRepository: this.guildRepository,
@@ -159,6 +166,12 @@ export class AdminService {
 		this.voiceService = new AdminVoiceService({
 			apiContext: this.apiContext,
 			voiceRepository: this.voiceRepository,
+			auditService: this.auditService,
+		});
+		this.badgeService = new AdminBadgeService({
+			instanceConfigRepository: getInstanceConfigRepository(),
+			snowflakeService: snowflake,
+			gatewayService: gateway,
 			auditService: this.auditService,
 		});
 		this.searchService = new AdminSearchService({

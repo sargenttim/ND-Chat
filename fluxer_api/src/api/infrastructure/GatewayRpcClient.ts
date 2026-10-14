@@ -8,7 +8,7 @@ import {Logger} from '@app/api/Logger';
 import {NatsConnectionManager} from '@pkgs/nats/src/NatsConnectionManager';
 import {ms} from 'itty-time';
 
-export type GatewayRpcTransport = Pick<NatsGatewayRpcTransport, 'call' | 'destroy'>;
+export type GatewayRpcTransport = Pick<NatsGatewayRpcTransport, 'call' | 'destroy' | 'publish'>;
 
 const MAX_RETRY_ATTEMPTS = 2;
 

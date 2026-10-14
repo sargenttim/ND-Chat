@@ -45,6 +45,7 @@ export class Guild {
 	readonly embedSplashWidth: number | null;
 	readonly embedSplashHeight: number | null;
 	readonly features: ReadonlySet<string>;
+	readonly badges: ReadonlyArray<string>;
 	readonly vanityURLCode: string | null;
 	readonly ownerId: string;
 	readonly systemChannelId: string | null;
@@ -84,6 +85,7 @@ export class Guild {
 		this.embedSplashWidth = this.normalizeEmbedSplashWidth(guild);
 		this.embedSplashHeight = this.normalizeEmbedSplashHeight(guild);
 		this.features = new Set(guild.features);
+		this.badges = guild.badges ?? [];
 		this.vanityURLCode = this.normalizeVanityUrlCode(guild);
 		this.ownerId = this.normalizeOwnerId(guild);
 		this.systemChannelId = this.normalizeSystemChannelId(guild);
@@ -307,6 +309,7 @@ export class Guild {
 			embed_splash_width: this.embedSplashWidth,
 			embed_splash_height: this.embedSplashHeight,
 			features: [...this.features],
+			badges: [...this.badges],
 			vanity_url_code: this.vanityURLCode,
 			owner_id: this.ownerId,
 			system_channel_id: this.systemChannelId,
@@ -329,6 +332,80 @@ export class Guild {
 			member_count: this.memberCount,
 			roles: Object.values(this.roles).map((role) => role.toJSON()),
 		};
+	}
+
+	withUpdates(guild: Partial<WireGuild>): Guild {
+		return new Guild(
+			{
+				...this,
+				name: guild.name ?? this.name,
+				icon: guild.icon ?? this.icon,
+				banner: guild.banner ?? this.banner,
+				bannerWidth: guild.banner_width ?? this.bannerWidth,
+				bannerHeight: guild.banner_height ?? this.bannerHeight,
+				splash: guild.splash ?? this.splash,
+				splashWidth: guild.splash_width ?? this.splashWidth,
+				splashHeight: guild.splash_height ?? this.splashHeight,
+				splashCardAlignment: guild.splash_card_alignment ?? this.splashCardAlignment,
+				embedSplash: guild.embed_splash ?? this.embedSplash,
+				embedSplashWidth: guild.embed_splash_width ?? this.embedSplashWidth,
+				embedSplashHeight: guild.embed_splash_height ?? this.embedSplashHeight,
+				features: guild.features ? new Set(guild.features) : this.features,
+				badges: guild.badges ?? this.badges,
+				vanityURLCode: guild.vanity_url_code ?? this.vanityURLCode,
+				ownerId: guild.owner_id ?? this.ownerId,
+				systemChannelId: guild.system_channel_id ?? this.systemChannelId,
+				systemChannelFlags: guild.system_channel_flags ?? this.systemChannelFlags,
+				rulesChannelId: guild.rules_channel_id ?? this.rulesChannelId,
+				afkChannelId: guild.afk_channel_id ?? this.afkChannelId,
+				afkTimeout: guild.afk_timeout ?? this.afkTimeout,
+				verificationLevel: guild.verification_level ?? this.verificationLevel,
+				mfaLevel: guild.mfa_level ?? this.mfaLevel,
+				nsfw: guild.nsfw ?? this.nsfw,
+				contentWarningLevel: guild.content_warning_level ?? this.contentWarningLevel,
+				contentWarningText:
+					guild.content_warning_text !== undefined ? (guild.content_warning_text ?? null) : this.contentWarningText,
+				explicitContentFilter: guild.explicit_content_filter ?? this.explicitContentFilter,
+				defaultMessageNotifications: guild.default_message_notifications ?? this.defaultMessageNotifications,
+				disabledOperations: guild.disabled_operations ?? this.disabledOperations,
+				messageHistoryCutoff:
+					guild.message_history_cutoff !== undefined
+						? (guild.message_history_cutoff ?? null)
+						: this.messageHistoryCutoff,
+				unavailable: guild.unavailable ?? this.unavailable,
+				memberCount: guild.member_count ?? this.memberCount,
+			},
+			{instanceId: this.instanceId},
+		);
+	}
+
+	withRoles(roles: Record<string, GuildRole>): Guild {
+		return new Guild(
+			{
+				...this,
+				roles: Object.freeze({...roles}),
+			},
+			{instanceId: this.instanceId},
+		);
+	}
+
+	addRole(role: GuildRole): Guild {
+		return this.withRoles({
+			...this.roles,
+			[role.id]: role,
+		});
+	}
+
+	removeRole(roleId: string): Guild {
+		const {[roleId]: _, ...remainingRoles} = this.roles;
+		return this.withRoles(remainingRoles);
+	}
+
+	updateRole(role: GuildRole): Guild {
+		if (!this.roles[role.id]) {
+			return this;
+		}
+		return this.addRole(role);
 	}
 
 	getRole(roleId: string): GuildRole | undefined {
@@ -401,5 +478,59 @@ export class Guild {
 			return MessageNotifications.ONLY_MENTIONS;
 		}
 		return this.defaultMessageNotifications;
+	}
+
+	get isNotificationOverrideActive(): boolean {
+		return this.isLargeGuild && this.defaultMessageNotifications === MessageNotifications.ALL_MESSAGES;
+	}
+
+	equals(other: Guild): boolean {
+		if (this === other) return true;
+		if (this.instanceId !== other.instanceId) return false;
+		if (this.id !== other.id) return false;
+		if (this.name !== other.name) return false;
+		if (this.icon !== other.icon) return false;
+		if (this.banner !== other.banner) return false;
+		if (this.bannerWidth !== other.bannerWidth) return false;
+		if (this.bannerHeight !== other.bannerHeight) return false;
+		if (this.splash !== other.splash) return false;
+		if (this.splashWidth !== other.splashWidth) return false;
+		if (this.splashHeight !== other.splashHeight) return false;
+		if (this.splashCardAlignment !== other.splashCardAlignment) return false;
+		if (this.embedSplash !== other.embedSplash) return false;
+		if (this.embedSplashWidth !== other.embedSplashWidth) return false;
+		if (this.embedSplashHeight !== other.embedSplashHeight) return false;
+		if (this.vanityURLCode !== other.vanityURLCode) return false;
+		if (this.ownerId !== other.ownerId) return false;
+		if (this.systemChannelId !== other.systemChannelId) return false;
+		if (this.systemChannelFlags !== other.systemChannelFlags) return false;
+		if (this.rulesChannelId !== other.rulesChannelId) return false;
+		if (this.afkChannelId !== other.afkChannelId) return false;
+		if (this.afkTimeout !== other.afkTimeout) return false;
+		if (this.verificationLevel !== other.verificationLevel) return false;
+		if (this.mfaLevel !== other.mfaLevel) return false;
+		if (this.nsfw !== other.nsfw) return false;
+		if (this.contentWarningLevel !== other.contentWarningLevel) return false;
+		if (this.contentWarningText !== other.contentWarningText) return false;
+		if (this.explicitContentFilter !== other.explicitContentFilter) return false;
+		if (this.defaultMessageNotifications !== other.defaultMessageNotifications) return false;
+		if (this._disabledOperations !== other._disabledOperations) return false;
+		if (this.joinedAt !== other.joinedAt) return false;
+		if (this.messageHistoryCutoff !== other.messageHistoryCutoff) return false;
+		if (this.unavailable !== other.unavailable) return false;
+		if (this.memberCount !== other.memberCount) return false;
+		if (this.badges.join() !== other.badges.join()) return false;
+		if (this.features.size !== other.features.size) return false;
+		for (const feature of this.features) {
+			if (!other.features.has(feature)) return false;
+		}
+		const thisRoleIds = Object.keys(this.roles);
+		const otherRoleIds = Object.keys(other.roles);
+		if (thisRoleIds.length !== otherRoleIds.length) return false;
+		for (const roleId of thisRoleIds) {
+			const otherRole = other.roles[roleId];
+			if (!otherRole || !this.roles[roleId].equals(otherRole)) return false;
+		}
+		return true;
 	}
 }

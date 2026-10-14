@@ -60,6 +60,7 @@ function guildRow(features: Iterable<string>, pausedUntil: Date | null = null): 
 		embed_splash_width: null,
 		embed_splash_height: null,
 		features: new Set(features),
+		badge_ids: null,
 		verification_level: 0,
 		mfa_level: 0,
 		nsfw_level: 0,

@@ -3,6 +3,7 @@
 import {AccountIdentityModes, TagStyles} from '@fluxer/constants/src/AccountIdentityConstants';
 import {DomainMigrationDiscoveryResponse} from '@fluxer/schema/src/domains/admin/DomainMigrationSchemas';
 import {SsoStatusResponse} from '@fluxer/schema/src/domains/auth/AuthSchemas';
+import {BadgesResponse} from '@fluxer/schema/src/domains/badge/BadgeSchemas';
 import {createNamedStringLiteralUnion, createStringType} from '@fluxer/schema/src/primitives/SchemaPrimitives';
 import {z} from 'zod';
 
@@ -290,6 +291,7 @@ export const WellKnownFluxerResponse = z.object({
 	limits: LimitConfigResponse.describe('Limit configuration with rules and trait definitions'),
 	push: InstancePushSchema,
 	app_public: InstanceAppPublicSchema.describe('Public application configuration for client-side features'),
+	badges: BadgesResponse.optional().describe('Badges defined on this instance and overrides for built-in badge icons'),
 	age_policy: InstanceAgePolicySchema.optional().describe('Regional age policy for this instance'),
 	domain_migration: DomainMigrationDiscoveryResponse.optional().describe(
 		'Web domain migration switch and anonymous rollout, only acted on by official instance clients',

@@ -1799,6 +1799,7 @@ export class InstanceConfigRepository {
 		return this.updateStoredConfig(VOICE_P2P_CONFIG_KEY, (raw) =>
 			validateStoredConfig(VoiceP2pConfigSchema, update(parseStoredVoiceP2pConfig(raw)), 'voice p2p'),
 		);
+	}
 
 	async getBadgeConfig(): Promise<BadgesResponse> {
 		return parseStoredBadgeConfig(await this.getConfig(BADGE_CONFIG_KEY));

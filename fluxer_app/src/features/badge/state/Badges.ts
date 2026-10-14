@@ -31,7 +31,11 @@ class Badges {
 
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
-		const badges = typeof window !== 'undefined' ? window.__FLUXER_BOOTSTRAP__?.instance.badges : undefined;
+		const badges =
+			typeof window !== 'undefined'
+				? (window as unknown as {__FLUXER_BOOTSTRAP__?: {instance: {badges?: BadgesResponse}}})
+						.__FLUXER_BOOTSTRAP__?.instance.badges
+				: undefined;
 		if (badges) this.setBadges(badges);
 	}
 
