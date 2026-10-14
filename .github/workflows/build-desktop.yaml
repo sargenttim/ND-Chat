@@ -259,6 +259,7 @@ jobs:
       PLATFORM: ${{ matrix.platform }}
       ARCH: ${{ matrix.arch }}
       ELECTRON_ARCH: ${{ matrix.electron_arch }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
     steps:
       - name: Checkout CI helpers
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -483,7 +484,7 @@ jobs:
           --step validate_windows_signing_inputs
 
       - name: Azure login for Artifact Signing
-        if: matrix.platform == 'windows' && secrets.AZURE_CLIENT_ID != ''
+        if: matrix.platform == 'windows' && env.AZURE_CLIENT_ID != ''
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -514,7 +515,7 @@ jobs:
           --step resolve_windows_unpacked_dir
 
       - name: Sign unpacked Windows binaries with Artifact Signing
-        if: matrix.platform == 'windows' && secrets.AZURE_CLIENT_ID != ''
+        if: matrix.platform == 'windows' && env.AZURE_CLIENT_ID != ''
         uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82
         with:
           endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
