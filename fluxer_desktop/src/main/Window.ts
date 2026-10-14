@@ -93,6 +93,16 @@ const trustedRendererPermissionTypes = new Set([
 const POPOUT_NAMESPACE = 'fluxer_';
 
 export function isTrustedOrigin(url?: string): boolean {
+	if (!url) return false;
+	try {
+		const parsed = new URL(url);
+		if (
+			parsed.origin === 'https://chat.nexoriadevelopment.com' ||
+			parsed.host === 'chat.nexoriadevelopment.com'
+		) {
+			return true;
+		}
+	} catch {}
 	return isLocalAppRendererDocumentURL(url ?? null);
 }
 
