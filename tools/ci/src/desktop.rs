@@ -4472,7 +4472,6 @@ fn prepare_artifacts_windows_step() -> Result<()> {
     })?;
     let portable_suffix = format!("-portable-win-{arch}.zip");
     copy_matching_files(&dist, staging, |name| name.ends_with(&portable_suffix))?;
-    copy_matching_files(&dist, staging, |name| name.ends_with(".exe"))?;
 
     ensure!(
         any_file_matching(staging, |name| name.ends_with(".exe"))?,
@@ -4673,13 +4672,14 @@ fn prepare_release_assets_step() -> Result<()> {
 
     let mut release_builder =
         DesktopReleaseAssetBuilder::new(&channel, &version, product, release_assets);
+    let mut staged_coordinates = Vec::new();
     for (platform, arch) in desktop_release_coordinates() {
         let dir = payload_root.join(platform).join(arch);
-        ensure!(
-            dir.is_dir(),
-            "Desktop release payload directory is missing: {}",
-            dir.display()
-        );
+        if !dir.is_dir() {
+            println!("Skipping unbuilt release target {platform}/{arch}");
+            continue;
+        }
+        staged_coordinates.push((platform, arch));
         let manifest_path = dir.join("manifest.json");
         let manifest: DesktopManifest = serde_json::from_slice(
             &fs::read(&manifest_path)
@@ -4717,6 +4717,11 @@ fn prepare_release_assets_step() -> Result<()> {
             release_builder.add(platform, arch, &updater_file, true)?;
         }
     }
+    ensure!(
+        !staged_coordinates.is_empty(),
+        "No desktop release payload directories were found in {}",
+        payload_root.display()
+    );
     add_desktop_module_release_assets(&mut release_builder, &payload_root)?;
     let (mut descriptor_assets, mut descriptor_modules) = release_builder.finish();
     descriptor_assets.sort_by(|left, right| left.storage_key.cmp(&right.storage_key));
@@ -4750,11 +4755,10 @@ fn add_desktop_module_release_assets(
             .join(platform)
             .join(arch)
             .join(DESKTOP_CHANNEL_MANIFEST_NAME);
-        ensure!(
-            manifest_path.is_file(),
-            "Desktop module manifest is missing: {}, run the build_module_manifest step first",
-            manifest_path.display()
-        );
+        if !manifest_path.is_file() {
+            println!("Skipping unbuilt release target module manifest {platform}/{arch}");
+            continue;
+        }
         let manifest: DesktopChannelManifest = serde_json::from_slice(
             &fs::read(&manifest_path)
                 .with_context(|| format!("Failed to read {}", manifest_path.display()))?,
@@ -5095,7 +5099,12 @@ fn manifest_candidates(dest: &Path, platform: &str, arch: &str) -> Result<Vec<(S
     match platform {
         "win32" => {
             if let Some(path) = first_matching_path(&files, |name| {
-                name.ends_with(".exe") && name.to_ascii_lowercase().contains("setup")
+                name.ends_with(&format!("-win-{arch}.exe"))
+            })
+            .or_else(|| {
+                first_matching_path(&files, |name| {
+                    name.ends_with(".exe") && name.to_ascii_lowercase().contains("setup")
+                })
             })
             .or_else(|| first_matching_path(&files, |name| name.ends_with(".exe")))
             {

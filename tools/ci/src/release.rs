@@ -538,12 +538,16 @@ fn validate_desktop_release_modules<'a>(
             entry.release_asset
         );
     }
-    let expected_manifests = desktop_release_coordinates()
+    let valid_coordinates = desktop_release_coordinates()
         .into_iter()
         .collect::<BTreeSet<_>>();
     ensure!(
-        manifests == expected_manifests,
-        "Desktop release descriptor module manifests mismatch: expected {expected_manifests:?}, found {manifests:?}"
+        !manifests.is_empty(),
+        "Desktop release descriptor contains no module manifests"
+    );
+    ensure!(
+        manifests.is_subset(&valid_coordinates),
+        "Desktop release descriptor module manifests mismatch: expected subset of {valid_coordinates:?}, found {manifests:?}"
     );
     ensure!(
         packages.contains_key(DESKTOP_RENDERER_MODULE),

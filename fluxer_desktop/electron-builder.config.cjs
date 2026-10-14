@@ -128,10 +128,6 @@ const winGameCaptureTargetArchs =
 	targetPlatform === 'win32' && targetNativeArch ? [targetNativeArch] : supportedTargetArchs;
 const winTargets = [
 	{
-		target: 'nsis',
-		arch: targetArchs,
-	},
-	{
 		target: 'dir',
 		arch: targetArchs,
 	},
@@ -1784,14 +1780,6 @@ module.exports = {
 	win: {
 		icon: `build_resources/${iconDir}/icon.ico`,
 		target: winTargets,
-	},
-	nsis: {
-		oneClick: false,
-		allowToChangeInstallationDirectory: true,
-		createDesktopShortcut: true,
-		createStartMenuShortcut: true,
-		shortcutName: productName,
-		artifactName: '${productName}-NSIS-Setup-${version}-${arch}.${ext}',
 	},
 	linux: {
 		icon: `build_resources/${iconDir}/1024x1024.png`,
