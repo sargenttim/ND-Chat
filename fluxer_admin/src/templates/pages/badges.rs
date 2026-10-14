@@ -274,7 +274,8 @@ document.querySelectorAll('[data-badge-icon-file]').forEach(function (input) {
 		if (!file) return;
 		preview.src = URL.createObjectURL(file);
 		file.text().then(function (text) {
-			form.elements.icon.value = text;
+			var cleaned = text.replace(/<\?xml[\s\S]*?\?>/gi, '').replace(/<!--[\s\S]*?-->/g, '').trim();
+			form.elements.icon.value = cleaned || text;
 		});
 	});
 });

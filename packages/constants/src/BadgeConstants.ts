@@ -23,4 +23,4 @@ export const MAX_BADGES_PER_TYPE = 10;
 export const MAX_BADGES_PER_ENTITY = 10;
 export const MAX_BADGE_NAME_LENGTH = 64;
 export const MAX_BADGE_TOOLTIP_LENGTH = 256;
-export const MAX_BADGE_ICON_INPUT_LENGTH = 25 * 1024;
+export const MAX_BADGE_ICON_INPUT_LENGTH = 512 * 1024;

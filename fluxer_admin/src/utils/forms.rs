@@ -4,7 +4,7 @@ use axum::{body, extract::Request};
 use std::collections::BTreeMap;
 use url::form_urlencoded;
 
-const MAX_FORM_BYTES: usize = 1024 * 1024;
+const MAX_FORM_BYTES: usize = 4 * 1024 * 1024;
 
 pub fn clean_string(value: &str) -> Option<String> {
     let trimmed = value.trim();

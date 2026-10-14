@@ -33534,11 +33534,11 @@
 						"description": "Public application configuration for client-side features",
 						"$ref": "#/components/schemas/InstanceAppPublicSchema"
 					},
-					"age_policy": {"$ref": "#/components/schemas/InstanceAgePolicySchema"},
 					"badges": {
 						"description": "Badges defined on this instance and overrides for built-in badge icons",
 						"$ref": "#/components/schemas/BadgesResponse"
 					},
+					"age_policy": {"$ref": "#/components/schemas/InstanceAgePolicySchema"},
 					"domain_migration": {
 						"description": "Web domain migration switch and anonymous rollout, only acted on by official instance clients",
 						"$ref": "#/components/schemas/DomainMigrationDiscoveryResponse"
@@ -33730,6 +33730,23 @@
 				"required": ["public_vapid_key"],
 				"additionalProperties": false,
 				"description": "Push notification configuration"
+			},
+			"InstanceServicesSchema": {
+				"type": "object",
+				"properties": {
+					"gif_enabled": {"type": "boolean", "description": "Whether the GIF picker is enabled for this instance"},
+					"youtube_enabled": {
+						"type": "boolean",
+						"description": "Whether YouTube link enrichment is enabled for this instance"
+					},
+					"bluesky_enabled": {
+						"type": "boolean",
+						"description": "Whether Bluesky profile connections are enabled for this instance"
+					}
+				},
+				"required": ["gif_enabled", "youtube_enabled", "bluesky_enabled"],
+				"additionalProperties": false,
+				"description": "Optional third-party service integrations enabled for this instance"
 			},
 			"InstanceCommunitySchema": {
 				"type": "object",
@@ -34167,6 +34184,45 @@
 				"required": ["id_hash", "masked_ip", "current"],
 				"additionalProperties": false
 			},
+			"BuiltinBadgeIconsResponse": {
+				"type": "object",
+				"properties": {
+					"staff": {"type": ["string", "null"]},
+					"premium": {"type": ["string", "null"]},
+					"verified": {"type": ["string", "null"]},
+					"partnered": {"type": ["string", "null"]},
+					"discoverable": {"type": ["string", "null"]}
+				},
+				"required": ["staff", "premium", "verified", "partnered", "discoverable"],
+				"additionalProperties": false,
+				"description": "SVG markup to override the built-in badge with, or null to reset to default"
+			},
+			"BadgeResponse": {
+				"type": "object",
+				"properties": {
+					"id": {"description": "The ID of the badge", "$ref": "#/components/schemas/SnowflakeStringType"},
+					"type": {"$ref": "#/components/schemas/BadgeTypeEnum"},
+					"name": {"type": "string", "description": "The name of the badge"},
+					"tooltip": {"type": "string", "description": "The text shown when hovering over the badge"},
+					"icon": {"type": "string", "description": "SVG markup of the badge icon"},
+					"url": {"description": "The URL opened when the badge is clicked", "type": ["string", "null"]},
+					"position": {
+						"type": "integer",
+						"minimum": -9007199254740991,
+						"maximum": 9007199254740991,
+						"description": "Display order of the badge"
+					}
+				},
+				"required": ["id", "type", "name", "tooltip", "icon", "url", "position"],
+				"additionalProperties": false
+			},
+			"BadgeTypeEnum": {
+				"description": "The target entity type of the badge",
+				"x-enumNames": ["User", "Guild"],
+				"x-enumDescriptions": ["Badge shown on user profiles", "Badge shown next to community names"],
+				"enum": ["user", "guild"],
+				"type": "string"
+			},
 			"ChannelUpdateMediaRequestBody": {
 				"type": "object",
 				"properties": {
@@ -34447,45 +34503,6 @@
 					}
 				},
 				"x-fluxer-experiment": "channel_threads"
-			},
-			"BuiltinBadgeIconsResponse": {
-				"type": "object",
-				"properties": {
-					"staff": {"type": ["string", "null"]},
-					"premium": {"type": ["string", "null"]},
-					"verified": {"type": ["string", "null"]},
-					"partnered": {"type": ["string", "null"]},
-					"discoverable": {"type": ["string", "null"]}
-				},
-				"required": ["staff", "premium", "verified", "partnered", "discoverable"],
-				"additionalProperties": false,
-				"description": "SVG markup to override the built-in badge with, or null to reset to default"
-			},
-			"BadgeResponse": {
-				"type": "object",
-				"properties": {
-					"id": {"description": "The ID of the badge", "$ref": "#/components/schemas/SnowflakeStringType"},
-					"type": {"$ref": "#/components/schemas/BadgeTypeEnum"},
-					"name": {"type": "string", "description": "The name of the badge"},
-					"tooltip": {"type": "string", "description": "The text shown when hovering over the badge"},
-					"icon": {"type": "string", "description": "SVG markup of the badge icon"},
-					"url": {"description": "The URL opened when the badge is clicked", "type": ["string", "null"]},
-					"position": {
-						"type": "integer",
-						"minimum": -9007199254740991,
-						"maximum": 9007199254740991,
-						"description": "Display order of the badge"
-					}
-				},
-				"required": ["id", "type", "name", "tooltip", "icon", "url", "position"],
-				"additionalProperties": false
-			},
-			"BadgeTypeEnum": {
-				"description": "The target entity type of the badge",
-				"x-enumNames": ["User", "Guild"],
-				"x-enumDescriptions": ["Badge shown on user profiles", "Badge shown next to community names"],
-				"enum": ["user", "guild"],
-				"type": "string"
 			},
 			"ChannelNicknameOverrides": {
 				"type": "object",
@@ -40028,6 +40045,7 @@
 					"GLOBAL_IP_TEMPORARILY_BANNED",
 					"IP_BAN_DECLINED",
 					"MAX_APPLICATIONS",
+					"MAX_BADGES",
 					"MAX_BOOKMARKS",
 					"MAX_ACTIVE_THREADS",
 					"MAX_CATEGORY_CHANNELS",
@@ -40139,6 +40157,7 @@
 					"UNCLAIMED_ACCOUNT_CANNOT_SEND_FRIEND_REQUESTS",
 					"UNCLAIMED_ACCOUNT_CANNOT_SEND_MESSAGES",
 					"UNCLAIMED_ACCOUNT_CANNOT_SUBMIT_REPORTS",
+					"UNKNOWN_BADGE",
 					"UNKNOWN_CHANNEL",
 					"UNKNOWN_EMOJI",
 					"UNKNOWN_FAVORITE_MEME",
@@ -40323,6 +40342,7 @@
 					"Your IP address {ipAddress} has been temporarily blocked from the {product_name} API. The block lifts on its own when it expires. {appealEmail, select, null {If you think this is a mistake, contact the administrators of this instance and include this IP address.} other {If you think this is a mistake, contact {appealEmail} and include this IP address.}}",
 					"This IP address cannot be added to the blocklist.",
 					"You've reached the maximum of {limit, plural, one {# application} other {# applications}}.",
+					"You've reached the maximum number of badges.",
 					"You've reached the maximum of {count, plural, one {# bookmark} other {# bookmarks}}.",
 					"This community has reached its active thread limit of {count}.",
 					"You've reached the maximum of {count, plural, one {# category channel} other {# category channels}}.",
@@ -40434,6 +40454,7 @@
 					"Bots can't send friend requests.",
 					"Invalid request.",
 					"You need to complete your account setup before you can submit reports.",
+					"Badge wasn't found.",
 					"Channel wasn't found.",
 					"Unknown emoji.",
 					"Unknown saved media.",

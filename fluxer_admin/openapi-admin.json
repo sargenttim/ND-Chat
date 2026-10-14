@@ -10659,7 +10659,7 @@
 				"type": "object",
 				"properties": {
 					"acls": {
-						"maxItems": 114,
+						"maxItems": 112,
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AdminAclType"},
 						"description": "List of access control permissions to assign"
@@ -13699,7 +13699,12 @@
 				"properties": {
 					"name": {"description": "The name of the badge", "type": "string"},
 					"tooltip": {"description": "The text shown when hovering over the badge", "type": "string"},
-					"icon": {"type": "string", "minLength": 1, "maxLength": 25600, "description": "SVG markup of the badge icon"},
+					"icon": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 524288,
+						"description": "SVG markup of the badge icon"
+					},
 					"url": {
 						"description": "The URL opened when the badge is clicked, or null to remove the URL",
 						"nullable": true,
@@ -13722,7 +13727,7 @@
 						"description": "SVG markup of the badge icon, or null to restore the default icon",
 						"type": "string",
 						"minLength": 1,
-						"maxLength": 25600
+						"maxLength": 524288
 					}
 				},
 				"required": ["icon"]
@@ -13759,7 +13764,12 @@
 					"type": {"allOf": [{"$ref": "#/components/schemas/BadgeTypeEnum"}]},
 					"name": {"description": "The name of the badge", "type": "string"},
 					"tooltip": {"description": "The text shown when hovering over the badge", "type": "string"},
-					"icon": {"type": "string", "minLength": 1, "maxLength": 25600, "description": "SVG markup of the badge icon"},
+					"icon": {
+						"type": "string",
+						"minLength": 1,
+						"maxLength": 524288,
+						"description": "SVG markup of the badge icon"
+					},
 					"url": {"description": "The URL opened when the badge is clicked", "nullable": true, "type": "string"},
 					"position": {"description": "The display order of the badge", "type": "integer", "minimum": 0, "maximum": 10}
 				},
@@ -13991,7 +14001,7 @@
 					},
 					"acls": {
 						"description": "Replacement list of access control permissions for the key",
-						"maxItems": 114,
+						"maxItems": 112,
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AdminAclType"}
 					}
@@ -14009,7 +14019,7 @@
 						"type": "string"
 					},
 					"acls": {
-						"maxItems": 114,
+						"maxItems": 112,
 						"type": "array",
 						"items": {"type": "string"},
 						"description": "List of access control permissions for the key"
@@ -14039,7 +14049,7 @@
 						"maximum": 365
 					},
 					"acls": {
-						"maxItems": 114,
+						"maxItems": 112,
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AdminAclType"},
 						"description": "List of access control permissions for the key"
@@ -14060,7 +14070,7 @@
 						"type": "string"
 					},
 					"acls": {
-						"maxItems": 114,
+						"maxItems": 112,
 						"type": "array",
 						"items": {"type": "string"},
 						"description": "List of access control permissions for the key"
@@ -14073,6 +14083,7 @@
 				"type": "object",
 				"properties": {
 					"acls": {
+						"maxItems": 112,
 						"type": "array",
 						"items": {"type": "string", "minLength": 1, "maxLength": 64},
 						"description": "Every admin access control permission the admin API recognises"
@@ -17352,7 +17363,7 @@
 						"description": "ISO 8601 timestamp when the pending deletion was scheduled",
 						"type": "string"
 					},
-					"acls": {"maxItems": 114, "type": "array", "items": {"type": "string"}},
+					"acls": {"maxItems": 112, "type": "array", "items": {"type": "string"}},
 					"traits": {"maxItems": 100, "type": "array", "items": {"type": "string"}},
 					"badge_ids": {"allOf": [{"$ref": "#/components/schemas/BadgeIdsResponse"}]},
 					"has_totp": {"type": "boolean"},
@@ -17915,6 +17926,7 @@
 					"GLOBAL_IP_TEMPORARILY_BANNED",
 					"IP_BAN_DECLINED",
 					"MAX_APPLICATIONS",
+					"MAX_BADGES",
 					"MAX_BOOKMARKS",
 					"MAX_ACTIVE_THREADS",
 					"MAX_CATEGORY_CHANNELS",
@@ -18026,6 +18038,7 @@
 					"UNCLAIMED_ACCOUNT_CANNOT_SEND_FRIEND_REQUESTS",
 					"UNCLAIMED_ACCOUNT_CANNOT_SEND_MESSAGES",
 					"UNCLAIMED_ACCOUNT_CANNOT_SUBMIT_REPORTS",
+					"UNKNOWN_BADGE",
 					"UNKNOWN_CHANNEL",
 					"UNKNOWN_EMOJI",
 					"UNKNOWN_FAVORITE_MEME",
@@ -18210,6 +18223,7 @@
 					"Your IP address {ipAddress} has been temporarily blocked from the {product_name} API. The block lifts on its own when it expires. {appealEmail, select, null {If you think this is a mistake, contact the administrators of this instance and include this IP address.} other {If you think this is a mistake, contact {appealEmail} and include this IP address.}}",
 					"This IP address cannot be added to the blocklist.",
 					"You've reached the maximum of {limit, plural, one {# application} other {# applications}}.",
+					"You've reached the maximum number of badges.",
 					"You've reached the maximum of {count, plural, one {# bookmark} other {# bookmarks}}.",
 					"This community has reached its active thread limit of {count}.",
 					"You've reached the maximum of {count, plural, one {# category channel} other {# category channels}}.",
@@ -18321,6 +18335,7 @@
 					"Bots can't send friend requests.",
 					"Invalid request.",
 					"You need to complete your account setup before you can submit reports.",
+					"Badge wasn't found.",
 					"Channel wasn't found.",
 					"Unknown emoji.",
 					"Unknown saved media.",
