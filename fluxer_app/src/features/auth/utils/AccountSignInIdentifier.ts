@@ -8,7 +8,7 @@ import {formatUserTag} from '@app/features/user/utils/UserTagUtils';
 export type LoginIdentifierField = 'email' | 'login';
 
 export function loginIdentifierField(runtimeSnapshot: RuntimeConfigSnapshot | null): LoginIdentifierField {
-	return runtimeSnapshot !== null && usesUsernameSignIn(runtimeSnapshot.features) ? 'login' : 'email';
+	return runtimeSnapshot === null || usesUsernameSignIn(runtimeSnapshot.features) ? 'login' : 'email';
 }
 
 export function accountLoginIdentifierField(account: Account): LoginIdentifierField {

@@ -11,7 +11,7 @@ import type {InstanceFeatures} from '@fluxer/schema/src/domains/instance/Instanc
 type AccountIdentityFeatures = Pick<InstanceFeatures, 'account_identity' | 'tag_style'>;
 
 export function accountIdentityOf(features: AccountIdentityFeatures): AccountIdentityMode {
-	return features.account_identity ?? AccountIdentityModes.EMAIL;
+	return features.account_identity ?? AccountIdentityModes.USERNAME;
 }
 
 export function usesUsernameSignIn(features: AccountIdentityFeatures): boolean {
@@ -20,7 +20,7 @@ export function usesUsernameSignIn(features: AccountIdentityFeatures): boolean {
 
 export function tagStyleOf(features: AccountIdentityFeatures): TagStyle {
 	if (usesUsernameSignIn(features)) return TagStyles.NONE;
-	return features.tag_style ?? TagStyles.RANDOM;
+	return features.tag_style ?? TagStyles.NONE;
 }
 
 export function usesUniqueUsernames(features: AccountIdentityFeatures): boolean {

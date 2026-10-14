@@ -9,7 +9,7 @@ export const AccountIdentityModes = {
 
 export type AccountIdentityMode = ValueOf<typeof AccountIdentityModes>;
 
-export const DEFAULT_ACCOUNT_IDENTITY_MODE: AccountIdentityMode = AccountIdentityModes.EMAIL;
+export const DEFAULT_ACCOUNT_IDENTITY_MODE: AccountIdentityMode = AccountIdentityModes.USERNAME;
 
 export const TagStyles = {
 	NONE: 'none',
