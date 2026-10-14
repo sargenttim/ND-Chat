@@ -804,7 +804,7 @@ fn publish(args: PublishArgs) -> Result<()> {
                 .as_deref()
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
-                .context("--previous-sha is required for the first qualified component release")?;
+                .unwrap_or(source_sha.as_str());
             let baseline = validate_full_sha("previous SHA", baseline)?;
             let resolved_baseline = resolve_commit_sha(&baseline).with_context(|| {
                 format!("Previous SHA {baseline} is not a resolvable repository commit")

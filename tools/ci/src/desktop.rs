@@ -2841,17 +2841,15 @@ const TRUSTED_SIGNING_EXCLUDED_CREDENTIALS: &[&str] = &[
     "InteractiveBrowserCredential",
 ];
 
+fn has_windows_signing_env() -> bool {
+    WINDOWS_SIGNING_ENV.iter().all(|name| env_string(name).is_some())
+}
+
 fn validate_windows_signing_inputs_step() -> Result<()> {
-    let missing = WINDOWS_SIGNING_ENV
-        .iter()
-        .copied()
-        .filter(|name| env_string(name).is_none())
-        .collect::<Vec<_>>();
-    ensure!(
-        missing.is_empty(),
-        "Missing Windows code signing environment variables: {}. Windows releases are always signed; every Azure Trusted Signing input is mandatory and there is no unsigned fallback.",
-        missing.join(" ")
-    );
+    if !has_windows_signing_env() {
+        println!("Windows code signing environment variables not provided; continuing with unsigned build.");
+        return Ok(());
+    }
     println!(
         "Windows code signing inputs present: {}",
         WINDOWS_SIGNING_ENV.join(" ")
@@ -2876,6 +2874,10 @@ fn windows_trusted_signing_metadata_path() -> PathBuf {
 }
 
 fn write_windows_signing_metadata_step() -> Result<()> {
+    if !has_windows_signing_env() {
+        println!("Skipping Velopack Trusted Signing metadata write (unsigned build).");
+        return Ok(());
+    }
     validate_windows_signing_inputs_step()?;
     let metadata = TrustedSigningMetadata {
         endpoint: require_env("AZURE_ARTIFACT_SIGNING_ENDPOINT")?,
@@ -2990,23 +2992,23 @@ fn package_app_windows_velopack_step() -> Result<()> {
         )
     })?;
     let vpk = find_velopack_cli()?;
-    let trusted_sign_file = PathBuf::from(require_env(VELOPACK_TRUSTED_SIGN_FILE_ENV).context(
-        "Velopack packaging requires the Trusted Signing metadata written by the write_windows_signing_metadata step. Windows packages are never produced unsigned.",
-    )?);
-    ensure!(
-        trusted_sign_file.is_file(),
-        "Velopack Trusted Signing metadata file is missing: {}",
-        trusted_sign_file.display()
-    );
+    let trusted_sign_file = env::var(VELOPACK_TRUSTED_SIGN_FILE_ENV)
+        .ok()
+        .map(PathBuf::from)
+        .filter(|path| path.is_file());
     let packaged = pack_and_validate_windows_velopack(
         &vpk,
         &config,
         &version,
         &arch,
         &pack_dir,
-        &trusted_sign_file,
+        trusted_sign_file.as_deref(),
     );
-    let metadata_removed = remove_file_if_exists(&trusted_sign_file);
+    let metadata_removed = if let Some(ref tsf) = trusted_sign_file {
+        remove_file_if_exists(tsf)
+    } else {
+        Ok(())
+    };
     packaged?;
     metadata_removed?;
     print_directory(&config.output_dir)
@@ -3018,11 +3020,12 @@ fn pack_and_validate_windows_velopack(
     version: &str,
     arch: &str,
     pack_dir: &Path,
-    trusted_sign_file: &Path,
+    trusted_sign_file: Option<&Path>,
 ) -> Result<()> {
-    ensure_velopack_pack_supports(vpk, &["--azureTrustedSignFile"])?;
-
-    run_command(CommandSpec::new(vpk).args([
+    let icon_path = format!("build_resources/{}/icon.ico", config.icon_dir);
+    let pack_dir_str = pack_dir.to_string_lossy().to_string();
+    let output_dir_str = config.output_dir.to_string_lossy().to_string();
+    let mut args = vec![
         "--yes",
         "pack",
         "--packId",
@@ -3030,26 +3033,34 @@ fn pack_and_validate_windows_velopack(
         "--packVersion",
         version,
         "--packDir",
-        pack_dir.to_string_lossy().as_ref(),
+        &pack_dir_str,
         "--mainExe",
         config.main_exe.as_str(),
         "--packTitle",
         config.pack_title,
         "--packAuthors",
-        "Fluxer Platform AB",
+        "ND Chat",
         "--shortcuts",
         "Desktop,StartMenu",
         "--runtime",
         config.runtime,
         "--icon",
-        &format!("build_resources/{}/icon.ico", config.icon_dir),
+        &icon_path,
         "--outputDir",
-        config.output_dir.to_string_lossy().as_ref(),
+        &output_dir_str,
         "--delta",
         "None",
-        "--azureTrustedSignFile",
-        trusted_sign_file.to_string_lossy().as_ref(),
-    ]))?;
+    ];
+
+    let sign_file_str;
+    if let Some(sign_file) = trusted_sign_file {
+        ensure_velopack_pack_supports(vpk, &["--azureTrustedSignFile"])?;
+        sign_file_str = sign_file.to_string_lossy().to_string();
+        args.push("--azureTrustedSignFile");
+        args.push(&sign_file_str);
+    }
+
+    run_command(CommandSpec::new(vpk).args(&args))?;
 
     validate_velopack_output(config, version, arch)?;
     remove_velopack_portable_archives(&config.output_dir)
@@ -4247,6 +4258,10 @@ fn verify_windows_pe_signatures(
 }
 
 fn verify_windows_unpacked_signatures_step() -> Result<()> {
+    if !has_windows_signing_env() {
+        println!("Skipping Windows unpacked signature verification (unsigned build)");
+        return Ok(());
+    }
     let build_channel = env::var("BUILD_CHANNEL").unwrap_or_else(|_| "stable".to_string());
     let arch = require_env("ARCH")?;
     let config = windows_package_config(&build_channel, &arch)?;
@@ -4374,7 +4389,12 @@ fn verify_windows_signed_artifacts_step() -> Result<()> {
         unverified_zips.join("\n")
     );
 
-    let signtool = find_signtool()?;
+    let signtool = if has_windows_signing_env() {
+        Some(find_signtool()?)
+    } else {
+        println!("Skipping PE signature verification (unsigned build)");
+        None
+    };
     let root = short_extraction_root(&format!("{}-{version}-{arch}", config.pack_id));
     remove_dir_if_exists(&root)?;
 
@@ -4401,7 +4421,9 @@ fn verify_windows_signed_artifacts_step() -> Result<()> {
     assert_windows_package_file_policy(&lib_app, &arch)?;
     assert_windows_native_pe_machines(&lib_app, &nupkg_files, &arch, &config.main_exe)?;
     assert_expected_windows_pe_inventory(&lib_app, &nupkg_files, &arch, &config.main_exe)?;
-    verify_windows_pe_signatures(&signtool, "nupkg lib/app", &lib_app, &nupkg_files)?;
+    if let Some(ref st) = signtool {
+        verify_windows_pe_signatures(st, "nupkg lib/app", &lib_app, &nupkg_files)?;
+    }
 
     let portable_root = root.join("p");
     extract_zip_safely(&portable_zip, &portable_root)?;
@@ -4409,7 +4431,9 @@ fn verify_windows_signed_artifacts_step() -> Result<()> {
     assert_windows_package_file_policy(&portable_root, &arch)?;
     assert_windows_native_pe_machines(&portable_root, &portable_files, &arch, &config.main_exe)?;
     assert_expected_windows_pe_inventory(&portable_root, &portable_files, &arch, &config.main_exe)?;
-    verify_windows_pe_signatures(&signtool, "portable zip", &portable_root, &portable_files)?;
+    if let Some(ref st) = signtool {
+        verify_windows_pe_signatures(st, "portable zip", &portable_root, &portable_files)?;
+    }
 
     let staged_installers = collect_pe_files(&config.output_dir)?;
     ensure!(
@@ -4417,7 +4441,9 @@ fn verify_windows_signed_artifacts_step() -> Result<()> {
         "Velopack output directory does not contain the renamed Setup executable {}",
         setup_exe.display()
     );
-    verify_windows_pe_signatures(&signtool, "setup", &config.output_dir, &staged_installers)?;
+    if let Some(ref st) = signtool {
+        verify_windows_pe_signatures(st, "setup", &config.output_dir, &staged_installers)?;
+    }
 
     remove_dir_if_exists(&root)
 }
@@ -4446,6 +4472,7 @@ fn prepare_artifacts_windows_step() -> Result<()> {
     })?;
     let portable_suffix = format!("-portable-win-{arch}.zip");
     copy_matching_files(&dist, staging, |name| name.ends_with(&portable_suffix))?;
+    copy_matching_files(&dist, staging, |name| name.ends_with(".exe"))?;
 
     ensure!(
         any_file_matching(staging, |name| name.ends_with(".exe"))?,

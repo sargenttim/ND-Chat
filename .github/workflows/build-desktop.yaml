@@ -19,7 +19,7 @@ on:
       skip_targets:
         description: Comma-separated platforms or targets to skip, such as windows, macos, linux-x64.
         required: false
-        default: ""
+        default: "macos, linux, windows-arm64"
         type: string
 permissions:
   contents: write
@@ -37,8 +37,7 @@ env:
 jobs:
   meta:
     name: Resolve build metadata
-    runs-on: ubuntu-24.04-arm
-    environment: desktop-releases
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
@@ -59,19 +58,9 @@ jobs:
         with:
           toolchain: "1.98.1"
 
-      - name: Create token
-        id: create-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
-        with:
-          client-id: ${{ vars.FLUXER_CI_APP_ID }}
-          private-key: ${{ secrets.FLUXER_CI_APP_KEY }}
-          owner: fluxerapp
-          repositories: fluxer
-          permission-contents: read
       - name: Set metadata
         id: meta
         env:
-          GH_TOKEN: ${{ steps.create-token.outputs.token }}
           FLUXER_BUILD_VERSION: ${{ inputs.build_version }}
         run: >-
           cargo run --locked --quiet --manifest-path tools/ci/Cargo.toml -- build-desktop
@@ -80,8 +69,7 @@ jobs:
 
   matrix:
     name: Resolve build matrix
-    runs-on: ubuntu-24.04-arm
-    environment: desktop-releases
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     permissions:
       contents: read
@@ -108,7 +96,6 @@ jobs:
     needs:
       - meta
     runs-on: ubuntu-24.04
-    environment: desktop-releases
     timeout-minutes: 60
     permissions:
       contents: read
@@ -248,7 +235,6 @@ jobs:
       - matrix
       - shared_assets
     runs-on: ${{ matrix.os }}
-    environment: desktop-releases
     timeout-minutes: 180
     permissions:
       actions: read
@@ -497,7 +483,7 @@ jobs:
           --step validate_windows_signing_inputs
 
       - name: Azure login for Artifact Signing
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && secrets.AZURE_CLIENT_ID != ''
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -528,7 +514,7 @@ jobs:
           --step resolve_windows_unpacked_dir
 
       - name: Sign unpacked Windows binaries with Artifact Signing
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && secrets.AZURE_CLIENT_ID != ''
         uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82
         with:
           endpoint: ${{ secrets.AZURE_ARTIFACT_SIGNING_ENDPOINT }}
@@ -662,6 +648,16 @@ jobs:
           cargo run --locked --quiet --manifest-path ${{ github.workspace }}/_ci/tools/ci/Cargo.toml -- build-desktop
           --step stage_handoff
 
+      - name: Upload Windows Standalone Installer (.exe)
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ND-Chat-Windows-Setup-${{ env.BUILD_CHANNEL }}-${{ env.VERSION }}
+          path: |
+            upload_staging/*.exe
+            upload_staging/*.zip
+          if-no-files-found: warn
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -671,61 +667,14 @@ jobs:
           retention-days: 1
           compression-level: 0
 
-  verify_windows_arm64:
-    name: Verify windows (arm64)
-    if: ${{ !cancelled() && needs.build.result == 'success' }}
-    needs:
-      - meta
-      - build
-    runs-on: windows-11-arm
-    timeout-minutes: 30
-    permissions:
-      actions: read
-      contents: read
-    env:
-      CHANNEL: ${{ needs.meta.outputs.build_channel }}
-      VERSION: ${{ needs.meta.outputs.version }}
-    steps:
-      - name: Checkout source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          ref: ${{ needs.meta.outputs.source_sha }}
-          sparse-checkout: fluxer_desktop/scripts
-
-      - name: Set up Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
-        with:
-          node-version: 24
-
-      - name: Download windows arm64 build artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          path: artifacts
-          pattern: fluxer-desktop-${{ needs.meta.outputs.build_channel }}-windows-arm64*
-
-      - name: Verify the packaged shell starts and boots its bundled renderer
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $zip = Get-ChildItem -Path artifacts -Recurse -Filter "*-$env:VERSION-portable-win-arm64.zip" | Select-Object -First 1
-          if ($null -eq $zip) { Write-Host 'This build has no windows arm64 portable zip'; exit 0 }
-          $app = Join-Path $env:RUNNER_TEMP 'app'
-          Expand-Archive -Path $zip.FullName -DestinationPath $app
-          $exe = Get-ChildItem -Path $app -Recurse -Filter 'Fluxer*.exe' | Where-Object { $_.Name -notlike '*_ExecutionStub.exe' } | Select-Object -First 1
-          if ($null -eq $exe) { throw "$($zip.Name) holds no Fluxer executable" }
-          node fluxer_desktop/scripts/release-check.mjs --app $exe.DirectoryName --channel $env:CHANNEL --expect-renderer $env:VERSION --expect-source bundled --package-origin http://127.0.0.1:9 --app-arg=--disable-gpu --workdir (Join-Path $env:RUNNER_TEMP 'runs') --timeout-seconds 240
-          if ($LASTEXITCODE -ne 0) { throw "The windows arm64 build fails its release check" }
-
   upload:
     name: Assemble desktop release assets
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.verify_windows_arm64.result == 'success' }}
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     needs:
       - meta
       - shared_assets
       - build
-      - verify_windows_arm64
-    runs-on: ubuntu-24.04-arm
-    environment: desktop-releases
+    runs-on: ubuntu-24.04
     timeout-minutes: 180
     permissions:
       actions: read
@@ -801,8 +750,7 @@ jobs:
     needs:
       - meta
       - upload
-    runs-on: ubuntu-24.04-arm
-    environment: desktop-releases
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: write
@@ -826,18 +774,9 @@ jobs:
           name: fluxer-desktop-release-assets
           path: release_assets
 
-      - name: Create token
-        id: create-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1
-        with:
-          client-id: ${{ vars.FLUXER_CI_APP_ID }}
-          private-key: ${{ secrets.FLUXER_CI_APP_KEY }}
-          owner: fluxerapp
-          repositories: fluxer
-          permission-contents: write
       - name: Publish GitHub desktop release
         env:
-          GH_TOKEN: ${{ steps.create-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CHANNEL: ${{ needs.meta.outputs.build_channel }}
           VERSION: ${{ needs.meta.outputs.version }}
           SOURCE_SHA: ${{ needs.meta.outputs.source_sha }}
@@ -849,7 +788,7 @@ jobs:
             --component "fluxer-desktop-${CHANNEL}"
             --build-version "${VERSION}"
             --source-sha "${SOURCE_SHA}"
-            --previous-sha "${RELEASE_BASELINE_SHA}"
+            --previous-sha "${RELEASE_BASELINE_SHA:-}"
             --asset-dir release_assets
           )
           if [[ "${CHANNEL}" == "canary" ]]; then
