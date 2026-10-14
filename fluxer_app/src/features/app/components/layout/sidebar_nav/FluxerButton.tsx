@@ -26,7 +26,7 @@ import {ME} from '@fluxer/constants/src/AppConstants';
 import {RelationshipTypes} from '@fluxer/constants/src/UserConstants';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
-import {ChatCircleIcon} from '@phosphor-icons/react';
+import ndLogoUrl from '@app/media/images/nd-logo.png';
 import {clsx} from 'clsx';
 import {AnimatePresence, motion} from 'framer-motion';
 import {observer} from 'mobx-react-lite';
@@ -160,10 +160,12 @@ export const FluxerButton = observer(() => {
 							transition={{duration: 0.07, ease: 'easeOut'}}
 							data-flx="app.sidebar-nav.fluxer-button.fluxer-button-icon"
 						>
-							<ChatCircleIcon
-								weight="fill"
+							<img
+								src={ndLogoUrl}
+								alt="ND Chat"
 								className={styles.messageBubbleIcon}
-								data-flx="app.sidebar-nav.fluxer-button.message-bubble-icon"
+								style={{width: '100%', height: '100%', objectFit: 'contain', padding: '2px'}}
+								data-flx="app.sidebar-nav.fluxer-button.nd-logo"
 							/>
 						</motion.div>
 						<div
