@@ -8,9 +8,9 @@ import * as path from 'node:path';
 import {parseArgs} from 'node:util';
 
 const CHANNEL_DATA_DIRECTORIES = Object.freeze({
-	stable: 'fluxer',
-	canary: 'fluxercanary',
-	development: 'fluxerdevelopment',
+	stable: 'ndchat',
+	canary: 'ndchatcanary',
+	development: 'ndchatdevelopment',
 });
 const SERVED_RENDERER_PATTERN = /Serving the renderer: source=(\S+) version=(\S+) bundled=(\S+)/gu;
 const REPORTED_BUILD_PATTERN = /The renderer reported its build: (.+)$/gmu;

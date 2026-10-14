@@ -15,9 +15,9 @@ interface UserDataPaths {
 type ChannelStorageDirectoryMap = Record<BuildChannel, string>;
 
 const channelStorageDirectoryMap: ChannelStorageDirectoryMap = {
-	stable: 'fluxer',
-	canary: 'fluxercanary',
-	development: 'fluxerdevelopment',
+	stable: 'ndchat',
+	canary: 'ndchatcanary',
+	development: 'ndchatdevelopment',
 };
 
 class UserDataPathConflictError extends Error {
@@ -44,10 +44,13 @@ function getPortableBasePath(): string {
 }
 
 function detectPortableMode(): boolean {
-	if (process.argv.includes('--fluxer-portable')) return true;
-	const envValue = process.env.FLUXER_PORTABLE;
+	if (process.argv.includes('--ndchat-portable') || process.argv.includes('--fluxer-portable')) return true;
+	const envValue = process.env.NDCHAT_PORTABLE ?? process.env.FLUXER_PORTABLE;
 	if (envValue && ['1', 'true', 'yes', 'on'].includes(envValue.trim().toLowerCase())) return true;
-	const markerLocations = [path.join(path.dirname(process.execPath), '.portable')];
+	const markerLocations = [
+		path.join(path.dirname(process.execPath), '.portable'),
+		path.join(path.dirname(process.execPath), '.ndchat-portable'),
+	];
 	if (process.platform === 'darwin') {
 		const match = process.execPath.match(/^(.+?)\.app\//);
 		if (match) {

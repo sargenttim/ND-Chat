@@ -43,14 +43,14 @@ describe('installed channels stay apart', () => {
 		assertDistinct('protocol registration name', (config) => config.protocols[0].name);
 	});
 
-	test('the development app registers its own deep link scheme instead of fluxer://', () => {
+	test('the development app registers its own deep link scheme instead of ndchat://', () => {
 		const schemes = configs.development.protocols.flatMap((protocol) => protocol.schemes);
-		assert.deepEqual(schemes, ['fluxer-development']);
-		assert.equal(configs.development.linux.desktop.entry.MimeType, 'x-scheme-handler/fluxer-development;');
+		assert.deepEqual(schemes, ['ndchat-development']);
+		assert.equal(configs.development.linux.desktop.entry.MimeType, 'x-scheme-handler/ndchat-development;');
 		for (const channel of ['stable', 'canary']) {
 			assert.deepEqual(
 				configs[channel].protocols.flatMap((protocol) => protocol.schemes),
-				['fluxer'],
+				['ndchat'],
 			);
 		}
 	});
@@ -70,6 +70,6 @@ describe('running channels stay apart', () => {
 		const source = fs.readFileSync(path.join(DESKTOP_DIR, 'src/common/UserDataPath.ts'), 'utf8');
 		const map = /channelStorageDirectoryMap: ChannelStorageDirectoryMap = \{([^}]+)\}/u.exec(source)?.[1] ?? '';
 		const directories = CHANNELS.map((channel) => new RegExp(`${channel}: '([^']+)'`, 'u').exec(map)?.[1]);
-		assert.deepEqual(directories, ['fluxer', 'fluxercanary', 'fluxerdevelopment']);
+		assert.deepEqual(directories, ['ndchat', 'ndchatcanary', 'ndchatdevelopment']);
 	});
 });
