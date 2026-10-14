@@ -6,8 +6,8 @@ import {formatAssetUploadExtensions, formatKnownAnimatedAssetExtensions} from '@
 import {THE_OTHER_PLATFORM} from '@fluxer/constants/src/ExternalPlatformConstants';
 
 export {PRODUCT_NAME};
-export const DESKTOP_ENTRY_NAME = 'Fluxer';
-export const CANARY_DESKTOP_ENTRY_NAME = 'Fluxer Canary';
+export const DESKTOP_ENTRY_NAME = 'ND Chat';
+export const CANARY_DESKTOP_ENTRY_NAME = 'ND Chat';
 export const PAYMENT_PROVIDER_NAME = 'Stripe';
 export const BLUESKY_PROVIDER_NAME = 'Bluesky';
 export const APP_STORE_NAME = 'App Store';
@@ -41,8 +41,8 @@ export const LINK_PREVIEW_EXAMPLE_URL = 'https://fluxer.app';
 export const EXAMPLE_GIF_URLS = `${EXAMPLE_URL}/gif1.gif\n${EXAMPLE_URL}/gif2.gif`;
 export const THE_OTHER_PLATFORM_TEMPLATE_EXAMPLE_URL = `https://${THE_OTHER_PLATFORM.toLowerCase()}.new/abcd1234`;
 const DESKTOP_DOWNLOAD_URLS: Record<string, string> = {
-	stable: 'https://fluxer.app/download',
-	canary: 'https://canary.fluxer.app/download',
+	stable: 'https://github.com/nexiorachat/ndchat/releases/latest',
+	canary: 'https://github.com/nexiorachat/ndchat/releases/latest',
 	development: 'http://localhost:8088/download',
 };
 
