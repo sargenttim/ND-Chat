@@ -270,8 +270,8 @@ pub(crate) fn desktop_module_package_release_asset_name(
 
 pub(crate) fn desktop_release_product(channel: &str) -> Result<&'static str> {
     match channel {
-        "stable" => Ok("Fluxer"),
-        "canary" => Ok("Fluxer-Canary"),
+        "stable" => Ok("ND-Chat"),
+        "canary" => Ok("ND-Chat-Canary"),
         other => bail!("Unsupported desktop release channel {other:?}"),
     }
 }

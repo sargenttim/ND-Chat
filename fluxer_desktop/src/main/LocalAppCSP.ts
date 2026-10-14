@@ -11,6 +11,8 @@ const FRAME_SOURCES: ReadonlyArray<string> = Object.freeze([
 
 const IMAGE_SOURCES: ReadonlyArray<string> = Object.freeze([
 	'https://*.fluxer.app',
+	'https://*.nexoriadevelopment.com',
+	'https://chat.nexoriadevelopment.com',
 	'https://i.ytimg.com',
 	'https://*.youtube.com',
 	'https://*.fluxer.media',
@@ -19,21 +21,31 @@ const IMAGE_SOURCES: ReadonlyArray<string> = Object.freeze([
 
 const MEDIA_SOURCES: ReadonlyArray<string> = Object.freeze([
 	'https://*.fluxer.app',
+	'https://*.nexoriadevelopment.com',
+	'https://chat.nexoriadevelopment.com',
 	'https://*.youtube.com',
 	'https://*.fluxer.media',
 	'https://fluxer.media',
 ]);
 
-const SCRIPT_SOURCES: ReadonlyArray<string> = Object.freeze(['https://*.fluxer.app']);
+const SCRIPT_SOURCES: ReadonlyArray<string> = Object.freeze([
+	'https://*.fluxer.app',
+	'https://*.nexoriadevelopment.com',
+	'https://chat.nexoriadevelopment.com',
+]);
 
 const STYLE_SOURCES: ReadonlyArray<string> = Object.freeze([
 	'https://*.fluxer.app',
+	'https://*.nexoriadevelopment.com',
+	'https://chat.nexoriadevelopment.com',
 	'https://fonts.googleapis.com',
 	'https://api.fonts.coollabs.io',
 ]);
 
 const FONT_SOURCES: ReadonlyArray<string> = Object.freeze([
 	'https://*.fluxer.app',
+	'https://*.nexoriadevelopment.com',
+	'https://chat.nexoriadevelopment.com',
 	'https://fonts.gstatic.com',
 	'https://api.fonts.coollabs.io',
 ]);
@@ -41,6 +53,10 @@ const FONT_SOURCES: ReadonlyArray<string> = Object.freeze([
 const CONNECT_SOURCES: ReadonlyArray<string> = Object.freeze([
 	'https://*.fluxer.app',
 	'wss://*.fluxer.app',
+	'https://*.nexoriadevelopment.com',
+	'wss://*.nexoriadevelopment.com',
+	'https://chat.nexoriadevelopment.com',
+	'wss://chat.nexoriadevelopment.com',
 	'https://*.fluxer.media',
 	'wss://*.fluxer.media',
 	'https://fluxer-uploads.ewr1.vultrobjects.com',
@@ -54,9 +70,18 @@ const LOOPBACK_HTTP_SOURCES: ReadonlyArray<string> = Object.freeze([
 	'http://127.0.0.1:*',
 ]);
 
-const WORKER_SOURCES: ReadonlyArray<string> = Object.freeze(['https://*.fluxer.app', 'blob:']);
+const WORKER_SOURCES: ReadonlyArray<string> = Object.freeze([
+	'https://*.fluxer.app',
+	'https://*.nexoriadevelopment.com',
+	'https://chat.nexoriadevelopment.com',
+	'blob:',
+]);
 
-const MANIFEST_SOURCES: ReadonlyArray<string> = Object.freeze(['https://*.fluxer.app']);
+const MANIFEST_SOURCES: ReadonlyArray<string> = Object.freeze([
+	'https://*.fluxer.app',
+	'https://*.nexoriadevelopment.com',
+	'https://chat.nexoriadevelopment.com',
+]);
 
 const SELF_SOURCE = "'self'";
 const NONE_SOURCE = "'none'";
