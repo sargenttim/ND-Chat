@@ -147,11 +147,13 @@ function stageApp(options, sandbox) {
 			.find((candidate) => {
 				const stats = fs.statSync(candidate);
 				const name = path.basename(candidate);
-				if (!stats.isFile() || !/^fluxer/iu.test(name)) return false;
-				if (process.platform === 'win32') return /\.exe$/iu.test(name) && !/_ExecutionStub\.exe$/iu.test(name);
-				return (stats.mode & 0o111) !== 0;
+				if (!stats.isFile()) return false;
+				if (process.platform === 'win32') {
+					return /\.exe$/iu.test(name) && !/_ExecutionStub\.exe$/iu.test(name);
+				}
+				return /^(fluxer|nd[-_ ]?chat)/iu.test(name) && (stats.mode & 0o111) !== 0;
 			});
-		if (executable == null) fail(`${options.app} holds no fluxer executable`);
+		if (executable == null) fail(`${options.app} holds no executable`);
 		return {executable, portableRoot: path.join(staged, 'data')};
 	}
 	const staged = path.join(sandbox, path.basename(options.app));
