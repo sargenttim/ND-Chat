@@ -515,6 +515,13 @@ export class SsoService {
 			last_active_at: now,
 			acls: new Set<string>(),
 			traits,
+			badge_ids: null,
+			first_refund_at: null,
+			gift_inventory_server_seq: null,
+			gift_inventory_client_seq: null,
+			premium_onboarding_dismissed_at: null,
+			mention_flags: null,
+			last_voice_activity_sharing_change_at: null,
 			version: 1,
 		};
 		await this.claimSsoIdentity(userId, claims.sub, config);

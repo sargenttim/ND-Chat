@@ -52,10 +52,20 @@ pub async fn render(
             } else {
                 None
             };
-            let limit_config = client
-                .get_limit_config()
-                .await
-                .log_error("load limit config for user overview");
+            let (limit_config, badges) = tokio::join!(
+                async {
+                    client
+                        .get_limit_config()
+                        .await
+                        .log_error("load limit config for user overview")
+                },
+                async {
+                    client
+                        .get_public_badges()
+                        .await
+                        .log_error("load badges for user overview")
+                }
+            );
             Some(tabs::overview::overview_tab_with_limit_config(
                 config,
                 &u,
@@ -64,6 +74,7 @@ pub async fn render(
                 change_log.as_ref(),
                 limit_config.as_ref(),
                 account_identity.is_username(),
+                badges.as_ref(),
             ))
         }
         "account" => {

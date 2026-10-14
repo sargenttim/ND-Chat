@@ -4,6 +4,7 @@ import * as AuthEmailRevert from '@app/api/auth/AuthEmailRevert';
 import {requireEmailVerified} from '@app/api/auth/EmailVerificationUtils';
 import {requireSudoMode, type SudoVerificationResult} from '@app/api/auth/services/SudoVerificationService';
 import {createChannelID, createGuildID, type UserID} from '@app/api/BrandedTypes';
+import {mapBadgeIds} from '@app/api/badge/BadgeUtils';
 import type {UserConnectionRow} from '@app/api/database/types/ConnectionTypes';
 import type {ThreadViewer} from '@app/api/experiment/ChannelThreadsGate';
 import {emitActivity} from '@app/api/infrastructure/activity/ActivityEvents';
@@ -338,6 +339,7 @@ export class UserAccountRequestService {
 			premium_type: premiumType,
 			premium_since: premiumSince?.toISOString(),
 			premium_lifetime_sequence: premiumLifetimeSequence,
+			badges: mapBadgeIds(profileUser.badgeIds),
 			mutual_friends: mutualFriends,
 			mutual_guilds: profile.mutualGuilds,
 			connected_accounts: connectedAccounts,

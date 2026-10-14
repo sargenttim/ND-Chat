@@ -20,6 +20,7 @@ import {
 } from '@app/api/auth/tests/WebAuthnTestUtils';
 import {createUserID} from '@app/api/BrandedTypes';
 import {Config} from '@app/api/Config';
+import {createTestBadge} from '@app/api/badge/tests/BadgeTestUtils';
 import {createFriendship} from '@app/api/channel/tests/ChannelTestUtils';
 import {
 	getAdminRepository,
@@ -555,6 +556,23 @@ export const UserWriteAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase> = [
 						remove_flags: UserFlags.SPAMMER.toString(),
 						new_flags: ((flags | UserFlags.PARTNER) & ~UserFlags.SPAMMER).toString(),
 					},
+				},
+			};
+		},
+	},
+	{
+		method: 'PATCH',
+		route: '/admin/users/:user_id/badges',
+		async prepare({harness, admin}) {
+			const target = await createTestAccount(harness);
+			const badge = await createTestBadge(harness, admin.token);
+			return {
+				request: {path: `/admin/users/${target.userId}/badges`, body: {badge_ids: [badge.id]}},
+				expected: {
+					action: 'update_badges',
+					targetType: 'user',
+					targetId: target.userId,
+					metadata: {badge_ids: badge.id},
 				},
 			};
 		},

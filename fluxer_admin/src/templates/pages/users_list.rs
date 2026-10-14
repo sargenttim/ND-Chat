@@ -20,7 +20,7 @@ use crate::{
                 empty_state, table_body, table_cell, table_container, table_head,
                 table_header_cell, table_row,
             },
-            user_profile_badges::user_profile_badges,
+            user_profile_badges::{ProfileBadges, user_profile_badges},
         },
         layout::admin_layout,
     },
@@ -108,6 +108,7 @@ pub fn users_list_page(
     can_view_email: bool,
     username_sign_in: bool,
     premium_badge_name: Option<&str>,
+    profile_badges: ProfileBadges<'_>,
     is_htmx: bool,
 ) -> Markup {
     let base = &config.base_path;
@@ -117,7 +118,7 @@ pub fn users_list_page(
         results,
         has_more,
         can_view_email,
-        premium_badge_name,
+        profile_badges,
     );
 
     if is_htmx {
@@ -235,7 +236,7 @@ fn render_results(
     results: Option<&[AdminUser]>,
     page_has_more: bool,
     can_view_email: bool,
-    premium_badge_name: Option<&str>,
+    profile_badges: ProfileBadges<'_>,
 ) -> Markup {
     let base = &config.base_path;
     html! {
@@ -257,7 +258,7 @@ fn render_results(
                             "Copy IDs"
                         }
                     }
-                    (render_users_table(config, users, can_view_email, premium_badge_name))
+                    (render_users_table(config, users, can_view_email, profile_badges))
                     script { (maud::PreEscaped(copy_ids_script())) }
                     @if !params.has_id_lookup() && (params.page > 0 || page_has_more) {
                         (pagination_controls(base, params, page_has_more))
@@ -326,7 +327,7 @@ fn render_users_table(
     config: &AdminConfig,
     users: &[AdminUser],
     can_view_email: bool,
-    premium_badge_name: Option<&str>,
+    profile_badges: ProfileBadges<'_>,
 ) -> Markup {
     let base = &config.base_path;
     table_container(html! {
@@ -366,10 +367,11 @@ fn render_users_table(
                                         (user_profile_badges(
                                             &config.static_cdn_endpoint,
                                             user.flags,
+                                            profile_badges,
+                                            &user.badge_ids,
                                             user.premium_type,
                                             user.premium_since.as_deref(),
                                             config.self_hosted,
-                                            premium_badge_name,
                                             true,
                                         ))
                                     }

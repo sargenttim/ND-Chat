@@ -37,6 +37,7 @@ import type {GuildResponse} from '@fluxer/schema/src/domains/guild/GuildResponse
 import {ms} from 'itty-time';
 
 const USER_PERMISSIONS_BATCH_SIZE = 100;
+const GATEWAY_BROADCAST_SUBJECT = 'gateway.broadcast';
 
 const GATEWAY_ERROR_TO_DOMAIN_ERROR: Record<string, () => Error> = {
 	[GatewayRpcMethodErrorCodes.GUILD_NOT_FOUND]: () => new UnknownGuildError(),
@@ -66,6 +67,11 @@ interface DispatchGuildManyParams {
 
 interface DispatchPresenceParams {
 	userId: UserID;
+	event: GatewayDispatchEvent;
+	data: unknown;
+}
+
+interface BroadcastDispatchParams {
 	event: GatewayDispatchEvent;
 	data: unknown;
 }
@@ -676,6 +682,10 @@ export class GatewayService {
 			event,
 			data,
 		});
+	}
+
+	async broadcastDispatch({event, data}: BroadcastDispatchParams): Promise<void> {
+		await this.rpcClient.publish(GATEWAY_BROADCAST_SUBJECT, {event, data});
 	}
 
 	async clearPushChannelNotifications({

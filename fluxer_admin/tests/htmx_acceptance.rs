@@ -414,6 +414,7 @@ fn user(id: &str, username: &str) -> Value {
         "locale": "en-US",
         "acls": [],
         "traits": [],
+        "badge_ids": [],
         "flags": "0",
         "premium_flags": 0,
         "bot": false,
@@ -437,6 +438,127 @@ fn user(id: &str, username: &str) -> Value {
         "last_active_ip": null,
         "last_active_ip_reverse": null,
         "last_active_location": null
+    })
+}
+
+
+fn searched_guild() -> generated_types::GuildAdminResponse {
+    serde_json::from_value(json!({
+        "id": "1600000000000000001",
+        "name": "Searched Guild",
+        "icon": null,
+        "banner": null,
+        "owner_id": "1500000000000000001",
+        "owner_username": "SearchedUser",
+        "owner_global_name": "SearchedUser",
+        "owner_discriminator": "0001",
+        "member_count": 12,
+        "features": ["COMMUNITY"],
+        "nsfw_level": 0,
+        "nsfw": false,
+        "content_warning_level": 0,
+        "content_warning_text": null
+    }))
+    .expect("guild search fixture must match the generated response contract")
+}
+
+fn searched_guild_detail() -> generated_types::LookupGuildResponseGuild {
+    serde_json::from_value(json!({
+        "id": "1600000000000000001",
+        "owner_id": "1500000000000000001",
+        "owner_username": "SearchedUser",
+        "owner_global_name": "SearchedUser",
+        "owner_discriminator": "0001",
+        "name": "Searched Guild",
+        "vanity_url_code": null,
+        "icon": null,
+        "banner": null,
+        "splash": null,
+        "embed_splash": null,
+        "features": ["COMMUNITY"],
+        "badge_ids": [],
+        "verification_level": 1,
+        "mfa_level": 0,
+        "nsfw_level": 0,
+        "nsfw": false,
+        "content_warning_level": 0,
+        "content_warning_text": null,
+        "explicit_content_filter": 0,
+        "default_message_notifications": 0,
+        "afk_channel_id": null,
+        "afk_timeout": 0,
+        "system_channel_id": null,
+        "system_channel_flags": 0,
+        "rules_channel_id": null,
+        "disabled_operations": 0,
+        "member_count": 12,
+        "channels": [],
+        "roles": []
+    }))
+    .expect("guild detail fixture must match the generated response contract")
+}
+
+#[test]
+fn guild_fixtures_match_generated_response_contracts() {
+    let search = searched_guild();
+    assert_eq!(search.name, "Searched Guild");
+    assert_eq!(*search.member_count, 12);
+
+    let response: LookupGuildResponse =
+        serde_json::from_value(json!({"guild": searched_guild_detail()})).unwrap();
+    let detail = response.guild.unwrap();
+    assert_eq!(detail.name, "Searched Guild");
+    assert_eq!(detail.id, "1600000000000000001");
+    assert_eq!(detail.member_count, 12);
+}
+
+fn audit_log_entry(
+    log_id: &str,
+    action: &str,
+    access: &str,
+) -> generated_types::AdminAuditLogResponseSchema {
+    serde_json::from_value(json!({
+        "log_id": log_id,
+        "admin_user_id": "1500000000000000000",
+        "admin_user": null,
+        "target_type": "user",
+        "target_id": "1500000000000000001",
+        "target_user": null,
+        "target_guild": null,
+        "target_channel": null,
+        "related_users": {},
+        "related_guilds": {},
+        "related_channels": {},
+        "action": action,
+        "access": access,
+        "audit_log_reason": null,
+        "metadata": {},
+        "created_at": "2026-09-16T12:00:00.000Z"
+    }))
+    .expect("audit log fixture must match the generated response contract")
+}
+
+fn searched_application() -> Value {
+    json!({
+        "id": "1700000000000000001",
+        "name": "Mock Application",
+        "owner_user_id": "1500000000000000001",
+        "owner_username": "SearchedUser",
+        "owner_global_name": "SearchedUser",
+        "owner_discriminator": "0001",
+        "bot_user_id": null,
+        "bot_username": null,
+        "bot_global_name": null,
+        "bot_discriminator": null,
+        "bot_is_public": true,
+        "bot_require_code_grant": false,
+        "oauth2_redirect_uris": [],
+        "has_client_secret": false,
+        "has_bot_token": false,
+        "bot_token_preview": null,
+        "bot_token_created_at": null,
+        "client_secret_created_at": null,
+        "version": 1
     })
 }
 

@@ -93,6 +93,7 @@ import {
 	toLegacyPushServiceDeliveryWire,
 } from '@fluxer/schema/src/domains/admin/PushRelaySchemas';
 import {type VoiceP2pConfig, VoiceP2pConfigSchema} from '@fluxer/schema/src/domains/admin/VoiceP2pSchemas';
+import {BadgeResponse, type BadgesResponse} from '@fluxer/schema/src/domains/badge/BadgeSchemas';
 import {
 	type ExperimentDeliveryConfig,
 	ExperimentDeliveryConfigSchema,
@@ -131,6 +132,8 @@ const INSTANCE_INTEGRATIONS_CONFIG_KEY = 'instance_integrations_config';
 const INSTANCE_MEDIA_CONFIG_KEY = 'instance_media_config';
 const INSTANCE_BILLING_CONFIG_KEY = 'instance_billing_config';
 const ACCOUNT_IDENTITY_CONFIG_KEY = 'account_identity_config';
+const BADGE_CONFIG_KEY = 'badge_config';
+const LEGACY_BADGES_MIGRATED_KEY = 'legacy_badges_migrated';
 export const INSTANCE_CONFIG_REFRESH_CHANNEL = 'instance-config-refresh';
 export const REGISTRATION_PENDING_APPROVAL_TRAIT = 'registration_pending_approval';
 export const REGISTRATION_REJECTED_TRAIT = 'registration_rejected';
@@ -473,7 +476,8 @@ type StoredConfigSection =
 	| 'pending registrations'
 	| 'SSO flags'
 	| 'SSO allowed domains'
-	| 'account identity';
+	| 'account identity'
+	| 'badges';
 
 function parseStoredConfigValue(raw: string | null, section: StoredConfigSection): unknown {
 	if (raw === null) return {};
@@ -697,6 +701,31 @@ function parseStoredChannelThreadsConfig(raw: string | null): ChannelThreadsConf
 
 function parseStoredExperimentDeliveryConfig(raw: string | null): ExperimentDeliveryConfig {
 	return parseStoredConfigOrDefault(ExperimentDeliveryConfigSchema, raw, 'experiment delivery');
+}
+
+const StoredBadgeIconSchema = z.string().nullable().default(null);
+
+const StoredBadgeConfigSchema = z.object({
+	version: z.number().int().nonnegative().default(0),
+	badges: z.array(BadgeResponse).default([]),
+	builtin_icons: z
+		.object({
+			staff: StoredBadgeIconSchema,
+			premium: StoredBadgeIconSchema,
+			verified: StoredBadgeIconSchema,
+			partnered: StoredBadgeIconSchema,
+			discoverable: StoredBadgeIconSchema,
+		})
+		.prefault({}),
+});
+
+let lastParsedBadgeConfig: {raw: string | null; config: BadgesResponse} | null = null;
+
+function parseStoredBadgeConfig(raw: string | null): BadgesResponse {
+	if (lastParsedBadgeConfig?.raw === raw) return lastParsedBadgeConfig.config;
+	const config = parseStoredConfigOrDefault(StoredBadgeConfigSchema, raw, 'badges');
+	lastParsedBadgeConfig = {raw, config};
+	return config;
 }
 
 function validateStoredCollection<T>(schema: z.ZodType<T>, value: unknown, section: StoredConfigSection): Array<T> {
@@ -1453,6 +1482,7 @@ export class InstanceConfigRepository {
 			parseStoredInstanceIntegrationsConfig(snapshot.get(INSTANCE_INTEGRATIONS_CONFIG_KEY) ?? null),
 		);
 		checkStoredConfig('media', () => parseStoredInstanceMediaConfig(snapshot.get(INSTANCE_MEDIA_CONFIG_KEY) ?? null));
+		parseStoredBadgeConfig(snapshot.get(BADGE_CONFIG_KEY) ?? null);
 		setStoredBillingConfig(parseStoredInstanceBillingConfig(snapshot.get(INSTANCE_BILLING_CONFIG_KEY) ?? null));
 		const appPublic = parseStoredAppPublicConfig(snapshot.get(APP_PUBLIC_CONFIG_KEY) ?? null);
 		setCachedDateOfBirthCollection(appPublic.registration.collect_date_of_birth);
@@ -1769,6 +1799,28 @@ export class InstanceConfigRepository {
 		return this.updateStoredConfig(VOICE_P2P_CONFIG_KEY, (raw) =>
 			validateStoredConfig(VoiceP2pConfigSchema, update(parseStoredVoiceP2pConfig(raw)), 'voice p2p'),
 		);
+
+	async getBadgeConfig(): Promise<BadgesResponse> {
+		return parseStoredBadgeConfig(await this.getConfig(BADGE_CONFIG_KEY));
+	}
+
+	updateBadgeConfig(update: (current: BadgesResponse) => Omit<BadgesResponse, 'version'>): Promise<BadgesResponse> {
+		return this.updateStoredConfig(BADGE_CONFIG_KEY, (raw) => {
+			const current = parseStoredBadgeConfig(raw);
+			return validateStoredConfig(
+				StoredBadgeConfigSchema,
+				{...update(current), version: current.version + 1},
+				'badges',
+			);
+		});
+	}
+
+	async areLegacyBadgesMigrated(): Promise<boolean> {
+		return (await this.getConfig(LEGACY_BADGES_MIGRATED_KEY)) === 'true';
+	}
+
+	async markLegacyBadgesMigrated(): Promise<void> {
+		await this.setConfig(LEGACY_BADGES_MIGRATED_KEY, 'true');
 	}
 
 	async getCaptchaConfig(): Promise<CaptchaConfig> {

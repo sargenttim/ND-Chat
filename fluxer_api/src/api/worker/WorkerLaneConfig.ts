@@ -95,6 +95,7 @@ const LANE_CONFIG = {
 			'removeThreadMembershipsForGuildMember',
 			'syncThreadSearchDocument',
 			'backfillThreadSearch',
+			'migrateLegacyBadges',
 			'syncDiscoveryIndex',
 			'syncUrlBlocklists',
 			'syncFileShaBlocklists',

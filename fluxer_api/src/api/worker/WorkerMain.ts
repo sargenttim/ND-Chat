@@ -39,6 +39,7 @@ import {startAccountActionConsumer, stopAccountActionConsumer} from '@app/api/wo
 import {queueBlocklistFeedStartupJobs} from '@app/api/worker/BlocklistFeedStartup';
 import {CronScheduler} from '@app/api/worker/CronScheduler';
 import {JetStreamWorkerQueue, JOBS_STREAM_MAX_AGE_MS} from '@app/api/worker/JetStreamWorkerQueue';
+import {queueLegacyBadgeMigrationJob} from '@app/api/worker/LegacyBadgeMigrationStartup';
 import {clearWorkerDependencies, setWorkerDependencies} from '@app/api/worker/WorkerContext';
 import {
 	guildInvitePauseDeps,
@@ -307,6 +308,8 @@ export async function startWorkerMain(): Promise<void> {
 		} catch (error) {
 			Logger.warn({err: error}, 'Failed to normalise stored instance branding assets');
 		}
+		if (!Config.instance.selfHosted)
+			await queueLegacyBadgeMigrationJob(dependencies.kvClient, workerService, instanceConfigRepository);
 		setActivityProcessChannel('worker');
 		await startActivityEvents({
 			publisher: jetStreamActivityPublisher(jsConnectionManager.getJetStreamClient()),

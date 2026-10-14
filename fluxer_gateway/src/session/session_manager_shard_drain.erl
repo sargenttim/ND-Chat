@@ -4,6 +4,7 @@
 -typing([eqwalizer]).
 
 -export([
+    broadcast_dispatch/3,
     broadcast_reconnect_drain/1,
     handoff_to_topology/2,
     build_session_data/7,
@@ -43,6 +44,14 @@
     attempted := non_neg_integer(),
     handed_off := non_neg_integer()
 }.
+
+-spec broadcast_dispatch(atom(), {pre_encoded, binary()}, state()) -> ok.
+broadcast_dispatch(Event, Data, State) ->
+    Msg = {dispatch, Event, Data},
+    maps:foreach(
+        fun(_SessionId, {Pid, _Ref}) -> gen_server:cast(Pid, Msg) end,
+        maps:get(sessions, State, #{})
+    ).
 
 -spec broadcast_reconnect_drain(state()) -> non_neg_integer().
 broadcast_reconnect_drain(State) ->

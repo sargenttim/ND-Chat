@@ -29,6 +29,7 @@ import indexChannelMessages from '@app/api/worker/tasks/IndexChannelMessages';
 import indexGuildMembers from '@app/api/worker/tasks/IndexGuildMembers';
 import liftExpiredGuildInvitePauses from '@app/api/worker/tasks/LiftExpiredGuildInvitePauses';
 import messageShred from '@app/api/worker/tasks/MessageShred';
+import migrateLegacyBadges from '@app/api/worker/tasks/MigrateLegacyBadges';
 import pollAppStoreNotificationHistory from '@app/api/worker/tasks/PollAppStoreNotificationHistory';
 import pollGooglePlayVoidedPurchases from '@app/api/worker/tasks/PollGooglePlayVoidedPurchases';
 import processAppStoreNotification from '@app/api/worker/tasks/ProcessAppStoreNotification';
@@ -118,6 +119,7 @@ export const workerTasks: Record<WorkerTaskName, WorkerTaskHandler> = {
 	pollGooglePlayVoidedPurchases,
 	pollAppStoreNotificationHistory,
 	prunePostgresKvTtl,
+	migrateLegacyBadges,
 	refreshSearchIndex,
 	seedThreadPermissions,
 	removeChannelFollowers,

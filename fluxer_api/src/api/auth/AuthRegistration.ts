@@ -278,6 +278,13 @@ async function registerAccount(
 		last_active_ip: clientIp,
 		acls: null,
 		traits: registrationAccess.pendingApproval ? new Set([REGISTRATION_PENDING_APPROVAL_TRAIT]) : null,
+		badge_ids: null,
+		first_refund_at: null,
+		gift_inventory_server_seq: null,
+		gift_inventory_client_seq: null,
+		premium_onboarding_dismissed_at: null,
+		mention_flags: null,
+		last_voice_activity_sharing_change_at: null,
 		version: 1,
 	};
 	const registrationUrlUse = await claimRegistrationUrlUse(

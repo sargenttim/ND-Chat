@@ -77,6 +77,7 @@ export interface UserRow {
 	content_hidden_since?: Date | null;
 	acls: Set<string> | null;
 	traits: Set<string> | null;
+	badge_ids: Set<bigint> | null;
 	first_refund_at: Date | null;
 	gift_inventory_server_seq: number | null;
 	gift_inventory_client_seq: number | null;
@@ -142,6 +143,7 @@ export const USER_COLUMNS = [
 	'content_hidden_since',
 	'acls',
 	'traits',
+	'badge_ids',
 	'first_refund_at',
 	'gift_inventory_server_seq',
 	'gift_inventory_client_seq',
@@ -206,6 +208,7 @@ export const EMPTY_USER_ROW: UserRow = {
 	content_hidden_since: null,
 	acls: null,
 	traits: null,
+	badge_ids: null,
 	first_refund_at: null,
 	gift_inventory_server_seq: null,
 	gift_inventory_client_seq: null,

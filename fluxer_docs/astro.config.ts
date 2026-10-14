@@ -317,6 +317,7 @@ export default defineConfig({
 						'admin-api/gift-codes',
 						'admin-api/gateway',
 						'admin-api/voice',
+						'admin-api/badges',
 						'admin-api/jobs',
 						'admin-api/bulk-jobs',
 						'admin-api/archives',

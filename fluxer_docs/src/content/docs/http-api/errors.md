@@ -686,6 +686,10 @@ This community has reached its active thread limit of {count}
 
 You've reached the maximum of {limit, plural, one {# application} other {# applications}}
 
+### `MAX_BADGES`
+
+You've reached the maximum number of badges
+
 ### `MAX_BOOKMARKS`
 
 You've reached the maximum of {count, plural, one {# bookmark} other {# bookmarks}}
@@ -1145,6 +1149,10 @@ You need to complete your account setup before you can submit reports
 ### `UNKNOWN_APPLICATION`
 
 Unknown application
+
+### `UNKNOWN_BADGE`
+
+Badge wasn't found
 
 ### `UNKNOWN_CHANNEL`
 

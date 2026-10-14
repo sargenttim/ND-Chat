@@ -8,6 +8,7 @@ import {
 	SystemChannelFlags,
 	SystemChannelFlagsDescriptions,
 } from '@fluxer/constants/src/GuildConstants';
+import {BadgeIdsResponse} from '@fluxer/schema/src/domains/badge/BadgeSchemas';
 import {ChannelResponse} from '@fluxer/schema/src/domains/channel/ChannelSchemas';
 import {GuildEmojiResponse, GuildStickerResponse} from '@fluxer/schema/src/domains/guild/GuildEmojiSchemas';
 import {GuildRoleResponse} from '@fluxer/schema/src/domains/guild/GuildRoleSchemas';
@@ -150,6 +151,7 @@ export const GuildResponse = z.object({
 	afk_channel_id: SnowflakeStringType.nullish().describe('The ID of the AFK voice channel'),
 	afk_timeout: Int32Type.describe('AFK timeout in seconds before moving users to the AFK channel'),
 	features: GuildFeatureListSchema,
+	badges: BadgeIdsResponse.optional().describe('The IDs of the custom badges of the guild'),
 	verification_level: withFieldDescription(
 		GuildVerificationLevelSchema,
 		'Required verification level for members to participate',
@@ -227,6 +229,7 @@ export const GuildPartialResponse = GuildResponse.pick({
 	embed_splash_width: true,
 	embed_splash_height: true,
 	features: true,
+	badges: true,
 });
 
 export type GuildPartialResponse = z.infer<typeof GuildPartialResponse>;
@@ -260,6 +263,7 @@ export interface Guild {
 	readonly afk_channel_id?: string | null;
 	readonly afk_timeout?: number;
 	readonly features: ReadonlyArray<string>;
+	readonly badges?: ReadonlyArray<string>;
 	readonly verification_level?: number;
 	readonly mfa_level?: number;
 	readonly nsfw_level?: number;
