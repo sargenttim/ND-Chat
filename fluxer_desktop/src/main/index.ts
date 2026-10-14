@@ -342,7 +342,7 @@ if (launchConfigurationError) {
 	}
 	const degradedNativeModules = new Set(nativeModulePreflight.degraded);
 	const desktopCapabilityManifest: DesktopCapabilityManifest = {
-		appStore: !degradedNativeModules.has(APP_STORE_ADDON_PACKAGE) && loadAppStoreBinding() !== null,
+		appStore: false,
 		gatewaySocket: !degradedNativeModules.has(GATEWAY_SOCKET_ADDON_PACKAGE) && loadGatewaySocketBinding() !== null,
 	};
 	log.info('[Capabilities] Desktop capability manifest', desktopCapabilityManifest);

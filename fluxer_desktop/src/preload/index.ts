@@ -363,7 +363,7 @@ function readDesktopCapabilityManifest(): DesktopCapabilityManifest {
 	if (typeof manifest.gatewaySocket !== 'boolean') {
 		throw new DesktopCapabilityManifestContractError('gatewaySocket must be a boolean');
 	}
-	return {appStore: manifest.appStore, gatewaySocket: manifest.gatewaySocket};
+	return {appStore: false, gatewaySocket: manifest.gatewaySocket};
 }
 
 function reportPrebootTheme(renderer: typeof ipcRenderer): void {
