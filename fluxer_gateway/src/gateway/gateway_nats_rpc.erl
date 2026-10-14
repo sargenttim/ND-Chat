@@ -370,6 +370,7 @@ handle_msg(
 -spec subject_owner(binary()) -> atom() | undefined.
 subject_owner(<<"config.gateway.rollout">>) -> gateway_rollout_config;
 subject_owner(<<"config.channel.threads">>) -> channel_threads_config;
+subject_owner(<<"gateway.broadcast">>) -> gateway_broadcast;
 subject_owner(_Subject) -> undefined.
 
 -spec notify_resubscribed(binary()) -> ok.

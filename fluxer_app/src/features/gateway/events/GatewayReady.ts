@@ -27,6 +27,7 @@ import Guilds from '@app/features/guild/state/Guilds';
 import GuildVerification from '@app/features/guild/state/GuildVerification';
 import GuildMembers from '@app/features/member/state/GuildMembers';
 import MemberSearch from '@app/features/member/state/MemberSearch';
+import Badges from '@app/features/badge/state/Badges';
 import MemberSidebar from '@app/features/member/state/MemberSidebar';
 import MessageReactions from '@app/features/messaging/state/MessageReactions';
 import Messages from '@app/features/messaging/state/MessagingMessages';
@@ -79,6 +80,7 @@ export interface ReadyPayload {
 	presences?: Array<PresenceRecord>;
 	auth_session_id_hash?: string;
 	rtc_regions?: Array<RtcRegionResponse>;
+	badges_version?: number;
 	webauthn_credentials?: Array<WebAuthnCredential>;
 }
 
@@ -148,6 +150,7 @@ function handleReadyInternal(data: ReadyPayload, context: GatewayHandlerContext,
 	Relationships.loadRelationships(data.relationships ?? []);
 	FavoriteMemes.loadFavoriteMemes(data.favorite_memes ?? []);
 	RtcRegions.setRegions(data.rtc_regions ?? []);
+	void Badges.handleGatewayReady(data.badges_version);
 	Users.handleGatewayReady(accountKey, data.user);
 	Users.cacheUsers(data.users ?? []);
 	syncAccountUserData(accountKey, data.user);

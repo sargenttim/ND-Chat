@@ -28,6 +28,7 @@ import {
 } from '@fluxer/schema/src/domains/admin/InstanceBillingSchemas';
 import {PushRelayConfigResponse, PushRelayConfigUpdateRequest} from '@fluxer/schema/src/domains/admin/PushRelaySchemas';
 import {VoiceP2pConfigResponse, VoiceP2pConfigUpdateRequest} from '@fluxer/schema/src/domains/admin/VoiceP2pSchemas';
+import {BadgeIdsResponse} from '@fluxer/schema/src/domains/badge/BadgeSchemas';
 import {
 	ExperimentDeliveryConfigResponse,
 	ExperimentDeliveryConfigUpdateRequest,
@@ -1338,6 +1339,7 @@ const AdminLookupGuildSchema = z.object({
 	splash: createStringType(1, 256).nullable(),
 	embed_splash: createStringType(1, 256).nullable(),
 	features: z.array(createStringType(1, 256)).max(100),
+	badge_ids: BadgeIdsResponse,
 	verification_level: GuildVerificationLevelSchema,
 	mfa_level: GuildMFALevelSchema,
 	nsfw_level: NSFWLevelSchema,

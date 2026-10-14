@@ -3,6 +3,9 @@
 import {Routes} from '@app/app/Routes';
 
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
+import {BadgeIcon} from '@app/features/badge/components/BadgeIcon';
+import Badges from '@app/features/badge/state/Badges';
+import {cdnUrl} from '@app/features/messaging/utils/MessagingUrlUtils';
 import * as PremiumModalCommands from '@app/features/premium/commands/PremiumModalCommands';
 import {getPremiumProductFullName, shouldShowPremiumFeatures} from '@app/features/premium/utils/PremiumUtils';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
@@ -14,8 +17,7 @@ import type {User} from '@app/features/user/models/User';
 import * as DateUtils from '@app/features/user/utils/DateFormatting';
 import bugHunterBadgeUrl from '@app/media/images/badges/bug-hunter.svg';
 import partnerBadgeUrl from '@app/media/images/badges/partner.svg';
-import plutoniumBadgeUrl from '@app/media/images/badges/plutonium.svg';
-import staffBadgeUrl from '@app/media/images/badges/staff.svg';
+import {BadgeTypes} from '@fluxer/constants/src/BadgeConstants';
 import {PublicUserFlags, UserPremiumTypes} from '@fluxer/constants/src/UserConstants';
 import {msg} from '@lingui/core/macro';
 import {useLingui} from '@lingui/react/macro';
@@ -23,6 +25,10 @@ import {clsx} from 'clsx';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
 import {useMemo} from 'react';
+
+const BADGE_ASSET_VERSION = '2';
+
+const badgeAssetUrl = (fileName: string) => cdnUrl(`badges/${fileName}?v=${BADGE_ASSET_VERSION}`);
 
 const STAFF_DESCRIPTOR = msg({
 	message: '{productName} Staff',
@@ -72,12 +78,20 @@ interface IconBadge extends BaseBadge {
 	iconUrl: string;
 }
 
+interface SvgBadge extends BaseBadge {
+	type: 'svg';
+	icon: string;
+}
+
 interface TextBadge extends BaseBadge {
 	type: 'text';
 	text: string;
 }
 
-type Badge = IconBadge | TextBadge;
+type Badge = IconBadge | SvgBadge | TextBadge;
+
+const builtinBadge = (badge: BaseBadge, icon: string | null, fileName: string): Badge =>
+	icon ? {...badge, type: 'svg', icon} : {...badge, type: 'icon', iconUrl: badgeAssetUrl(fileName)};
 
 interface UserProfileBadgesProps {
 	user: User;
@@ -95,12 +109,25 @@ export const UserProfileBadges: React.FC<UserProfileBadgesProps> = observer(
 		const badges = useMemo(() => {
 			const result: Array<Badge> = [];
 			if (user.flags & PublicUserFlags.STAFF) {
+				result.push(
+					builtinBadge(
+						{
+							key: 'staff',
+							tooltip: i18n._(STAFF_DESCRIPTOR, {productName: RuntimeConfig.productName}),
+							url: Routes.careers(),
+						},
+						Badges.builtinIcons.staff,
+						'staff.svg',
+					),
+				);
+			}
+			for (const badge of Badges.resolve(BadgeTypes.USER, Badges.userBadges.get(user.id) ?? profile?.badges)) {
 				result.push({
-					type: 'icon',
-					key: 'staff',
-					iconUrl: staffBadgeUrl,
-					tooltip: i18n._(STAFF_DESCRIPTOR, {productName: RuntimeConfig.productName}),
-					url: Routes.careers(),
+					type: 'svg',
+					key: badge.id,
+					icon: badge.icon,
+					tooltip: badge.tooltip,
+					url: badge.url ?? undefined,
 				});
 			}
 			if (!selfHosted && user.flags & PublicUserFlags.PARTNER) {
@@ -143,14 +170,13 @@ export const UserProfileBadges: React.FC<UserProfileBadgesProps> = observer(
 						premiumSinceFormatted,
 					});
 				}
-				result.push({
-					type: 'icon',
-					key: 'premium',
-					iconUrl: plutoniumBadgeUrl,
-					tooltip: tooltipText,
-					url: badgeUrl,
-					onClick: badgeOnClick,
-				});
+				result.push(
+					builtinBadge(
+						{key: 'premium', tooltip: tooltipText, url: badgeUrl, onClick: badgeOnClick},
+						Badges.builtinIcons.premium,
+						'plutonium.svg',
+					),
+				);
 				if (
 					!selfHosted &&
 					profile.premiumType === UserPremiumTypes.LIFETIME &&
@@ -171,7 +197,13 @@ export const UserProfileBadges: React.FC<UserProfileBadgesProps> = observer(
 			selfHosted,
 			showPremium,
 			premiumInfoUrl,
+			user.id,
 			user.flags,
+			Badges.badges,
+			Badges.userBadges,
+			Badges.builtinIcons.staff,
+			Badges.builtinIcons.premium,
+			profile?.badges,
 			profile?.premiumType,
 			profile?.premiumSince,
 			profile?.premiumLifetimeSequence,
@@ -234,6 +266,8 @@ export const UserProfileBadges: React.FC<UserProfileBadgesProps> = observer(
 								className={badgeClassName}
 								data-flx="user.user-profile-badges.img"
 							/>
+						) : badge.type === 'svg' ? (
+							<BadgeIcon icon={badge.icon} label={badge.tooltip} className={badgeClassName} />
 						) : (
 							<span
 								className={clsx(styles.sequenceBadge, sequenceClassName)}

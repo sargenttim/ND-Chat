@@ -40,6 +40,10 @@ export function mediaUrl(path: string, options?: MediaProxyOptions): string {
 	return buildMediaProxyURL(`${RuntimeConfig.mediaEndpoint}/${path}`, options);
 }
 
+export function cdnUrl(path: string): string {
+	return buildMediaProxyURL(`${RuntimeConfig.staticCdnEndpoint}/${path}`);
+}
+
 export function webhookUrl(webhookId: string, token: string): string {
 	return `${RuntimeConfig.apiPublicEndpoint}/webhooks/${webhookId}/${token}`;
 }

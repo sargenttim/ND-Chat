@@ -23,6 +23,7 @@ export type ProfileWire = Readonly<{
 	premium_type?: number;
 	premium_since?: string;
 	premium_lifetime_sequence?: number;
+	badges?: Array<string>;
 	mutual_friends?: Array<UserPartial>;
 	mutual_guilds?: Array<ProfileMutualGuild>;
 	connected_accounts?: Array<ConnectionResponse>;
@@ -38,6 +39,7 @@ export class Profile {
 	readonly premiumType: number | null;
 	readonly premiumSince: Date | null;
 	readonly premiumLifetimeSequence: number | null;
+	readonly badges: ReadonlyArray<string>;
 	readonly mutualFriends: ReadonlyArray<UserPartial> | null;
 	readonly mutualGuilds: ReadonlyArray<ProfileMutualGuild> | null;
 	readonly connectedAccounts: ReadonlyArray<ConnectionResponse> | null;
@@ -53,6 +55,7 @@ export class Profile {
 		this.premiumType = profile.premium_type ?? null;
 		this.premiumSince = profile.premium_since ? new Date(profile.premium_since) : null;
 		this.premiumLifetimeSequence = profile.premium_lifetime_sequence ?? null;
+		this.badges = Object.freeze([...(profile.badges ?? [])]);
 		this.mutualFriends = profile.mutual_friends ? Object.freeze([...profile.mutual_friends]) : null;
 		this.mutualGuilds = profile.mutual_guilds ? Object.freeze([...profile.mutual_guilds]) : null;
 		this.connectedAccounts = profile.connected_accounts ? Object.freeze([...profile.connected_accounts]) : null;
@@ -80,6 +83,7 @@ export class Profile {
 					updates.premium_lifetime_sequence !== undefined
 						? updates.premium_lifetime_sequence
 						: (this.premiumLifetimeSequence ?? undefined),
+				badges: updates.badges ?? [...this.badges],
 				mutual_friends: updates.mutual_friends ?? (this.mutualFriends ? [...this.mutualFriends] : undefined),
 				mutual_guilds: updates.mutual_guilds ?? (this.mutualGuilds ? [...this.mutualGuilds] : undefined),
 				connected_accounts:
@@ -136,6 +140,7 @@ export class Profile {
 			premium_type: this.premiumType ?? undefined,
 			premium_since: this.premiumSince?.toISOString() ?? undefined,
 			premium_lifetime_sequence: this.premiumLifetimeSequence ?? undefined,
+			badges: this.badges.length > 0 ? [...this.badges] : undefined,
 			mutual_friends: this.mutualFriends ? [...this.mutualFriends] : undefined,
 			mutual_guilds: this.mutualGuilds ? [...this.mutualGuilds] : undefined,
 			connected_accounts: this.connectedAccounts ? [...this.connectedAccounts] : undefined,
