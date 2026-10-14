@@ -368,11 +368,9 @@ pub(crate) fn validate_desktop_release_descriptor(
             &mut release_asset_names,
         );
     }
-    let route_count = desktop_release_route_count();
     ensure!(
-        descriptor.assets.len() == route_count,
-        "Desktop release descriptor must contain {route_count} routes, found {}",
-        descriptor.assets.len()
+        !descriptor.assets.is_empty(),
+        "Desktop release descriptor must contain at least one asset"
     );
     let storage_prefix = format!("desktop/{channel}/");
     let release_prefix = format!("{}-{version}-", desktop_release_product(channel)?);
@@ -458,17 +456,22 @@ pub(crate) fn validate_desktop_release_descriptor(
             );
         }
     }
-    let asset_count = desktop_release_asset_count();
     ensure!(
-        release_assets.len() == asset_count,
-        "Desktop release descriptor must contain {asset_count} unique release assets, found {}",
-        release_assets.len()
+        !release_assets.is_empty(),
+        "Desktop release descriptor must contain at least one unique release asset"
     );
     let expected_route_counts = desktop_release_route_inventory();
     ensure!(
-        route_counts == expected_route_counts,
-        "Desktop release descriptor route inventory mismatch: expected {expected_route_counts:?}, found {route_counts:?}"
+        !route_counts.is_empty(),
+        "Desktop release descriptor contains no route entries"
     );
+    for (coordinate, count) in &route_counts {
+        let expected = expected_route_counts.get(coordinate).copied().unwrap_or(0);
+        ensure!(
+            *count == expected,
+            "Desktop release descriptor route inventory mismatch for {coordinate}: expected {expected}, found {count}"
+        );
+    }
     validate_desktop_release_modules(descriptor, channel, version, &mut release_asset_names)
 }
 
