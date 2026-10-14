@@ -88,8 +88,8 @@ COPY --from=app-build /usr/src/app/fluxer_app/dist /dist
 FROM alpine:3.24 AS app-assets
 ARG BUNDLE_LOCAL_ASSETS=true
 ARG PUBLIC_ASSET_BASE_URL=""
-COPY fluxer_app_proxy/scripts/precompress_assets.sh /usr/local/bin/precompress_assets.sh
-RUN apk add --no-cache brotli
+COPY --chmod=755 fluxer_app_proxy/scripts/precompress_assets.sh /usr/local/bin/precompress_assets.sh
+RUN apk add --no-cache brotli && chmod +x /usr/local/bin/precompress_assets.sh
 RUN --mount=type=bind,from=app-dist,source=/dist,target=/dist \
 	cp -a /dist /assets \
 	&& if [ "${BUNDLE_LOCAL_ASSETS}" != "true" ]; then \
@@ -103,7 +103,7 @@ RUN --mount=type=bind,from=app-dist,source=/dist,target=/dist \
 		esac; \
 		find /assets/assets -type f ! -name 'fonts-*.txt' -delete; \
 	fi \
-	&& /usr/local/bin/precompress_assets.sh /assets
+	&& sh /usr/local/bin/precompress_assets.sh /assets
 
 FROM --platform=${APP_ASSETS_PLATFORM} ${APP_ASSETS_REF} AS app-static
 
