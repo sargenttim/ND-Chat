@@ -4,8 +4,8 @@ use crate::api::generated::{snowflake, types as generated_types};
 
 use super::client::{AdminApiClient, ApiError, ApiResult};
 use super::types::{
-    AdminUser, BadgeMutationResponse, BuiltinBadgeIcons, GuildUpdateResponse, ListBadgesResponse,
-    SuccessResponse, UserMutationResponse,
+    AdminUser, BadgeMutationResponse, BuiltinBadgeIcons, ListBadgesResponse, SuccessResponse,
+    UserMutationResponse,
 };
 
 impl AdminApiClient {
@@ -43,7 +43,8 @@ impl AdminApiClient {
     ) -> ApiResult<BadgeMutationResponse> {
         serde_json::from_value::<generated_types::UpdateBadgeRequest>(params.clone())
             .map_err(|e| ApiError::Parse(e.to_string()))?;
-        self.patch_with_reason(
+        self.send(
+            reqwest::Method::PATCH,
             &format!("/admin/badges/{}", urlencoding::encode(badge_id)),
             Some(params),
             None,
@@ -104,12 +105,15 @@ impl AdminApiClient {
         &self,
         guild_id: &str,
         badge_ids: &[String],
-    ) -> ApiResult<GuildUpdateResponse> {
-        self.patch_with_reason(
+    ) -> ApiResult<()> {
+        let body = serde_json::json!({"badge_ids": badge_ids});
+        self.send::<serde::de::IgnoredAny, _>(
+            reqwest::Method::PATCH,
             &format!("/admin/guilds/{}", urlencoding::encode(guild_id)),
-            Some(&serde_json::json!({"badge_ids": badge_ids})),
+            Some(&body),
             None,
         )
         .await
+        .map(drop)
     }
 }

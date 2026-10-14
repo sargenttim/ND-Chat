@@ -11,11 +11,11 @@ use crate::{
     state::AppState,
     templates::{
         self,
+        components::user_profile_badges::ProfileBadges,
         pages::user_detail_tabs::account::{
             PASSWORD_RESET_LINK_RESULT_ID, password_reset_link_result,
         },
     },
-    templates::{self, components::user_profile_badges::ProfileBadges},
     utils::forms::MultiValueForm,
 };
 use axum::{
@@ -336,7 +336,7 @@ async fn create_password_reset_link(
         .as_ref()
         .map(|user| user.acls.as_slice())
         .unwrap_or(&[]);
-    let (user, badge_name, account_identity) = tokio::join!(
+    let (user, badge_name, account_identity, definitions) = tokio::join!(
         async {
             client
                 .get_user_by_id(user_id)
@@ -344,7 +344,8 @@ async fn create_password_reset_link(
                 .log_error("load user after creating password reset link")
         },
         self_hosted_premium_badge_name(state, client),
-        state.account_identity(client)
+        state.account_identity(client),
+        state.badges(client)
     );
     let tab_body = user_tabs::render_account(
         client,
@@ -366,7 +367,10 @@ async fn create_password_reset_link(
         user_id,
         "account",
         tab_body,
-        premium_badge_name.as_deref(),
+        ProfileBadges {
+            premium_name: premium_badge_name.as_deref(),
+            definitions: definitions.as_ref(),
+        },
         htmx::targets(headers, "main-content"),
     );
     Html(markup.into_string()).into_response()

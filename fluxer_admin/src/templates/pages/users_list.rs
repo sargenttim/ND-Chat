@@ -107,7 +107,7 @@ pub fn users_list_page(
     has_more: bool,
     can_view_email: bool,
     username_sign_in: bool,
-    premium_badge_name: Option<&str>,
+    _premium_badge_name: Option<&str>,
     profile_badges: ProfileBadges<'_>,
     is_htmx: bool,
 ) -> Markup {

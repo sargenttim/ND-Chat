@@ -311,36 +311,7 @@ fn guild_admin_response(response: generated_types::GuildAdminResponse) -> ApiRes
     })
 }
 
-fn guild_update_response(
-    response: generated_types::GuildUpdateResponse,
-) -> ApiResult<GuildUpdateResponse> {
-    let guild = response.guild;
-    Ok(GuildUpdateResponse {
-        guild: GuildInfo {
-            id: String::from(guild.id),
-            name: String::from(guild.name),
-            icon: guild.icon.map(String::from),
-            banner: guild.banner.map(String::from),
-            owner_id: String::from(guild.owner_id),
-            owner_username: None,
-            owner_global_name: None,
-            owner_discriminator: None,
-            member_count: crate::api::generated::i64_to_u64(
-                i64::from(i32::from(guild.member_count)),
-                "member_count",
-            )
-            .map_err(ApiError::Parse)?,
-            features: guild.features.into_iter().map(String::from).collect(),
-            badge_ids: Vec::new(),
-            nsfw_level: guild.nsfw_level.map(i32::from),
-            nsfw: guild.nsfw,
-            content_warning_level: guild.content_warning_level.map(i32::from),
-            content_warning_text: guild.content_warning_text.map(String::from),
-            description: None,
-            vanity_url_code: None,
-        },
-    })
-}
+
 
 fn guild_settings_request(
     settings: &serde_json::Value,
