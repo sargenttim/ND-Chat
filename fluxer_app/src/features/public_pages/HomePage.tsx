@@ -42,6 +42,9 @@ export const HomePage: React.FC = observer(() => {
 							</Link>
 						</>
 					)}
+					<Link to={Routes.DOWNLOAD} className={styles.btnSecondary}>
+						Download App 💻
+					</Link>
 					<a
 						href="https://chat.nexoriadevelopment.com/invite/nexoiradev"
 						target="_blank"
@@ -162,6 +165,9 @@ export const HomePage: React.FC = observer(() => {
 							</Link>
 						</>
 					)}
+					<Link to={Routes.DOWNLOAD} className={styles.btnSecondary}>
+						Download Desktop
+					</Link>
 					<Link to={Routes.CAREERS} className={styles.btnSecondary}>
 						View Careers
 					</Link>

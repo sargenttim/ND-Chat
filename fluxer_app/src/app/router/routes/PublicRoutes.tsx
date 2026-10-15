@@ -33,6 +33,11 @@ const CareersPage = createNamedLoadableComponent<PublicRouteComponentProps>({
 	load: async () => (await import('@app/features/public_pages/CareersPage')).CareersPage,
 });
 
+const DownloadPage = createNamedLoadableComponent<PublicRouteComponentProps>({
+	displayName: 'DownloadPage',
+	load: async () => (await import('@app/features/public_pages/DownloadPage')).DownloadPage,
+});
+
 export const termsRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	id: 'terms',
@@ -75,6 +80,13 @@ export const careersRoute = createRoute({
 	component: () => <CareersPage data-flx="app.public-routes.careers" />,
 });
 
+export const downloadRoute = createRoute({
+	getParentRoute: () => rootRoute,
+	id: 'download',
+	path: Routes.DOWNLOAD,
+	component: () => <DownloadPage data-flx="app.public-routes.download" />,
+});
+
 export const publicRoutes = [
 	termsRoute,
 	privacyRoute,
@@ -82,4 +94,5 @@ export const publicRoutes = [
 	rulesRoute,
 	securityRoute,
 	careersRoute,
+	downloadRoute,
 ];

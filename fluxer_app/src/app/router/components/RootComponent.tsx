@@ -81,6 +81,7 @@ export const RootComponent: React.FC<{children?: React.ReactNode}> = observer(({
 			pathname.startsWith(Routes.RULES) ||
 			pathname.startsWith(Routes.SECURITY) ||
 			pathname.startsWith(Routes.CAREERS) ||
+			pathname.startsWith(Routes.DOWNLOAD) ||
 			pathname.startsWith(Routes.PREMIUM_CALLBACK) ||
 			pathname.startsWith(Routes.AGE_VERIFICATION_CALLBACK) ||
 			pathname.startsWith(Routes.CONNECTION_CALLBACK) ||

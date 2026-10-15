@@ -36,6 +36,7 @@ export const PublicPageLayout: React.FC<PublicPageLayoutProps> = observer(({
 	}, []);
 
 	const navItems = [
+		{label: 'Download', path: Routes.DOWNLOAD},
 		{label: 'Terms', path: Routes.TERMS},
 		{label: 'Privacy', path: Routes.PRIVACY},
 		{label: 'Guidelines', path: Routes.GUIDELINES},
@@ -111,6 +112,7 @@ export const PublicPageLayout: React.FC<PublicPageLayoutProps> = observer(({
 
 						<div className={styles.footerCol}>
 							<span className={styles.footerColTitle}>Nexoria</span>
+							<Link to={Routes.DOWNLOAD} className={styles.footerLink}>Download App</Link>
 							<Link to={Routes.CAREERS} className={styles.footerLink}>Careers & Staff</Link>
 							<a href="https://nexoriadevelopment.com" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>Main Portal</a>
 							<a href="https://chat.nexoriadevelopment.com/invite/nexoiradev" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>ND Chat Community</a>

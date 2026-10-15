@@ -348,6 +348,10 @@ fn apply_route_metadata(html: &str, request_path: &str) -> String {
             "Careers & Staff Openings | Nexoria Chat",
             "Join the Nexoria Development team! Explore open staff and developer positions and help shape the future of ND Chat.",
         ),
+        "/download" => (
+            "Download Nexiora Chat | Voice, Video & Community App",
+            "Download Nexiora Chat for Windows, desktop, and web. Enjoy high-fidelity voice, crystal-clear screen sharing, and modern chat.",
+        ),
         "/terms" => (
             "Terms of Service | Nexoria Chat",
             "Official Terms of Service governing access, usage, and safety on Nexoria Chat.",
@@ -968,6 +972,10 @@ mod tests {
         assert!(careers_html.contains("<title>Careers &amp; Staff Openings | Nexoria Chat</title>"));
         assert!(careers_html.contains(r#"<meta property="og:title" content="Careers &amp; Staff Openings | Nexoria Chat">"#));
         assert!(careers_html.contains(r#"<meta property="og:description" content="Join the Nexoria Development team! Explore open staff and developer positions and help shape the future of ND Chat.">"#));
+
+        let download_html = apply_route_metadata(SHIPPED_APP_SHELL, "/download");
+        assert!(download_html.contains("<title>Download Nexiora Chat | Voice, Video &amp; Community App</title>"));
+        assert!(download_html.contains(r#"<meta property="og:title" content="Download Nexiora Chat | Voice, Video &amp; Community App">"#));
 
         let terms_html = apply_route_metadata(SHIPPED_APP_SHELL, "/terms/");
         assert!(terms_html.contains("<title>Terms of Service | Nexoria Chat</title>"));
