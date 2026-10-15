@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import Authentication from '@app/features/auth/state/Authentication';
+import DeveloperMode from '@app/features/devtools/state/DeveloperMode';
 import {useLocation} from '@app/features/platform/components/router/RouterReact';
 import {getProtectedLocalStorage} from '@app/features/platform/state/ProtectedWebStorage';
 import {PublicPageLayout} from '@app/features/public_pages/PublicPageLayout';
@@ -26,15 +27,23 @@ export const CareersPage: React.FC = observer(() => {
 	const location = useLocation();
 	const currentUser = Users.currentUser;
 	const isStaffOrAdmin = Boolean(
-		Authentication.isAuthenticated && (currentUser?.isStaff() || currentUser != null)
+		Authentication.isAuthenticated && (currentUser?.isStaff?.() || DeveloperMode.isDeveloper)
 	);
 
 	const [isHiring, setIsHiring] = useState<boolean>(() => {
+		// URL parameter takes top priority (e.g. ?hiring=true or ?hiring=false)
+		const param = location.searchParams.get('hiring');
+		if (param === 'true') return true;
+		if (param === 'false') return false;
+
+		// If staff has toggled locally in this browser
 		const storage = getProtectedLocalStorage();
 		const saved = storage?.getItem(STORAGE_KEY_HIRING);
-		if (saved === 'false') return false;
 		if (saved === 'true') return true;
-		return true;
+		if (saved === 'false') return false;
+
+		// Default across all platforms, browsers, and visitors is CLOSED
+		return false;
 	});
 
 	// Support ?hiring=true or ?hiring=false in URL to quickly toggle
@@ -141,7 +150,7 @@ export const CareersPage: React.FC = observer(() => {
 						onClick={handleToggleHiring}
 						className={styles.adminToggleBtn}
 					>
-						{isHiring ? 'Switch to Not Hiring' : 'Switch to Actively Hiring'}
+						{isHiring ? 'Switch to Applications Closed' : 'Switch to Actively Hiring'}
 					</button>
 				</div>
 			)}
