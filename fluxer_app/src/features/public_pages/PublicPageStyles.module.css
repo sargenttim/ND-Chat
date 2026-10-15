@@ -1,0 +1,243 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.header {
+	margin-bottom: 2.75rem;
+	padding-bottom: 2rem;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.badge {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.3rem 0.8rem;
+	border-radius: 999px;
+	background: rgba(88, 101, 242, 0.15);
+	border: 1px solid rgba(88, 101, 242, 0.3);
+	color: #9aa5ff;
+	font-size: 0.775rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+	margin-bottom: 1rem;
+}
+
+.badgeSuccess {
+	background: rgba(34, 197, 94, 0.15);
+	border-color: rgba(34, 197, 94, 0.35);
+	color: #4ade80;
+}
+
+.title {
+	font-size: 2.35rem;
+	font-weight: 800;
+	color: #ffffff;
+	letter-spacing: -0.02em;
+	margin: 0 0 0.75rem 0;
+	line-height: 1.2;
+}
+
+.subtitle {
+	font-size: 1.05rem;
+	color: var(--text-muted, #949ba4);
+	line-height: 1.6;
+	margin: 0 0 1rem 0;
+}
+
+.meta {
+	display: flex;
+	gap: 1.5rem;
+	font-size: 0.85rem;
+	color: var(--text-muted, #72767d);
+	flex-wrap: wrap;
+}
+
+.tocCard {
+	background: var(--background-secondary, #12141c);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 12px;
+	padding: 1.25rem 1.5rem;
+	margin-bottom: 3rem;
+}
+
+.tocTitle {
+	font-size: 0.925rem;
+	font-weight: 700;
+	color: #ffffff;
+	margin: 0 0 0.85rem 0;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.tocList {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+	gap: 0.45rem 1rem;
+	margin: 0;
+	padding: 0;
+	list-style: none;
+}
+
+.tocLink {
+	color: #8e9bff;
+	text-decoration: none;
+	font-size: 0.9rem;
+	transition: color 0.15s ease;
+	line-height: 1.4;
+}
+
+.tocLink:hover {
+	color: #ffffff;
+	text-decoration: underline;
+}
+
+.section {
+	margin-bottom: 3rem;
+}
+
+.sectionTitle {
+	font-size: 1.4rem;
+	font-weight: 700;
+	color: #ffffff;
+	margin: 0 0 1rem 0;
+	padding-bottom: 0.5rem;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.subTitle {
+	font-size: 1.1rem;
+	font-weight: 600;
+	color: #f1f2f6;
+	margin: 1.5rem 0 0.65rem 0;
+}
+
+.paragraph {
+	font-size: 0.985rem;
+	line-height: 1.75;
+	color: var(--text-normal, #c7cdd8);
+	margin: 0 0 1.15rem 0;
+}
+
+.list {
+	margin: 0 0 1.25rem 1.25rem;
+	padding: 0;
+	font-size: 0.985rem;
+	line-height: 1.75;
+	color: var(--text-normal, #c7cdd8);
+}
+
+.list li {
+	margin-bottom: 0.45rem;
+}
+
+.callout {
+	background: rgba(88, 101, 242, 0.08);
+	border-left: 4px solid var(--brand-primary, #5865f2);
+	border-radius: 0 8px 8px 0;
+	padding: 1.1rem 1.25rem;
+	margin: 1.5rem 0;
+	font-size: 0.95rem;
+	line-height: 1.65;
+	color: #d1d6ef;
+}
+
+.calloutWarning {
+	background: rgba(234, 179, 8, 0.08);
+	border-left: 4px solid #eab308;
+	border-radius: 0 8px 8px 0;
+	padding: 1.1rem 1.25rem;
+	margin: 1.5rem 0;
+	font-size: 0.95rem;
+	line-height: 1.65;
+	color: #fef08a;
+}
+
+.cardGrid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+	gap: 1.25rem;
+	margin: 1.75rem 0;
+}
+
+.card {
+	background: var(--background-secondary, #12141c);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 12px;
+	padding: 1.5rem;
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+	transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.card:hover {
+	border-color: rgba(88, 101, 242, 0.4);
+	transform: translateY(-2px);
+}
+
+.cardHeader {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.cardTitle {
+	font-size: 1.15rem;
+	font-weight: 700;
+	color: #ffffff;
+	margin: 0;
+}
+
+.cardDesc {
+	font-size: 0.9rem;
+	color: var(--text-muted, #949ba4);
+	line-height: 1.6;
+	margin: 0;
+	flex: 1;
+}
+
+.roleTag {
+	padding: 0.2rem 0.6rem;
+	border-radius: 6px;
+	font-size: 0.75rem;
+	font-weight: 600;
+	background: rgba(255, 255, 255, 0.08);
+	color: #e0e2ec;
+}
+
+.roleTagStaff {
+	background: rgba(88, 101, 242, 0.2);
+	color: #9aa5ff;
+	border: 1px solid rgba(88, 101, 242, 0.3);
+}
+
+.roleTagDev {
+	background: rgba(168, 85, 247, 0.2);
+	color: #c084fc;
+	border: 1px solid rgba(168, 85, 247, 0.3);
+}
+
+.applyButton {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 0.55rem 1.2rem;
+	border-radius: 8px;
+	background: var(--brand-primary, #5865f2);
+	color: #ffffff;
+	font-weight: 600;
+	font-size: 0.9rem;
+	text-decoration: none;
+	transition: all 0.2s ease;
+	margin-top: 0.5rem;
+}
+
+.applyButton:hover {
+	background: #4752c4;
+	color: #ffffff;
+	text-decoration: none;
+}

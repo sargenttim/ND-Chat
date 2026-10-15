@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import {Routes} from '@app/app/Routes';
 import {ExternalLink} from '@app/features/app/components/shared/ExternalLink';
 import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
 import styles from '@app/features/auth/flow/AuthPageStyles.module.css';
 import type {LegalConsentRequirement} from '@app/features/auth/flow/SubmitTooltip';
-import DeveloperOptions from '@app/features/devtools/state/DeveloperOptions';
+import {webAppUrl} from '@app/features/messaging/utils/MessagingUrlUtils';
 import {Checkbox} from '@app/features/ui/checkbox/Checkbox';
 import {flxElementClassName} from '@app/lib/react';
 import {Trans} from '@lingui/react/macro';
@@ -36,12 +37,10 @@ export function getRegistrationLegalConsentConfig(
 	runtimeSnapshot: RuntimeConfigSnapshot,
 	showLegalConsent = true,
 ): RegistrationLegalConsentConfig {
-	const isSelfHosted = DeveloperOptions.selfHostedModeOverride || runtimeSnapshot.features.self_hosted;
 	const termsUrl =
-		runtimeSnapshot.appPublic.legal.terms_url ?? (isSelfHosted ? null : `${runtimeSnapshot.marketingEndpoint}/terms`);
+		runtimeSnapshot.appPublic.legal.terms_url ?? webAppUrl(Routes.TERMS);
 	const privacyUrl =
-		runtimeSnapshot.appPublic.legal.privacy_url ??
-		(isSelfHosted ? null : `${runtimeSnapshot.marketingEndpoint}/privacy`);
+		runtimeSnapshot.appPublic.legal.privacy_url ?? webAppUrl(Routes.PRIVACY);
 	if (!showLegalConsent) {
 		return {termsUrl, privacyUrl, requirement: null};
 	}

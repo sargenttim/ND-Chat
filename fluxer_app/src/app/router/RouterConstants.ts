@@ -10,6 +10,12 @@ const AUTO_REDIRECT_EXEMPT_PATHS = new Set<string>([
 	Routes.OAUTH_AUTHORIZE,
 	Routes.SSO_CALLBACK,
 	Routes.REPORT,
+	Routes.TERMS,
+	Routes.PRIVACY,
+	Routes.GUIDELINES,
+	Routes.RULES,
+	Routes.SECURITY,
+	Routes.CAREERS,
 ]);
 const AUTO_REDIRECT_EXEMPT_PREFIXES = ['/invite/', '/gift/', '/theme/', '/oauth2/'];
 export const isAutoRedirectExemptPath = (pathname: string): boolean => {
