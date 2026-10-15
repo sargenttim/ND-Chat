@@ -62,12 +62,3 @@ To apply new updates to your server instance:
 ```bash
 cd ~/fluxer-instance
 sh install.sh --update --allow-root
-```
-
----
-
-## 📜 License & Acknowledgments
-
-- **Software License:** Licensed under the [GNU Affero General Public License v3.0 (AGPL-3.0-or-later)](./LICENSE).
-- **Branding & Assets:** Nexoria Development artwork, crests, logos, and custom branding are copyright © Nexoria Development.
-- **Upstream:** Built on the open-source [Fluxer](https://github.com/fluxerapp/fluxer) architecture with custom Nexoria branding, identity integration, and client optimizations.
