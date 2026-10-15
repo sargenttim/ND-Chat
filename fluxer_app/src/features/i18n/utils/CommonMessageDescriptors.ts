@@ -216,6 +216,10 @@ export const EMAIL_DESCRIPTOR = msg({
 	message: 'Email',
 	comment: 'Generic form-field label for an email address.',
 });
+export const EMAIL_OR_USERNAME_DESCRIPTOR = msg({
+	message: 'Email or username',
+	comment: 'Generic form-field label for entering either an email address or username.',
+});
 export const PASSWORD_DESCRIPTOR = msg({
 	message: 'Password',
 	comment: 'Generic form-field label for a password.',

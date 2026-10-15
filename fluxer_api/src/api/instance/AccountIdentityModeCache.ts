@@ -22,6 +22,15 @@ export interface AccountIdentity {
 let cachedStored: StoredAccountIdentity | null = null;
 
 export function resolveAccountIdentity(stored: StoredAccountIdentity | null): AccountIdentity {
+	const configuredMode = Config.instance.accountIdentity;
+	const configuredTagStyle = Config.instance.tagStyle;
+	if (Config.instance.selfHosted && configuredMode) {
+		const tagStyle =
+			configuredMode === AccountIdentityModes.USERNAME
+				? TagStyles.NONE
+				: (configuredTagStyle ?? stored?.tagStyle ?? TagStyles.NONE);
+		return {mode: configuredMode, tagStyle};
+	}
 	if (!Config.instance.selfHosted || !stored) {
 		return {mode: DEFAULT_ACCOUNT_IDENTITY_MODE, tagStyle: TagStyles.RANDOM};
 	}

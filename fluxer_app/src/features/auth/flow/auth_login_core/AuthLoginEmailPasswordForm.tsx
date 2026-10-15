@@ -3,7 +3,7 @@
 import FormField from '@app/features/auth/flow/AuthFormField';
 import styles from '@app/features/auth/flow/auth_login_core/AuthLoginEmailPasswordForm.module.css';
 import {
-	EMAIL_DESCRIPTOR,
+	EMAIL_OR_USERNAME_DESCRIPTOR,
 	PASSWORD_DESCRIPTOR,
 	USERNAME_DESCRIPTOR,
 } from '@app/features/i18n/utils/CommonMessageDescriptors';
@@ -72,7 +72,7 @@ export default function AuthLoginEmailPasswordForm({
 			<FormField
 				id={emailId}
 				name={identifierField}
-				type={identifierField === 'email' ? 'email' : 'text'}
+				type="text"
 				autoComplete="username"
 				autoCapitalize="none"
 				autoCorrect="off"
@@ -80,7 +80,7 @@ export default function AuthLoginEmailPasswordForm({
 				spellCheck={false}
 				data-step-focus="true"
 				required
-				label={i18n._(identifierField === 'email' ? EMAIL_DESCRIPTOR : USERNAME_DESCRIPTOR)}
+				label={i18n._(identifierField === 'email' ? EMAIL_OR_USERNAME_DESCRIPTOR : USERNAME_DESCRIPTOR)}
 				value={form.getValue(identifierField)}
 				onChange={(value) => form.setValue(identifierField, value)}
 				error={form.getError(identifierField) || fieldErrors?.get(identifierField)}

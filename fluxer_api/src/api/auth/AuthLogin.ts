@@ -413,29 +413,44 @@ async function resolveLoginIdentifier(ctx: ApiContext, data: LoginRequest): Prom
 			lookup: async () => (handle ? await findPersonByLoginHandle(users, handle) : null),
 		};
 	}
-	if (data.email !== undefined) {
-		const emailAddress = data.email;
+	const field = data.email !== undefined ? 'email' : 'login';
+	const rawInput = (field === 'email' ? data.email : data.login) ?? '';
+	const input = rawInput.trim();
+	const parsedEmail = EmailType.safeParse(input);
+
+	if (parsedEmail.success) {
+		const emailAddress = parsedEmail.data;
 		return {
-			field: 'email',
+			field,
 			rateLimits: emailLoginRateLimits(emailAddress),
 			sourceRateLimits: () => [],
 			failureRateLimit: null,
 			invalidCode: ValidationErrorCodes.INVALID_EMAIL_OR_PASSWORD,
-			lookup: () => users.findByEmail(emailAddress),
+			lookup: async () => {
+				const byEmail = await users.findByEmail(emailAddress);
+				if (byEmail) return byEmail;
+				const handle = parseOlderAppLoginHandle(ctx, input);
+				return handle ? await findPersonByLoginHandle(users, handle) : null;
+			},
 		};
 	}
-	const parsedEmail = EmailType.safeParse(data.login);
-	if (!parsedEmail.success) {
-		throw InputValidationError.fromCode('login', ValidationErrorCodes.INVALID_EMAIL_FORMAT);
-	}
-	const emailAddress = parsedEmail.data;
+
+	const handle = parseLoginHandle(input);
 	return {
-		field: 'login',
-		rateLimits: emailLoginRateLimits(emailAddress),
-		sourceRateLimits: () => [],
-		failureRateLimit: null,
-		invalidCode: ValidationErrorCodes.INVALID_EMAIL_OR_PASSWORD,
-		lookup: () => users.findByEmail(emailAddress),
+		field,
+		rateLimits: [],
+		sourceRateLimits: (sourceKey) => {
+			if (!handle) {
+				return [{identifier: `login:id-unparsed:${sourceKey}`, maxAttempts: 5, windowMs: ms('15 minutes')}];
+			}
+			const lowered = handle.username.toLowerCase();
+			return [{identifier: `login:id:${lowered}:${sourceKey}`, maxAttempts: 5, windowMs: ms('15 minutes')}];
+		},
+		failureRateLimit: handle
+			? {identifier: `login:id:${handle.username.toLowerCase()}`, maxAttempts: 100, windowMs: ms('1 hour')}
+			: null,
+		invalidCode: ValidationErrorCodes.INVALID_LOGIN_OR_PASSWORD,
+		lookup: async () => (handle ? await findPersonByLoginHandle(users, handle) : null),
 	};
 }
 
