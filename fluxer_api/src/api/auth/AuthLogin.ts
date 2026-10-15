@@ -315,7 +315,7 @@ export async function login(
 				instanceConfigRepository.getInstanceIntegrationsConfig(),
 				instanceConfigRepository.getEffectiveEmailConfig(),
 			]);
-			if (integrationsConfig.email.disable_new_ip_authorization || !effectiveEmailConfig.enabled) {
+			if (integrationsConfig.email.disable_new_ip_authorization || !effectiveEmailConfig.enabled || !currentUser.email) {
 				await users.createAuthorizedIp(currentUser.id, clientIp);
 			} else {
 				const ticket = createIpAuthorizationTicket(await RandomUtils.randomString(64));

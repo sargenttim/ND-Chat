@@ -51,7 +51,7 @@ export class EmailChangeService {
 
 	async start(user: User): Promise<StartEmailChangeResult> {
 		const {email, rateLimit} = this.apiContext.services;
-		const isUnclaimed = user.isUnclaimedAccount();
+		const isUnclaimed = user.isUnclaimedAccount() || !user.email;
 		const hasEmail = !!user.email;
 		if (!hasEmail && !isUnclaimed) {
 			throw InputValidationError.fromCode('email', ValidationErrorCodes.MUST_HAVE_EMAIL_TO_CHANGE_IT);

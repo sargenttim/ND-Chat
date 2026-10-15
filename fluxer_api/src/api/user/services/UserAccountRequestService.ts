@@ -155,7 +155,7 @@ export class UserAccountRequestService {
 		if (userUpdateData.email !== undefined) {
 			throw InputValidationError.fromCode('email', ValidationErrorCodes.EMAIL_MUST_BE_CHANGED_VIA_TOKEN);
 		}
-		const isUnclaimed = user.isUnclaimedAccount();
+		const isUnclaimed = user.isUnclaimedAccount() || !user.email;
 		if (!isUnclaimed && userUpdateData.new_password !== undefined && !userUpdateData.password) {
 			throw InputValidationError.fromCode('password', ValidationErrorCodes.PASSWORD_NOT_SET);
 		}
@@ -388,7 +388,7 @@ export class UserAccountRequestService {
 	}
 
 	private requiresSensitiveUserVerification(user: User, data: UserUpdatePayload, emailTokenProvided: boolean): boolean {
-		const isUnclaimed = user.isUnclaimedAccount();
+		const isUnclaimed = user.isUnclaimedAccount() || !user.email;
 		const usernameChanged = data.username !== undefined && data.username !== user.username;
 		const discriminatorChanged = data.discriminator !== undefined && data.discriminator !== user.discriminator;
 		const emailChanged = data.email !== undefined && data.email !== user.email;

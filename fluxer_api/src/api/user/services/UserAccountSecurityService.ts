@@ -72,7 +72,7 @@ export class UserAccountSecurityService {
 		const metadata: UserUpdateMetadata = {
 			invalidateAuthSessions: false,
 		};
-		const isUnclaimedAccount = user.isUnclaimedAccount();
+		const isUnclaimedAccount = user.isUnclaimedAccount() || !user.email;
 		const identityVerifiedViaSudo = sudoContext?.method === 'mfa' || sudoContext?.method === 'sudo_token';
 		const identityVerifiedViaPassword = sudoContext?.method === 'password';
 		const rawEmail = data.email?.trim();
