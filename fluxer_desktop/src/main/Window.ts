@@ -634,8 +634,8 @@ export function desktopTransparencyPendingRestart(): boolean {
 	return getDesktopWindowBehaviorSettings().allowTransparency !== initialAllowTransparency;
 }
 
-function getLinuxWindowIconPath(): string | null {
-	const baseIconName = '512x512.png';
+function getWindowIconPath(): string | null {
+	const baseIconName = process.platform === 'win32' ? 'icon.ico' : '512x512.png';
 	const candidatePaths = [
 		path.join(process.resourcesPath, 'icons', baseIconName),
 		path.join(process.resourcesPath, baseIconName),
@@ -651,7 +651,6 @@ function getLinuxWindowIconPath(): string | null {
 
 function getVoicePopoutWindowOptions(): Electron.BrowserWindowConstructorOptions {
 	const isMac = process.platform === 'darwin';
-	const isLinux = process.platform === 'linux';
 	const options: Electron.BrowserWindowConstructorOptions = {
 		...getTitleBarWindowOptions(getActiveUseNativeTitleBar()),
 		minWidth: VOICE_POPOUT_MIN_WIDTH,
@@ -663,8 +662,8 @@ function getVoicePopoutWindowOptions(): Electron.BrowserWindowConstructorOptions
 		autoHideMenuBar: true,
 		show: true,
 	};
-	if (isLinux) {
-		const iconPath = getLinuxWindowIconPath();
+	if (!isMac) {
+		const iconPath = getWindowIconPath();
 		if (iconPath) {
 			options.icon = iconPath;
 		}
@@ -739,8 +738,8 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
 		acceptFirstMouse: acceptFirstMouseOnFocus,
 		webPreferences: getSharedWebPreferences(allowTransparency, useNativeTitleBar, true),
 	};
-	if (isLinux) {
-		const iconPath = getLinuxWindowIconPath();
+	if (!isMac) {
+		const iconPath = getWindowIconPath();
 		if (iconPath) {
 			windowOptions.icon = iconPath;
 		}
@@ -752,6 +751,16 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
 		windowOptions.center = true;
 	}
 	mainWindow = new BrowserWindow(windowOptions);
+	if (process.platform === 'win32') {
+		const iconPath = getWindowIconPath();
+		if (iconPath) {
+			try {
+				mainWindow.setIcon(iconPath);
+			} catch (error) {
+				logger.warn('Failed to set window icon on Windows', {error});
+			}
+		}
+	}
 	signalMainWindowCreated(mainWindow);
 	mainWindowRendererGone = false;
 	installHtmlFullscreenChromeGuard(mainWindow);
