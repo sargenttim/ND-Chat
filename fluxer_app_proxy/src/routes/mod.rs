@@ -3,6 +3,7 @@
 mod android_association;
 mod apple_association;
 mod assets_proxy;
+mod downloads;
 pub(crate) mod file_stream;
 mod health;
 mod spa_index;
@@ -53,6 +54,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/favicon.ico", get(spa_static::favicon_ico))
         .route("/sw.js", get(spa_static::service_worker))
         .route("/sw.js.map", get(spa_static::service_worker_map))
+        .route("/downloads/{*path}", get(downloads::serve_download))
         .fallback(get(spa_index::spa_catch_all))
         .layer(from_fn(request_id_middleware))
         .layer(from_fn(cache_headers_middleware))

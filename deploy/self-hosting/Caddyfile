@@ -48,6 +48,11 @@
 		reverse_proxy static-proxy:8080
 	}
 
+	handle_path /downloads/* {
+		root * /downloads
+		file_server
+	}
+
 	handle /.well-known/fluxer {
 		reverse_proxy api:8080
 	}

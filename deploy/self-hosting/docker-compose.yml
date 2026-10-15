@@ -237,6 +237,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - edge-data:/data
       - edge-config:/config
+      - ./downloads:/downloads:ro
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
       interval: ${FLUXER_HEALTHCHECK_INTERVAL:-10s}
@@ -686,6 +687,8 @@ services:
       FLUXER_CSP_EXTRA_WORKER_SRC: ${FLUXER_CSP_EXTRA_WORKER_SRC:-}
       FLUXER_CSP_EXTRA_MANIFEST_SRC: ${FLUXER_CSP_EXTRA_MANIFEST_SRC:-}
       FLUXER_CSP_REPORT_URI: ${FLUXER_CSP_REPORT_URI:-}
+    volumes:
+      - ./downloads:/srv/app/downloads:ro
     depends_on:
       api: {condition: service_healthy}
       edge: {condition: service_healthy}
