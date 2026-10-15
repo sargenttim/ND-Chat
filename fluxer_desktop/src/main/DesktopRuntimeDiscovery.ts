@@ -24,7 +24,7 @@ import {
 	requireDiscoveryDeclaresItsOwnOrigin,
 } from '@fluxer/instance_bootstrap/src/Discovery';
 import {InstanceEndpointKind, normalizeInstanceEndpoint} from '@fluxer/instance_bootstrap/src/EndpointNormalization';
-import {officialClientApiEndpointForAlias} from '@fluxer/instance_bootstrap/src/OfficialInstance';
+import {OFFICIAL_CLIENT_API_ENDPOINTS, officialClientApiEndpointForAlias} from '@fluxer/instance_bootstrap/src/OfficialInstance';
 
 const log = createChildLogger('DesktopRuntimeDiscovery');
 
@@ -140,7 +140,7 @@ export async function restoreRememberedRuntimePlan(instanceKey: string): Promise
 }
 
 export function desktopRuntimeInitialInput(): string | null {
-	return getLaunchInstanceEndpointOverride();
+	return getLaunchInstanceEndpointOverride() ?? OFFICIAL_CLIENT_API_ENDPOINTS.stable;
 }
 
 async function fetchRuntimePlan(

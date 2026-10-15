@@ -2,7 +2,8 @@
 
 import {Routes} from '@app/app/Routes';
 import {detectDomainMigrationInstallKind} from '@app/features/app/domain_migration/DomainMigrationBrowser';
-import type {RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
+import InstanceSnapshotStore, {type RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
+import {OFFICIAL_CLIENT_API_ENDPOINTS} from '@fluxer/instance_bootstrap/src/OfficialInstance';
 import RuntimeConfig, {describeAPIEndpoint, type InstanceSsoConfig} from '@app/features/app/state/RuntimeConfig';
 import {
 	FORGOT_YOUR_PASSWORD_DESCRIPTOR,
@@ -185,6 +186,12 @@ function resolveEmailsEnabled(snapshot: RuntimeConfigSnapshot | null): boolean {
 
 function requireAuthInstanceSnapshot(snapshot: RuntimeConfigSnapshot | null): RuntimeConfigSnapshot {
 	if (snapshot == null) {
+		const fallback =
+			InstanceSnapshotStore.getForApiEndpoint(OFFICIAL_CLIENT_API_ENDPOINTS.stable) ??
+			InstanceSnapshotStore.get(OFFICIAL_CLIENT_API_ENDPOINTS.stable);
+		if (fallback != null) {
+			return fallback;
+		}
 		throw new Error('Cannot render instance authentication methods without a selected runtime');
 	}
 	return snapshot;
@@ -416,7 +423,10 @@ export const AuthLoginLayout = observer(function AuthLoginLayout({
 	const hasStoredAccounts = accounts.length > 0;
 	const shouldShowInstanceSelector = shouldRenderInstanceStep();
 	const [isStartingSso, setIsStartingSso] = useState(false);
-	const resolvedAuthRuntimeSnapshot = runtimeTarget.snapshot;
+	const resolvedAuthRuntimeSnapshot =
+		runtimeTarget.snapshot ??
+		InstanceSnapshotStore.getForApiEndpoint(OFFICIAL_CLIENT_API_ENDPOINTS.stable) ??
+		InstanceSnapshotStore.get(OFFICIAL_CLIENT_API_ENDPOINTS.stable);
 	const initialInstanceSelected = runtimeTarget.initialSnapshot != null;
 	const ssoConfig = resolvedAuthRuntimeSnapshot == null ? null : resolveAuthPanelSso(resolvedAuthRuntimeSnapshot);
 	const isSsoEnforced = isSsoLoginEnforced(ssoConfig);

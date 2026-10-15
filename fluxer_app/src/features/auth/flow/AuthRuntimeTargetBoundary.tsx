@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import InstanceSnapshotStore, {type RuntimeConfigSnapshot} from '@app/features/app/state/InstanceSnapshotStore';
+import {OFFICIAL_CLIENT_API_ENDPOINTS} from '@fluxer/instance_bootstrap/src/OfficialInstance';
 import {AuthRouteLoadError} from '@app/features/auth/flow/AuthRouteLoadError';
 import {AuthShellLoadingState} from '@app/features/auth/flow/AuthShellLoadingState';
 import {AuthRuntimeTarget, AuthRuntimeTargetProvider} from '@app/features/auth/state/AuthRuntimeTarget';
@@ -155,7 +156,7 @@ async function resolveDesktopAuthRuntime(signal: AbortSignal): Promise<RuntimeCo
 	if (api === undefined) {
 		throw new DesktopAuthRuntimeUnavailableError();
 	}
-	const initialInput = await api.initialInput();
+	const initialInput = (await api.initialInput()) ?? OFFICIAL_CLIENT_API_ENDPOINTS.stable;
 	signal.throwIfAborted();
 	if (initialInput === null) {
 		return null;

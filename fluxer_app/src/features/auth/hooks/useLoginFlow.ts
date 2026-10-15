@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
-import {type RuntimeConfigSnapshot, runtimeInstanceKey} from '@app/features/app/state/InstanceSnapshotStore';
+import InstanceSnapshotStore, {type RuntimeConfigSnapshot, runtimeInstanceKey} from '@app/features/app/state/InstanceSnapshotStore';
+import {OFFICIAL_CLIENT_API_ENDPOINTS} from '@fluxer/instance_bootstrap/src/OfficialInstance';
 import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {resolveSnapshotInstanceDomain} from '@app/features/auth/AccountDisplayUtils';
 import {
@@ -92,6 +93,12 @@ export async function resolvePasskeyLoginCapability(): Promise<PasskeyLoginCapab
 
 function requireLoginRuntimeSnapshot(runtimeSnapshot: RuntimeConfigSnapshot | null): RuntimeConfigSnapshot {
 	if (runtimeSnapshot == null) {
+		const fallback =
+			InstanceSnapshotStore.getForApiEndpoint(OFFICIAL_CLIENT_API_ENDPOINTS.stable) ??
+			InstanceSnapshotStore.get(OFFICIAL_CLIENT_API_ENDPOINTS.stable);
+		if (fallback != null) {
+			return fallback;
+		}
 		throw new Error('Authentication cannot start without a selected instance runtime');
 	}
 	return runtimeSnapshot;
@@ -180,19 +187,24 @@ export function useLoginFormController({
 	const {form, isLoading, fieldErrors, error} = useAuthForm({
 		initialValues: {[identifierField]: '', password: ''},
 		onSubmit: async (values) => {
-			const requestRuntimeSnapshot = requireLoginRuntimeSnapshot(runtimeSnapshot);
+			let requestRuntimeSnapshot = runtimeSnapshot;
+			if (requestRuntimeSnapshot == null) {
+				const res = await InstanceSnapshotStore.resolve({input: OFFICIAL_CLIENT_API_ENDPOINTS.stable, signal: null});
+				requestRuntimeSnapshot = res.snapshot;
+			}
+			const resolvedSnapshot = requireLoginRuntimeSnapshot(requestRuntimeSnapshot);
 			const identifier = values[identifierField] ?? '';
 			const result = await loginWithPassword({
 				...(identifierField === 'login' ? {login: identifier.trim()} : {email: identifier}),
 				password: values.password,
 				inviteCode,
-				runtimeSnapshot: requestRuntimeSnapshot,
+				runtimeSnapshot: resolvedSnapshot,
 			});
 			if (result.type !== 'success') {
 				await handleLoginOutcome(result, onLoginSuccess, onRequireMfa, onRequireIpAuthorization, redirectPath);
 				return;
 			}
-			const domain = resolveSnapshotInstanceDomain(requestRuntimeSnapshot);
+			const domain = resolveSnapshotInstanceDomain(resolvedSnapshot);
 			connectingTimerRef.current = window.setTimeout(() => {
 				connectingTimerRef.current = null;
 				setConnectingDomain(domain);
@@ -217,7 +229,12 @@ export function useLoginFormController({
 		const migrationOrigin = isPasskeyMigrationOrigin();
 		let navigating = false;
 		try {
-			const requestRuntimeSnapshot = requireLoginRuntimeSnapshot(runtimeSnapshot);
+			let requestRuntimeSnapshot = runtimeSnapshot;
+			if (requestRuntimeSnapshot == null) {
+				const res = await InstanceSnapshotStore.resolve({input: OFFICIAL_CLIENT_API_ENDPOINTS.stable, signal: null});
+				requestRuntimeSnapshot = res.snapshot;
+			}
+			const resolvedSnapshot = requireLoginRuntimeSnapshot(requestRuntimeSnapshot);
 			let outcome: LegacyPasskeyLoginOutcome | null = null;
 			if (!migrationOrigin || readPasskeyLoginRoute() === 'native') {
 				const capability = await resolvePasskeyLoginCapability();
@@ -229,10 +246,10 @@ export function useLoginFormController({
 					ToastCommands.error(i18n._(PASSKEY_UNAVAILABLE_DESCRIPTOR));
 					return;
 				}
-				const options = await getWebAuthnAuthenticationOptions(requestRuntimeSnapshot);
+				const options = await getWebAuthnAuthenticationOptions(resolvedSnapshot);
 				const credential = await WebAuthnUtils.performAuthentication(
 					options,
-					runtimeInstanceKey(requestRuntimeSnapshot),
+					runtimeInstanceKey(resolvedSnapshot),
 				).catch((error: unknown) => {
 					if (migrationOrigin && isPasskeyCeremonyDismissed(error)) {
 						return null;
@@ -244,7 +261,7 @@ export function useLoginFormController({
 						response: credential,
 						challenge: options.challenge,
 						inviteCode,
-						runtimeSnapshot: requestRuntimeSnapshot,
+						runtimeSnapshot: resolvedSnapshot,
 					});
 				}
 			}
