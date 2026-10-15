@@ -15,12 +15,14 @@ export interface PublicPageLayoutProps {
 	title: string;
 	children: ReactNode;
 	dataFlx?: string;
+	wide?: boolean;
 }
 
 export const PublicPageLayout: React.FC<PublicPageLayoutProps> = observer(({
 	title,
 	children,
 	dataFlx,
+	wide,
 }) => {
 	useFluxerDocumentTitle(`${title} | ND Chat`);
 	const location = useLocation();
@@ -84,7 +86,7 @@ export const PublicPageLayout: React.FC<PublicPageLayoutProps> = observer(({
 				</div>
 			</header>
 
-			<main className={styles.main}>{children}</main>
+			<main className={clsx(styles.main, wide && styles.mainWide)}>{children}</main>
 
 			<footer className={styles.footer}>
 				<div className={styles.footerInner}>

@@ -3,6 +3,7 @@
 import {Routes} from '@app/app/Routes';
 
 const AUTO_REDIRECT_EXEMPT_PATHS = new Set<string>([
+	Routes.HOME,
 	Routes.RESET_PASSWORD,
 	Routes.AUTHORIZE_IP,
 	Routes.EMAIL_REVERT,

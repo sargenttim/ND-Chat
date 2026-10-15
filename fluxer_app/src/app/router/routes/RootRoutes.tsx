@@ -6,8 +6,14 @@ import {afterSessionInitialization} from '@app/app/router/policy/AuthRouteRedire
 import {NotFoundPage} from '@app/features/app/components/pages/NotFoundPage';
 import {readAuthenticatedRuntimeContext} from '@app/features/auth/state/AuthenticatedRuntime';
 import {getDefaultLandingPath} from '@app/features/navigation/utils/DefaultLandingUtils';
+import {createNamedLoadableComponent} from '@app/features/platform/components/loadable/LoadableComponent';
 import {createRootRoute, createRoute} from '@app/features/platform/components/router/RouterBuilder';
 import {Redirect} from '@app/features/platform/components/router/RouterTypes';
+
+const HomePage = createNamedLoadableComponent({
+	displayName: 'HomePage',
+	load: async () => (await import('@app/features/public_pages/HomePage')).HomePage,
+});
 
 const enterDefaultLanding = afterSessionInitialization(() => {
 	if (readAuthenticatedRuntimeContext() === null) {
@@ -29,8 +35,8 @@ export const notFoundRoute = createRoute({
 export const homeRoute = createRoute({
 	getParentRoute: () => rootRoute,
 	id: 'home',
-	path: '/',
-	onEnter: enterDefaultLanding,
+	path: Routes.HOME,
+	component: () => <HomePage data-flx="app.router.root-routes.home-page" />,
 });
 export const appRoute = createRoute({
 	getParentRoute: () => rootRoute,

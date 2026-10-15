@@ -151,6 +151,10 @@
 	box-sizing: border-box;
 }
 
+.mainWide {
+	max-width: 1100px;
+}
+
 .footer {
 	flex-shrink: 0;
 	background: var(--background-secondary, #10121a);

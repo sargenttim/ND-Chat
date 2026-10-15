@@ -340,6 +340,10 @@ fn strip_link_preview_metadata(html: &str) -> String {
 fn apply_route_metadata(html: &str, request_path: &str) -> String {
     let normalized = request_path.trim_end_matches('/');
     let (title, description) = match normalized {
+        "" => (
+            "Nexiora Chat | Modern Voice & Community Platform",
+            "Nexiora Chat is a modern, fast, and community-centered communication platform for chat, voice, and communities.",
+        ),
         "/careers" => (
             "Careers & Staff Openings | Nexoria Chat",
             "Join the Nexoria Development team! Explore open staff and developer positions and help shape the future of ND Chat.",
@@ -970,7 +974,8 @@ mod tests {
         assert!(terms_html.contains(r#"<meta name="description" content="Official Terms of Service governing access, usage, and safety on Nexoria Chat.">"#));
 
         let root_html = apply_route_metadata(SHIPPED_APP_SHELL, "/");
-        assert!(root_html.contains("<title>Nexiora Chat</title>"));
+        assert!(root_html.contains("<title>Nexiora Chat | Modern Voice &amp; Community Platform</title>"));
+        assert!(root_html.contains(r#"<meta property="og:title" content="Nexiora Chat | Modern Voice &amp; Community Platform">"#));
     }
 
     #[test]
