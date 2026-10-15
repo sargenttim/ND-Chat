@@ -241,3 +241,85 @@
 	color: #ffffff;
 	text-decoration: none;
 }
+
+.adminBar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 0.75rem 1.25rem;
+	margin-bottom: 2rem;
+	background: rgba(88, 101, 242, 0.12);
+	border: 1px solid rgba(88, 101, 242, 0.35);
+	border-radius: 10px;
+	font-size: 0.9rem;
+	color: #ffffff;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+}
+
+.adminBarLeft {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.adminBadge {
+	padding: 0.2rem 0.55rem;
+	border-radius: 6px;
+	font-size: 0.75rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	background: #5865f2;
+	color: #ffffff;
+}
+
+.adminToggleBtn {
+	padding: 0.35rem 0.85rem;
+	border-radius: 6px;
+	font-size: 0.825rem;
+	font-weight: 600;
+	background: rgba(255, 255, 255, 0.12);
+	color: #ffffff;
+	border: 1px solid rgba(255, 255, 255, 0.2);
+	cursor: pointer;
+	transition: all 0.15s ease;
+}
+
+.adminToggleBtn:hover {
+	background: rgba(255, 255, 255, 0.2);
+}
+
+.badgeClosed {
+	background: rgba(239, 68, 68, 0.15);
+	border-color: rgba(239, 68, 68, 0.35);
+	color: #f87171;
+}
+
+.closedBox {
+	background: var(--background-secondary, #12141c);
+	border: 1px solid rgba(255, 255, 255, 0.08);
+	border-radius: 12px;
+	padding: 3rem 2rem;
+	text-align: center;
+	margin: 2rem 0 3rem 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 1rem;
+}
+
+.closedTitle {
+	font-size: 1.45rem;
+	font-weight: 700;
+	color: #ffffff;
+	margin: 0;
+}
+
+.closedDesc {
+	font-size: 1rem;
+	color: var(--text-muted, #949ba4);
+	max-width: 520px;
+	line-height: 1.6;
+	margin: 0;
+}

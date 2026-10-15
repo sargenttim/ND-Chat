@@ -1,9 +1,14 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+import Authentication from '@app/features/auth/state/Authentication';
+import {useLocation} from '@app/features/platform/components/router/RouterReact';
+import {getProtectedLocalStorage} from '@app/features/platform/state/ProtectedWebStorage';
 import {PublicPageLayout} from '@app/features/public_pages/PublicPageLayout';
 import styles from '@app/features/public_pages/PublicPageStyles.module.css';
+import Users from '@app/features/user/state/Users';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
+import {useCallback, useEffect, useState} from 'react';
 
 interface JobOpening {
 	id: string;
@@ -15,7 +20,43 @@ interface JobOpening {
 	requirements: string[];
 }
 
+const STORAGE_KEY_HIRING = 'nd_careers_hiring';
+
 export const CareersPage: React.FC = observer(() => {
+	const location = useLocation();
+	const currentUser = Users.currentUser;
+	const isStaffOrAdmin = Boolean(
+		Authentication.isAuthenticated && (currentUser?.isStaff() || currentUser != null)
+	);
+
+	const [isHiring, setIsHiring] = useState<boolean>(() => {
+		const storage = getProtectedLocalStorage();
+		const saved = storage?.getItem(STORAGE_KEY_HIRING);
+		if (saved === 'false') return false;
+		if (saved === 'true') return true;
+		return true;
+	});
+
+	// Support ?hiring=true or ?hiring=false in URL to quickly toggle
+	useEffect(() => {
+		const param = location.searchParams.get('hiring');
+		if (param === 'false') {
+			setIsHiring(false);
+			getProtectedLocalStorage()?.setItem(STORAGE_KEY_HIRING, 'false');
+		} else if (param === 'true') {
+			setIsHiring(true);
+			getProtectedLocalStorage()?.setItem(STORAGE_KEY_HIRING, 'true');
+		}
+	}, [location.searchParams]);
+
+	const handleToggleHiring = useCallback(() => {
+		setIsHiring((prev) => {
+			const next = !prev;
+			getProtectedLocalStorage()?.setItem(STORAGE_KEY_HIRING, String(next));
+			return next;
+		});
+	}, []);
+
 	const openings: JobOpening[] = [
 		{
 			id: 'community-manager',
@@ -86,11 +127,34 @@ export const CareersPage: React.FC = observer(() => {
 
 	return (
 		<PublicPageLayout title="Careers & Staff Openings" dataFlx="app.public-pages.careers">
+			{/* Admin control bar visible when logged into an admin account */}
+			{isStaffOrAdmin && (
+				<div className={styles.adminBar}>
+					<div className={styles.adminBarLeft}>
+						<span className={styles.adminBadge}>Admin Mode</span>
+						<span>
+							Careers Status: <strong>{isHiring ? '🟢 Actively Hiring' : '🔴 Applications Closed'}</strong>
+						</span>
+					</div>
+					<button
+						type="button"
+						onClick={handleToggleHiring}
+						className={styles.adminToggleBtn}
+					>
+						{isHiring ? 'Switch to Not Hiring' : 'Switch to Actively Hiring'}
+					</button>
+				</div>
+			)}
+
 			<div className={styles.header}>
-				<div className={`${styles.badge} ${styles.badgeSuccess}`}>Now Recruiting</div>
+				<div className={`${styles.badge} ${isHiring ? styles.badgeSuccess : styles.badgeClosed}`}>
+					{isHiring ? 'Now Recruiting' : 'Applications Closed'}
+				</div>
 				<h1 className={styles.title}>Join the Nexoria Development Team</h1>
 				<p className={styles.subtitle}>
-					We are passionate about building modern, fast, and community-centered communication software. Explore our open roles and help shape the future of ND Chat!
+					{isHiring
+						? 'We are passionate about building modern, fast, and community-centered communication software. Explore our open roles and help shape the future of ND Chat!'
+						: 'We are not currently hiring for open positions. Any future roles will be announced here, so please check back later!'}
 				</p>
 				<div className={styles.meta}>
 					<span>Location: Remote / Global</span>
@@ -108,59 +172,78 @@ export const CareersPage: React.FC = observer(() => {
 				</div>
 			</section>
 
-			<section className={styles.section}>
-				<h2 className={styles.sectionTitle}>Open Positions</h2>
-				<p className={styles.paragraph}>
-					Select an open role below to view details. We are actively accepting applications for all listed positions:
-				</p>
+			{isHiring ? (
+				<>
+					<section className={styles.section}>
+						<h2 className={styles.sectionTitle}>Open Positions</h2>
+						<p className={styles.paragraph}>
+							Select an open role below to view details. We are actively accepting applications for all listed positions:
+						</p>
 
-				<div className={styles.cardGrid}>
-					{openings.map((role) => (
-						<div key={role.id} className={styles.card}>
-							<div className={styles.cardHeader}>
-								<h3 className={styles.cardTitle}>{role.title}</h3>
-								<span className={`${styles.roleTag} ${role.tagClass}`}>{role.type}</span>
-							</div>
-							<p className={styles.cardDesc}>{role.description}</p>
-							<div>
-								<strong style={{fontSize: '0.825rem', color: '#fff', display: 'block', marginBottom: '0.35rem'}}>Key Requirements:</strong>
-								<ul className={styles.list} style={{fontSize: '0.85rem', marginBottom: '0.75rem'}}>
-									{role.requirements.map((req, idx) => (
-										<li key={idx}>{req}</li>
-									))}
-								</ul>
-							</div>
-							<a
-								href="https://discord.gg/nexoria"
-								target="_blank"
-								rel="noopener noreferrer"
-								className={styles.applyButton}
-							>
-								Apply for this Role &rarr;
-							</a>
+						<div className={styles.cardGrid}>
+							{openings.map((role) => (
+								<div key={role.id} className={styles.card}>
+									<div className={styles.cardHeader}>
+										<h3 className={styles.cardTitle}>{role.title}</h3>
+										<span className={`${styles.roleTag} ${role.tagClass}`}>{role.type}</span>
+									</div>
+									<p className={styles.cardDesc}>{role.description}</p>
+									<div>
+										<strong style={{fontSize: '0.825rem', color: '#fff', display: 'block', marginBottom: '0.35rem'}}>Key Requirements:</strong>
+										<ul className={styles.list} style={{fontSize: '0.85rem', marginBottom: '0.75rem'}}>
+											{role.requirements.map((req, idx) => (
+												<li key={idx}>{req}</li>
+											))}
+										</ul>
+									</div>
+									<a
+										href="https://discord.gg/nexoria"
+										target="_blank"
+										rel="noopener noreferrer"
+										className={styles.applyButton}
+									>
+										Apply for this Role &rarr;
+									</a>
+								</div>
+							))}
 						</div>
-					))}
-				</div>
-			</section>
+					</section>
 
-			<section className={styles.section}>
-				<h2 className={styles.sectionTitle}>How to Apply</h2>
-				<p className={styles.paragraph}>
-					Applying is quick and straightforward:
-				</p>
-				<ol className={styles.list}>
-					<li>
-						<strong>Via Discord:</strong> Join our official <a href="https://discord.gg/nexoria" target="_blank" rel="noopener noreferrer" className={styles.tocLink}>Nexoria Discord</a> and open a ticket in the <code>#apply-staff</code> or <code>#support</code> channel stating the role you are applying for.
-					</li>
-					<li>
-						<strong>Via Email:</strong> Email your introduction, experience, and GitHub / portfolio link to{' '}
-						<a href="mailto:careers@nexoriadevelopment.com" className={styles.tocLink}>careers@nexoriadevelopment.com</a>.
-					</li>
-					<li>
-						<strong>Via ND Chat:</strong> Reach out directly to any Nexoria Development team member in our official ND Chat lounge.
-					</li>
-				</ol>
-			</section>
+					<section className={styles.section}>
+						<h2 className={styles.sectionTitle}>How to Apply</h2>
+						<p className={styles.paragraph}>
+							Applying is quick and straightforward:
+						</p>
+						<ol className={styles.list}>
+							<li>
+								<strong>Via Discord:</strong> Join our official <a href="https://discord.gg/nexoria" target="_blank" rel="noopener noreferrer" className={styles.tocLink}>Nexoria Discord</a> and open a ticket in the <code>#apply-staff</code> or <code>#support</code> channel stating the role you are applying for.
+							</li>
+							<li>
+								<strong>Via Email:</strong> Email your introduction, experience, and GitHub / portfolio link to{' '}
+								<a href="mailto:careers@nexoriadevelopment.com" className={styles.tocLink}>careers@nexoriadevelopment.com</a>.
+							</li>
+							<li>
+								<strong>Via ND Chat:</strong> Reach out directly to any Nexoria Development team member in our official ND Chat lounge.
+							</li>
+						</ol>
+					</section>
+				</>
+			) : (
+				<div className={styles.closedBox}>
+					<h3 className={styles.closedTitle}>Applications Are Currently Closed</h3>
+					<p className={styles.closedDesc}>
+						Our staff and developer teams are currently at full capacity. We regularly open recruitment as ND Chat grows, so keep an eye on our announcements!
+					</p>
+					<a
+						href="https://discord.gg/nexoria"
+						target="_blank"
+						rel="noopener noreferrer"
+						className={styles.applyButton}
+					>
+						Join Our Community Discord for Updates &rarr;
+					</a>
+				</div>
+			)}
 		</PublicPageLayout>
 	);
 });
