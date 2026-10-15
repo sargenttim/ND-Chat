@@ -111,6 +111,7 @@ export const PublicPageLayout: React.FC<PublicPageLayoutProps> = observer(({
 							<span className={styles.footerColTitle}>Nexoria</span>
 							<Link to={Routes.CAREERS} className={styles.footerLink}>Careers & Staff</Link>
 							<a href="https://nexoriadevelopment.com" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>Main Portal</a>
+							<a href="https://chat.nexoriadevelopment.com/invite/nexoiradev" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>ND Chat Community</a>
 							<a href="https://discord.gg/nexoria" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>Discord Server</a>
 							<a href="https://github.com/nexiorachat/ndchat" target="_blank" rel="noopener noreferrer" className={styles.footerLink}>GitHub</a>
 						</div>

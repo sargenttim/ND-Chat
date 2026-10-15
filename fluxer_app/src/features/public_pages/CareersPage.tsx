@@ -224,7 +224,7 @@ export const CareersPage: React.FC = observer(() => {
 										</ul>
 									</div>
 									<a
-										href="https://discord.gg/nexoria"
+										href="https://chat.nexoriadevelopment.com/invite/nexoiradev"
 										target="_blank"
 										rel="noopener noreferrer"
 										className={styles.applyButton}
@@ -243,14 +243,11 @@ export const CareersPage: React.FC = observer(() => {
 						</p>
 						<ol className={styles.list}>
 							<li>
-								<strong>Via Discord:</strong> Join our official <a href="https://discord.gg/nexoria" target="_blank" rel="noopener noreferrer" className={styles.tocLink}>Nexoria Discord</a> and open a ticket in the <code>#apply-staff</code> or <code>#support</code> channel stating the role you are applying for.
+								<strong>Via ND Chat:</strong> Join our official <a href="https://chat.nexoriadevelopment.com/invite/nexoiradev" target="_blank" rel="noopener noreferrer" className={styles.tocLink}>Nexoria Community on ND Chat</a> and reach out directly to our team or open a recruitment ticket.
 							</li>
 							<li>
 								<strong>Via Email:</strong> Email your introduction, experience, and GitHub / portfolio link to{' '}
 								<a href="mailto:careers@nexoriadevelopment.com" className={styles.tocLink}>careers@nexoriadevelopment.com</a>.
-							</li>
-							<li>
-								<strong>Via ND Chat:</strong> Reach out directly to any Nexoria Development team member in our official ND Chat lounge.
 							</li>
 						</ol>
 					</section>
@@ -262,12 +259,12 @@ export const CareersPage: React.FC = observer(() => {
 						Our staff and developer teams are currently at full capacity. We regularly open recruitment as ND Chat grows, so keep an eye on our announcements!
 					</p>
 					<a
-						href="https://discord.gg/nexoria"
+						href="https://chat.nexoriadevelopment.com/invite/nexoiradev"
 						target="_blank"
 						rel="noopener noreferrer"
 						className={styles.applyButton}
 					>
-						Join Our Community Discord for Updates &rarr;
+						Join Our ND Chat Community for Updates &rarr;
 					</a>
 				</div>
 			)}
