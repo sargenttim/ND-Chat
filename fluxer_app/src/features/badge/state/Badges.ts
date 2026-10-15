@@ -29,6 +29,8 @@ class Badges {
 	builtinIcons: BuiltinBadgeIconsResponse = DEFAULT_BUILTIN_ICONS;
 	userBadges: ReadonlyMap<string, ReadonlyArray<string>> = new Map();
 
+	private isLoading = false;
+
 	constructor() {
 		makeAutoObservable(this, {}, {autoBind: true});
 		const badges =
@@ -36,7 +38,24 @@ class Badges {
 				? (window as unknown as {__FLUXER_BOOTSTRAP__?: {instance: {badges?: BadgesResponse}}})
 						.__FLUXER_BOOTSTRAP__?.instance.badges
 				: undefined;
-		if (badges) this.setBadges(badges);
+		if (badges) {
+			this.setBadges(badges);
+		} else if (typeof window !== 'undefined') {
+			void this.loadBadges();
+		}
+	}
+
+	async loadBadges(): Promise<void> {
+		if (this.isLoading) return;
+		this.isLoading = true;
+		try {
+			const response = await http.get<BadgesResponse>(Endpoints.BADGES);
+			if (response.body) this.setBadges(response.body);
+		} catch (error) {
+			logger.warn('Failed to load badges:', error);
+		} finally {
+			this.isLoading = false;
+		}
 	}
 
 	setBadges({version, badges, builtin_icons}: BadgesResponse): void {
@@ -60,16 +79,14 @@ class Badges {
 
 	async handleGatewayReady(version: number | undefined): Promise<void> {
 		this.userBadges = new Map();
-		if (version === undefined || version === this.version) return;
-		try {
-			const response = await http.get<BadgesResponse>(Endpoints.BADGES);
-			if (response.body) this.setBadges(response.body);
-		} catch (error) {
-			logger.warn('Failed to refresh badges:', error);
-		}
+		if (this.badges.size > 0 && version !== undefined && version === this.version) return;
+		await this.loadBadges();
 	}
 
 	resolve(type: BadgeType, badgeIds: ReadonlyArray<string> | undefined): Array<BadgeResponse> {
+		if (this.badges.size === 0 && (badgeIds?.length ?? 0) > 0) {
+			void this.loadBadges();
+		}
 		return (badgeIds ?? [])
 			.flatMap((badgeId) => {
 				const badge = this.badges.get(badgeId);
