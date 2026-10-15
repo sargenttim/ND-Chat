@@ -2,14 +2,14 @@
 
 import Authentication from '@app/features/auth/state/Authentication';
 import DeveloperMode from '@app/features/devtools/state/DeveloperMode';
+import RuntimeConfig from '@app/features/app/state/RuntimeConfig';
 import {useLocation} from '@app/features/platform/components/router/RouterReact';
-import {getProtectedLocalStorage} from '@app/features/platform/state/ProtectedWebStorage';
 import {PublicPageLayout} from '@app/features/public_pages/PublicPageLayout';
 import styles from '@app/features/public_pages/PublicPageStyles.module.css';
 import Users from '@app/features/user/state/Users';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
-import {useCallback, useEffect, useState} from 'react';
+import {useEffect, useState} from 'react';
 
 interface JobOpening {
 	id: string;
@@ -21,8 +21,6 @@ interface JobOpening {
 	requirements: string[];
 }
 
-const STORAGE_KEY_HIRING = 'nd_careers_hiring';
-
 export const CareersPage: React.FC = observer(() => {
 	const location = useLocation();
 	const currentUser = Users.currentUser;
@@ -30,41 +28,43 @@ export const CareersPage: React.FC = observer(() => {
 		Authentication.isAuthenticated && (currentUser?.isStaff?.() || DeveloperMode.isDeveloper)
 	);
 
-	const [isHiring, setIsHiring] = useState<boolean>(() => {
-		// URL parameter takes top priority (e.g. ?hiring=true or ?hiring=false)
+	const snapshot = RuntimeConfig.getSnapshotOrNull();
+	const historyUrl = (snapshot?.appPublic?.branding?.status_page_incident_history_url ?? '').toLowerCase().trim();
+	const guidelinesUrl = (snapshot?.appPublic?.legal?.guidelines_url ?? '').toLowerCase().trim();
+	const termsUrl = (snapshot?.appPublic?.legal?.terms_url ?? '').toLowerCase().trim();
+
+	// Check if admin has enabled hiring globally via Admin Panel (/admin/instance-config)
+	const isHiringGlobally =
+		historyUrl === 'open' ||
+		historyUrl === 'hiring' ||
+		historyUrl === 'true' ||
+		historyUrl.includes('hiring=true') ||
+		historyUrl.includes('careers=open') ||
+		guidelinesUrl.includes('hiring=true') ||
+		guidelinesUrl.includes('careers=open') ||
+		guidelinesUrl.includes('#hiring') ||
+		termsUrl.includes('hiring=true') ||
+		termsUrl.includes('careers=open');
+
+	// Local preview override for staff to test open/closed appearance
+	const [previewOverride, setPreviewOverride] = useState<boolean | null>(() => {
 		const param = location.searchParams.get('hiring');
 		if (param === 'true') return true;
 		if (param === 'false') return false;
-
-		// If staff has toggled locally in this browser
-		const storage = getProtectedLocalStorage();
-		const saved = storage?.getItem(STORAGE_KEY_HIRING);
-		if (saved === 'true') return true;
-		if (saved === 'false') return false;
-
-		// Default across all platforms, browsers, and visitors is CLOSED
-		return false;
+		return null;
 	});
 
-	// Support ?hiring=true or ?hiring=false in URL to quickly toggle
+	// Support ?hiring=true or ?hiring=false in URL to quickly toggle/preview
 	useEffect(() => {
 		const param = location.searchParams.get('hiring');
 		if (param === 'false') {
-			setIsHiring(false);
-			getProtectedLocalStorage()?.setItem(STORAGE_KEY_HIRING, 'false');
+			setPreviewOverride(false);
 		} else if (param === 'true') {
-			setIsHiring(true);
-			getProtectedLocalStorage()?.setItem(STORAGE_KEY_HIRING, 'true');
+			setPreviewOverride(true);
 		}
 	}, [location.searchParams]);
 
-	const handleToggleHiring = useCallback(() => {
-		setIsHiring((prev) => {
-			const next = !prev;
-			getProtectedLocalStorage()?.setItem(STORAGE_KEY_HIRING, String(next));
-			return next;
-		});
-	}, []);
+	const isHiring = previewOverride !== null ? previewOverride : isHiringGlobally;
 
 	const openings: JobOpening[] = [
 		{
@@ -136,22 +136,40 @@ export const CareersPage: React.FC = observer(() => {
 
 	return (
 		<PublicPageLayout title="Careers & Staff Openings" dataFlx="app.public-pages.careers">
-			{/* Admin control bar visible when logged into an admin account */}
+			{/* Admin control bar visible only when logged into a verified staff/admin account */}
 			{isStaffOrAdmin && (
 				<div className={styles.adminBar}>
 					<div className={styles.adminBarLeft}>
 						<span className={styles.adminBadge}>Admin Mode</span>
 						<span>
-							Careers Status: <strong>{isHiring ? '🟢 Actively Hiring' : '🔴 Applications Closed'}</strong>
+							Live Public Status: <strong>{isHiringGlobally ? '🟢 Actively Hiring' : '🔴 Applications Closed'}</strong>
+							{previewOverride !== null && (
+								<span style={{marginLeft: '0.6rem', opacity: 0.8, fontSize: '0.8rem'}}>
+									(Previewing: {previewOverride ? 'Open' : 'Closed'})
+								</span>
+							)}
 						</span>
 					</div>
-					<button
-						type="button"
-						onClick={handleToggleHiring}
-						className={styles.adminToggleBtn}
-					>
-						{isHiring ? 'Switch to Applications Closed' : 'Switch to Actively Hiring'}
-					</button>
+					<div style={{display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap'}}>
+						<button
+							type="button"
+							onClick={() => setPreviewOverride((prev) => (prev === null ? !isHiringGlobally : null))}
+							className={styles.adminToggleBtn}
+						>
+							{previewOverride !== null
+								? 'Exit Preview'
+								: isHiringGlobally
+									? 'Preview Closed View'
+									: 'Preview Open View'}
+						</button>
+						<a
+							href="/admin/instance-config"
+							className={styles.adminToggleBtn}
+							style={{textDecoration: 'none', display: 'inline-flex', alignItems: 'center'}}
+						>
+							⚙️ Manage in Admin Panel
+						</a>
+					</div>
 				</div>
 			)}
 
