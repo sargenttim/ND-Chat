@@ -193,12 +193,13 @@ async fn serve_spa_index(state: &AppState, headers: &HeaderMap, request_path: &s
     };
     let raw_html = if state.config.self_hosted {
         apply_instance_branding(
-            strip_link_preview_metadata(&raw_html),
+            raw_html,
             &state.branding.snapshot(),
         )
     } else {
         raw_html
     };
+    let raw_html = apply_route_metadata(&raw_html, request_path);
     let raw_html = if serves_same_origin_host(&state.config.same_origin_hosts, headers) {
         mark_same_origin_api(&raw_html)
     } else {
@@ -331,7 +332,77 @@ fn apply_media_preconnect(html: &str, media: &str, static_cdn: &str) -> String {
 }
 
 fn strip_link_preview_metadata(html: &str) -> String {
-    replace_elements(html, r#"<meta name="description""#, ">", "")
+    let result = replace_elements(html, r#"<meta name="description""#, ">", "");
+    let result = replace_elements(&result, r#"<meta property="og:"#, ">", "");
+    replace_elements(&result, r#"<meta name="twitter:"#, ">", "")
+}
+
+fn apply_route_metadata(html: &str, request_path: &str) -> String {
+    let normalized = request_path.trim_end_matches('/');
+    let (title, description) = match normalized {
+        "/careers" => (
+            "Careers & Staff Openings | Nexoria Chat",
+            "Join the Nexoria Development team! Explore open staff and developer positions and help shape the future of ND Chat.",
+        ),
+        "/terms" => (
+            "Terms of Service | Nexoria Chat",
+            "Official Terms of Service governing access, usage, and safety on Nexoria Chat.",
+        ),
+        "/privacy" => (
+            "Privacy Policy | Nexoria Chat",
+            "Read about how Nexoria Chat handles, encrypts, and protects your personal data.",
+        ),
+        "/guidelines" | "/rules" => (
+            "Community Guidelines | Nexoria Chat",
+            "Nexoria Chat Community Guidelines and safety standards for all members and communities.",
+        ),
+        "/security" => (
+            "Security & Responsible Disclosure | Nexoria Chat",
+            "Nexoria Chat platform security practices and vulnerability disclosure guidelines.",
+        ),
+        _ => return html.to_owned(),
+    };
+
+    let title_escaped = escape_html(title);
+    let desc_escaped = escape_html(description);
+
+    let mut result = replace_elements(
+        html,
+        TITLE_START,
+        TITLE_END,
+        &format!("{TITLE_START}>{title_escaped}{TITLE_END}"),
+    );
+    result = replace_elements(
+        &result,
+        r#"<meta name="description""#,
+        ">",
+        &format!(r#"<meta name="description" content="{desc_escaped}">"#),
+    );
+    result = replace_elements(
+        &result,
+        r#"<meta property="og:title""#,
+        ">",
+        &format!(r#"<meta property="og:title" content="{title_escaped}">"#),
+    );
+    result = replace_elements(
+        &result,
+        r#"<meta property="og:description""#,
+        ">",
+        &format!(r#"<meta property="og:description" content="{desc_escaped}">"#),
+    );
+    result = replace_elements(
+        &result,
+        r#"<meta name="twitter:title""#,
+        ">",
+        &format!(r#"<meta name="twitter:title" content="{title_escaped}">"#),
+    );
+    result = replace_elements(
+        &result,
+        r#"<meta name="twitter:description""#,
+        ">",
+        &format!(r#"<meta name="twitter:description" content="{desc_escaped}">"#),
+    );
+    result
 }
 
 fn apply_instance_branding(mut html: String, branding: &BrandingSnapshot) -> String {
@@ -348,6 +419,24 @@ fn apply_instance_branding(mut html: String, branding: &BrandingSnapshot) -> Str
             APPLE_TITLE_META_START,
             ">",
             &format!(r#"{APPLE_TITLE_META_START} content="{product_name}">"#),
+        );
+        html = replace_elements(
+            &html,
+            r#"<meta property="og:site_name""#,
+            ">",
+            &format!(r#"<meta property="og:site_name" content="{product_name}">"#),
+        );
+        html = replace_elements(
+            &html,
+            r#"<meta property="og:title""#,
+            ">",
+            &format!(r#"<meta property="og:title" content="{product_name}">"#),
+        );
+        html = replace_elements(
+            &html,
+            r#"<meta name="twitter:title""#,
+            ">",
+            &format!(r#"<meta name="twitter:title" content="{product_name}">"#),
         );
     }
     if let Some(favicon_url) = &branding.favicon_url {
@@ -867,6 +956,21 @@ mod tests {
         assert!(!stripped.contains("twitter:"));
         assert!(stripped.contains(r#"<meta name="viewport""#));
         assert!(stripped.contains(r#"nonce="{{CSP_NONCE_PLACEHOLDER}}""#));
+    }
+
+    #[test]
+    fn apply_route_metadata_updates_titles_and_descriptions_for_public_pages() {
+        let careers_html = apply_route_metadata(SHIPPED_APP_SHELL, "/careers");
+        assert!(careers_html.contains("<title>Careers &amp; Staff Openings | Nexoria Chat</title>"));
+        assert!(careers_html.contains(r#"<meta property="og:title" content="Careers &amp; Staff Openings | Nexoria Chat">"#));
+        assert!(careers_html.contains(r#"<meta property="og:description" content="Join the Nexoria Development team! Explore open staff and developer positions and help shape the future of ND Chat.">"#));
+
+        let terms_html = apply_route_metadata(SHIPPED_APP_SHELL, "/terms/");
+        assert!(terms_html.contains("<title>Terms of Service | Nexoria Chat</title>"));
+        assert!(terms_html.contains(r#"<meta name="description" content="Official Terms of Service governing access, usage, and safety on Nexoria Chat.">"#));
+
+        let root_html = apply_route_metadata(SHIPPED_APP_SHELL, "/");
+        assert!(root_html.contains("<title>Nexiora Chat</title>"));
     }
 
     #[test]

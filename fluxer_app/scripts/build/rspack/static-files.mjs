@@ -32,15 +32,15 @@ function resolveStaticCdnEndpoint(staticCdnEndpoint) {
 function generateManifest(staticCdnEndpoint) {
 	const cdn = resolveStaticCdnEndpoint(staticCdnEndpoint);
 	const manifest = {
-		name: 'Fluxer',
-		short_name: 'Fluxer',
+		name: 'Nexiora Chat',
+		short_name: 'ND Chat',
 		description:
-			'Fluxer is a free and open source instant messaging and VoIP platform built for friends, groups, and communities.',
+			'Nexiora Chat is a modern, fast, and community-centered communication platform for chat, voice, and communities.',
 		id: '/',
 		start_url: '/app',
 		display: 'standalone',
 		orientation: 'portrait-primary',
-		theme_color: '#4641D9',
+		theme_color: '#5865F2',
 		background_color: '#2b2d31',
 		categories: ['social', 'communication'],
 		lang: 'en',
