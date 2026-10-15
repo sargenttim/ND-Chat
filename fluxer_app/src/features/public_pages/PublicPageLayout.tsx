@@ -9,7 +9,7 @@ import {useFluxerDocumentTitle} from '@app/features/window/hooks/useFluxerDocume
 import clsx from 'clsx';
 import {observer} from 'mobx-react-lite';
 import type React from 'react';
-import {type ReactNode} from 'react';
+import {type ReactNode, useEffect} from 'react';
 
 export interface PublicPageLayoutProps {
 	title: string;
@@ -25,6 +25,13 @@ export const PublicPageLayout: React.FC<PublicPageLayoutProps> = observer(({
 	useFluxerDocumentTitle(`${title} | ND Chat`);
 	const location = useLocation();
 	const isAuthenticated = Authentication.isAuthenticated;
+
+	useEffect(() => {
+		document.documentElement.classList.add('auth-page');
+		return () => {
+			document.documentElement.classList.remove('auth-page');
+		};
+	}, []);
 
 	const navItems = [
 		{label: 'Terms', path: Routes.TERMS},
