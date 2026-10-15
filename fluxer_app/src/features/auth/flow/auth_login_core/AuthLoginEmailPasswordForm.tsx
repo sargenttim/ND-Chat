@@ -54,7 +54,7 @@ export default function AuthLoginEmailPasswordForm({
 	disableSubmit,
 	footerStart,
 	statusMessage,
-	identifierField = 'email',
+	identifierField = 'login',
 }: Props) {
 	const {i18n} = useLingui();
 	const emailId = useId();
