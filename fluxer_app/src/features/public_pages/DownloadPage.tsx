@@ -49,7 +49,9 @@ export const DownloadPage: React.FC = observer(() => {
 							Download for Windows (.exe) &darr;
 						</a>
 						<span className={styles.btnSubtext}>
-							Digitally signed by Nexoria Development &bull; Fast auto-updates
+							Digitally signed by Nexoria Development &bull; Free code signing provided by{' '}
+							<a href="https://signpath.io" target="_blank" rel="noopener noreferrer" style={{color: '#a5b4fc', textDecoration: 'underline'}}>SignPath.io</a>, certificate by{' '}
+							<a href="https://signpath.org" target="_blank" rel="noopener noreferrer" style={{color: '#a5b4fc', textDecoration: 'underline'}}>SignPath Foundation</a>
 						</span>
 					</div>
 
@@ -147,6 +149,14 @@ export const DownloadPage: React.FC = observer(() => {
 						<span className={styles.faqQuestion}>How do app updates work?</span>
 						<span className={styles.faqAnswer}>
 							The desktop app automatically checks for official releases in the background and prompts you to restart seamlessly whenever a new update is ready.
+						</span>
+					</div>
+					<div className={styles.faqItem}>
+						<span className={styles.faqQuestion}>How is the installer verified and signed?</span>
+						<span className={styles.faqAnswer}>
+							Windows binaries are digitally signed to protect integrity. Free code signing is provided by{' '}
+							<a href="https://signpath.io" target="_blank" rel="noopener noreferrer" style={{color: '#818cf8', textDecoration: 'underline'}}>SignPath.io</a>, and the trusted certificate is issued by the{' '}
+							<a href="https://signpath.org" target="_blank" rel="noopener noreferrer" style={{color: '#818cf8', textDecoration: 'underline'}}>SignPath Foundation</a>.
 						</span>
 					</div>
 					<div className={styles.faqItem}>
