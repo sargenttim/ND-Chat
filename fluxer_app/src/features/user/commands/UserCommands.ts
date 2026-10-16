@@ -112,6 +112,7 @@ export async function update(user: UserUpdatePayload): Promise<UserUpdateRespons
 		}
 		logger.debug('Authentication token was refreshed');
 	}
+	Users.handleUserUpdate(userData, {clearMissingOptionalFields: true});
 	return userData;
 }
 

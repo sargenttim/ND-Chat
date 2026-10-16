@@ -150,7 +150,8 @@ export function hasPartialUserFieldsChanged(oldUser: User, newUser: User): boole
 		oldPartial.bot !== newPartial.bot ||
 		oldPartial.system !== newPartial.system ||
 		oldPartial.flags !== newPartial.flags ||
-		oldPartial.mention_flags !== newPartial.mention_flags
+		oldPartial.mention_flags !== newPartial.mention_flags ||
+		oldPartial.avatar_decoration_data?.asset !== newPartial.avatar_decoration_data?.asset
 	);
 }
 

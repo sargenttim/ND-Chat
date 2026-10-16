@@ -102,6 +102,9 @@ export class UserAccountProfileService {
 		}
 		if (data.avatar_decoration !== undefined || data.avatar_decoration_data !== undefined) {
 			const decAsset = data.avatar_decoration_data?.asset ?? data.avatar_decoration ?? null;
+			if (decAsset !== null && !checkIsPremium(user)) {
+				throw InputValidationError.fromCode('avatar_decoration', ValidationErrorCodes.BANNERS_REQUIRE_PREMIUM);
+			}
 			const nextTraits = new Set(updates.traits ?? user.traits);
 			for (const trait of Array.from(nextTraits)) {
 				if (trait.startsWith('avatar_decoration:')) {
@@ -111,7 +114,7 @@ export class UserAccountProfileService {
 			if (decAsset) {
 				nextTraits.add(`avatar_decoration:${decAsset}`);
 			}
-			updates.traits = nextTraits;
+			updates.traits = nextTraits.size > 0 ? nextTraits : null;
 		}
 		if (data.timezone !== undefined) {
 			const nextTimezone = this.processTimezoneUpdate({user, timezone: data.timezone, updates});

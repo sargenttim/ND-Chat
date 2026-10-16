@@ -565,7 +565,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 						pronouns: newUser.pronouns || null,
 						accent_color: typeof newUser.accent_color === 'number' ? newUser.accent_color : null,
 						banner_color: typeof newUser.banner_color === 'number' ? newUser.banner_color : null,
-						avatar_decoration: newUser.avatar_decoration_data?.asset ?? data.avatar_decoration ?? null,
+						avatar_decoration: newUser.avatar_decoration_data?.asset ?? null,
 						timezone: newUser.timezone ?? null,
 						timezone_privacy_flags: newUser.timezone_privacy_flags ?? ProfileFieldPrivacyFlags.EVERYONE,
 						nick: null,
@@ -901,6 +901,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 											value={form.watch('avatar_decoration') ?? null}
 											onChange={(value: string | null) => form.setValue('avatar_decoration', value, {shouldDirty: true})}
 											disabled={isProfileCustomizationLocked || isPerGuildProfileCustomizationDisabled}
+											hasPremium={hasPremium}
 											errorMessage={form.formState.errors.avatar_decoration?.message}
 											data-flx="user.my-profile-tab.my-profile-tab-component.avatar-decoration-picker.set-value"
 										/>

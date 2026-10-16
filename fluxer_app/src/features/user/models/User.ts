@@ -257,8 +257,8 @@ export class User {
 	}
 
 	get avatarDecoration(): string | null {
-		if (this.avatarDecorationData?.asset) {
-			return this.avatarDecorationData.asset;
+		if (this.avatarDecorationData !== undefined) {
+			return this.avatarDecorationData ? this.avatarDecorationData.asset : null;
 		}
 		for (const trait of this._traits) {
 			if (trait.startsWith('avatar_decoration:')) {
@@ -506,6 +506,15 @@ export class User {
 		const privacyAgreedAt = pickDateField(this._privacyAgreedAt, u, 'privacy_agreed_at', opts);
 		if (privacyAgreedAt !== undefined) result.privacy_agreed_at = dateToIsoOrNull(privacyAgreedAt);
 		result.traits = mergeTraitsArray(this._traits, u, opts);
+		if (hasKey(u, 'avatar_decoration_data')) {
+			const decData = u.avatar_decoration_data;
+			const filteredTraits = (result.traits ?? []).filter((t) => !t.startsWith('avatar_decoration:'));
+			if (decData?.asset) {
+				result.traits = Object.freeze([...filteredTraits, `avatar_decoration:${decData.asset}`]);
+			} else {
+				result.traits = Object.freeze(filteredTraits);
+			}
+		}
 		return result;
 	}
 

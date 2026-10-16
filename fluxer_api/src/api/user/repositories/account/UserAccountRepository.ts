@@ -177,7 +177,8 @@ export class UserAccountRepository {
 		const userPatch: Record<string, DbOp<unknown>> = {};
 		for (const [key, value] of Object.entries(patchData)) {
 			if (key === 'user_id' || value === undefined) continue;
-			if (value !== null) {
+			const isEmptySet = value instanceof Set && value.size === 0;
+			if (value !== null && !isEmptySet) {
 				userPatch[key] = Db.set(value);
 				continue;
 			}

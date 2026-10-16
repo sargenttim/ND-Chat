@@ -104,7 +104,7 @@ export class AdminUserProfileService {
 						nextTraits.delete(trait);
 					}
 				}
-				updates['traits'] = nextTraits;
+				updates['traits'] = nextTraits.size > 0 ? nextTraits : null;
 			}
 		}
 		const updatedUser = await userRepository.patchUpsert(userId, updates, user.toRow());
