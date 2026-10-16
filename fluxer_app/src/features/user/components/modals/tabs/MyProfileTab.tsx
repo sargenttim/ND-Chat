@@ -888,6 +888,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 											onPrimaryChange={(value: number | null) => form.setValue('banner_color', value, {shouldDirty: true})}
 											onAccentChange={(value: number | null) => form.setValue('accent_color', value, {shouldDirty: true})}
 											disabled={isProfileCustomizationLocked || isPerGuildProfileCustomizationDisabled}
+											hasPremium={hasPremium}
 											errorMessage={form.formState.errors.accent_color?.message || form.formState.errors.banner_color?.message}
 											data-flx="user.my-profile-tab.my-profile-tab-component.accent-color-picker.set-value"
 										/>

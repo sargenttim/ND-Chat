@@ -83,6 +83,7 @@ pub struct AdminUser {
     pub bio: Option<String>,
     pub pronouns: Option<String>,
     pub accent_color: Option<i32>,
+    pub banner_color: Option<i32>,
     pub date_of_birth: Option<String>,
     pub locale: Option<String>,
     #[serde(default)]

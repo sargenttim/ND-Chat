@@ -276,11 +276,15 @@ fn quick_actions_card(
 }
 
 fn clear_fields_card(base: &str, user: &AdminUser, csrf_token: &str) -> Markup {
+    let has_theme = user.accent_color.is_some() || user.banner_color.is_some();
+    let has_decoration = user.traits.iter().any(|t| t.starts_with("avatar_decoration:"));
     let has = user.avatar.is_some()
         || user.banner.is_some()
         || user.bio.is_some()
         || user.pronouns.is_some()
-        || user.global_name.is_some();
+        || user.global_name.is_some()
+        || has_theme
+        || has_decoration;
     if !has {
         return html! {};
     }
@@ -301,6 +305,8 @@ fn clear_fields_card(base: &str, user: &AdminUser, csrf_token: &str) -> Markup {
                         @if user.bio.is_some() { (checkbox("fields[]", "bio", "Bio", false, true)) }
                         @if user.pronouns.is_some() { (checkbox("fields[]", "pronouns", "Pronouns", false, true)) }
                         @if user.global_name.is_some() { (checkbox("fields[]", "global_name", "Display Name", false, true)) }
+                        @if has_theme { (checkbox("fields[]", "theme_colors", "Profile Themes", false, true)) }
+                        @if has_decoration { (checkbox("fields[]", "avatar_decoration", "Avatar Decoration", false, true)) }
                     }
                     (form_actions(html! {
                         (submit_button("Clear Selected Fields"))

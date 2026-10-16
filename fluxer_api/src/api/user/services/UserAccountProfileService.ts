@@ -10,7 +10,7 @@ import {createLimitMatchContext} from '@app/api/limits/LimitMatchContextBuilder'
 import {profileSubstringBlocklistCache} from '@app/api/middleware/ProfileSubstringBlocklistCache';
 import type {User} from '@app/api/models/User';
 import type {UserRepository} from '@app/api/user/repositories/UserRepository';
-import {isProfileSubstringExempt} from '@app/api/user/UserHelpers';
+import {checkIsPremium, isProfileSubstringExempt} from '@app/api/user/UserHelpers';
 import {deriveDominantAvatarColor} from '@app/api/utils/AvatarColorUtils';
 import * as EmojiUtils from '@app/api/utils/EmojiUtils';
 import {MAX_BIO_LENGTH} from '@fluxer/constants/src/LimitConstants';
@@ -84,6 +84,9 @@ export class UserAccountProfileService {
 				await this.processBannerColorUpdate({user, bannerColor: null, updates});
 				await this.processAccentColorUpdate({user, accentColor: null, updates});
 			} else {
+				if (!checkIsPremium(user)) {
+					throw InputValidationError.fromCode('banner_color', ValidationErrorCodes.BANNERS_REQUIRE_PREMIUM);
+				}
 				await this.processBannerColorUpdate({user, bannerColor: data.theme_colors[0], updates});
 				await this.processAccentColorUpdate({user, accentColor: data.theme_colors[1], updates});
 			}
@@ -92,6 +95,9 @@ export class UserAccountProfileService {
 			await this.processAccentColorUpdate({user, accentColor: data.accent_color, updates});
 		}
 		if (data.banner_color !== undefined) {
+			if (data.banner_color !== null && !checkIsPremium(user)) {
+				throw InputValidationError.fromCode('banner_color', ValidationErrorCodes.BANNERS_REQUIRE_PREMIUM);
+			}
 			await this.processBannerColorUpdate({user, bannerColor: data.banner_color, updates});
 		}
 		if (data.avatar_decoration !== undefined || data.avatar_decoration_data !== undefined) {

@@ -10177,15 +10177,17 @@
 						"type": "array",
 						"items": {
 							"description": "User profile field that can be cleared",
-							"x-enumNames": ["avatar", "banner", "bio", "pronouns", "global_name"],
+							"x-enumNames": ["avatar", "banner", "bio", "pronouns", "global_name", "theme_colors", "avatar_decoration"],
 							"x-enumDescriptions": [
 								"User profile avatar image",
 								"User profile banner image",
 								"User biography text",
 								"User pronouns",
-								"User display name"
+								"User display name",
+								"User profile theme colors",
+								"User avatar decoration"
 							],
-							"enum": ["avatar", "banner", "bio", "pronouns", "global_name"],
+							"enum": ["avatar", "banner", "bio", "pronouns", "global_name", "theme_colors", "avatar_decoration"],
 							"type": "string"
 						},
 						"description": "List of profile fields to clear"
@@ -17333,6 +17335,7 @@
 					"bio": {"nullable": true, "type": "string"},
 					"pronouns": {"nullable": true, "type": "string"},
 					"accent_color": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
+					"banner_color": {"nullable": true, "allOf": [{"$ref": "#/components/schemas/Int32Type"}]},
 					"email": {"nullable": true, "type": "string"},
 					"email_verified": {"type": "boolean"},
 					"email_bounced": {"type": "boolean"},

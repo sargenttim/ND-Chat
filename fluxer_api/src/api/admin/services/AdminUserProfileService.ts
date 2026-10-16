@@ -63,7 +63,7 @@ export class AdminUserProfileService {
 		if (!user) {
 			throw new UnknownUserError();
 		}
-		const updates: Record<string, null | string> = {};
+		const updates: Record<string, any> = {};
 		const preparedAssets: Array<PreparedAssetUpload> = [];
 		for (const field of data.fields) {
 			if (field === 'avatar') {
@@ -94,6 +94,17 @@ export class AdminUserProfileService {
 				updates['pronouns'] = null;
 			} else if (field === 'global_name') {
 				updates['global_name'] = null;
+			} else if (field === 'theme_colors') {
+				updates['accent_color'] = null;
+				updates['banner_color'] = null;
+			} else if (field === 'avatar_decoration') {
+				const nextTraits = new Set(user.traits);
+				for (const trait of Array.from(nextTraits)) {
+					if (trait.startsWith('avatar_decoration:')) {
+						nextTraits.delete(trait);
+					}
+				}
+				updates['traits'] = nextTraits;
 			}
 		}
 		const updatedUser = await userRepository.patchUpsert(userId, updates, user.toRow());

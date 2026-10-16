@@ -45,6 +45,7 @@ export async function mapUserToAdminResponse(
 		bio: user.bio,
 		pronouns: user.pronouns,
 		accent_color: user.accentColor,
+		banner_color: user.bannerColor,
 		email: canViewEmail ? (user.email ?? null) : null,
 		email_verified: canViewEmail ? user.emailVerified : false,
 		email_bounced: canViewEmail ? user.emailBounced : false,

@@ -45,6 +45,7 @@ export const UserAdminResponseSchema = z.object({
 	bio: z.string().nullable(),
 	pronouns: z.string().nullable(),
 	accent_color: Int32Type.nullable(),
+	banner_color: Int32Type.nullable().optional(),
 	email: z.string().nullable(),
 	email_verified: z.boolean(),
 	email_bounced: z.boolean(),
@@ -241,6 +242,8 @@ const UserProfileFieldEnum = createNamedStringLiteralUnion(
 		['bio', 'bio', 'User biography text'],
 		['pronouns', 'pronouns', 'User pronouns'],
 		['global_name', 'global_name', 'User display name'],
+		['theme_colors', 'theme_colors', 'User profile theme colors'],
+		['avatar_decoration', 'avatar_decoration', 'User avatar decoration'],
 	],
 	'User profile field that can be cleared',
 );
