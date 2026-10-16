@@ -80,6 +80,31 @@ function isDeletedForDisplay(user: User): boolean {
 	return (user.flags & UserFlags.DELETED) !== 0n && user.pendingDeletionAt === null && !user.isSystem;
 }
 
+function deriveThemeColors(bannerColor: number | null | undefined, accentColor: number | null | undefined): [number, number] | null {
+	if (bannerColor != null && accentColor != null) {
+		return [bannerColor, accentColor];
+	}
+	if (accentColor != null) {
+		return [accentColor, accentColor];
+	}
+	if (bannerColor != null) {
+		return [bannerColor, bannerColor];
+	}
+	return null;
+}
+
+function deriveAvatarDecorationData(user: User): {asset: string; sku_id?: string} | null {
+	for (const trait of user.traits ?? []) {
+		if (trait.startsWith('avatar_decoration:')) {
+			return {
+				asset: trait.slice('avatar_decoration:'.length),
+				sku_id: '0',
+			};
+		}
+	}
+	return null;
+}
+
 function mapUserToOwnPartialResponse(user: User): UserPartialResponse {
 	const isBot = user.isBot;
 	const avatarHash = stripAvatarForUser(user);
@@ -95,6 +120,7 @@ function mapUserToOwnPartialResponse(user: User): UserPartialResponse {
 			system: user.isSystem || undefined,
 			flags: 0,
 			mention_flags: undefined,
+			avatar_decoration_data: null,
 		};
 	}
 	return {
@@ -108,6 +134,7 @@ function mapUserToOwnPartialResponse(user: User): UserPartialResponse {
 		system: user.isSystem || undefined,
 		flags: mapUserFlagsToPublicBitfield(user),
 		mention_flags: user.mentionFlags ? user.mentionFlags : undefined,
+		avatar_decoration_data: deriveAvatarDecorationData(user),
 	};
 }
 
@@ -154,6 +181,7 @@ export function mapUserToPrivateResponse(user: User): UserPrivateResponse {
 		bio: user.bio,
 		pronouns: user.pronouns,
 		accent_color: user.accentColor,
+		theme_colors: deriveThemeColors(user.bannerColor, user.accentColor),
 		timezone: user.timezone,
 		timezone_privacy_flags: user.timezonePrivacyFlags,
 		banner: stripBannerForUser(user),
@@ -204,8 +232,10 @@ export function mapUserToPrivateResponse(user: User): UserPrivateResponse {
 
 export function mapUserToProfileResponse(user: User, options?: {restrictProfile?: boolean}): UserProfileResponse {
 	if (isProfileHidden(user)) {
-		return {bio: null, pronouns: null, banner: null, banner_color: null, accent_color: null};
+		return {bio: null, pronouns: null, banner: null, banner_color: null, accent_color: null, theme_colors: null, avatar_decoration_data: null};
 	}
+	const theme_colors = deriveThemeColors(user.bannerColor, user.accentColor);
+	const avatar_decoration_data = deriveAvatarDecorationData(user);
 	if (options?.restrictProfile) {
 		return {
 			bio: null,
@@ -213,6 +243,8 @@ export function mapUserToProfileResponse(user: User, options?: {restrictProfile?
 			banner: stripBannerForUser(user),
 			banner_color: user.bannerColor,
 			accent_color: user.accentColor,
+			theme_colors,
+			avatar_decoration_data,
 		};
 	}
 	return {
@@ -221,6 +253,8 @@ export function mapUserToProfileResponse(user: User, options?: {restrictProfile?
 		banner: stripBannerForUser(user),
 		banner_color: user.bannerColor,
 		accent_color: user.accentColor,
+		theme_colors,
+		avatar_decoration_data,
 	};
 }
 
@@ -253,14 +287,16 @@ export function mapGuildMemberToProfileResponse(
 ): UserProfileResponse | null {
 	if (!guildMember) return null;
 	if (options?.hidden) {
-		return {bio: null, pronouns: null, banner: null, accent_color: null};
+		return {bio: null, pronouns: null, banner: null, accent_color: null, theme_colors: null};
 	}
+	const theme_colors = guildMember.accentColor != null ? deriveThemeColors(null, guildMember.accentColor) : null;
 	if (options?.restrictProfile) {
 		return {
 			bio: null,
 			pronouns: null,
 			banner: guildMember.isPremiumSanitized ? null : guildMember.bannerHash,
 			accent_color: guildMember.accentColor,
+			theme_colors,
 		};
 	}
 	return {
@@ -268,6 +304,7 @@ export function mapGuildMemberToProfileResponse(
 		pronouns: guildMember.pronouns,
 		banner: guildMember.isPremiumSanitized ? null : guildMember.bannerHash,
 		accent_color: guildMember.accentColor,
+		theme_colors,
 	};
 }
 

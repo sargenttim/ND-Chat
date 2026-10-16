@@ -1,4 +1,47 @@
-/* SPDX-License-Identifier: AGPL-3.0-or-later */
+.container {
+	display: flex;
+	flex-direction: column;
+	gap: 0.75rem;
+}
+
+.headerTitle {
+	font-size: 0.875rem;
+	font-weight: 600;
+	color: var(--text-primary);
+	text-transform: uppercase;
+	letter-spacing: 0.02em;
+}
+
+.headerDescription {
+	font-size: 0.8125rem;
+	color: var(--text-primary-muted);
+	margin-top: 0.125rem;
+	margin-bottom: 0.5rem;
+}
+
+.pickersGrid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+	gap: 1rem;
+}
+
+.gradientPreview {
+	height: 2.25rem;
+	border-radius: 0.5rem;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 0.75rem;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	color: #ffffff;
+	text-shadow: 0 1px 4px rgba(0, 0, 0, 0.75);
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25);
+	border-style: solid;
+	border-width: 2px;
+	transition: background 0.2s ease, border-color 0.2s ease;
+}
 
 .errorMessage {
 	margin-top: 0.5rem;

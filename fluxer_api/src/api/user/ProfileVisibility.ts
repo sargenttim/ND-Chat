@@ -76,6 +76,7 @@ export function hiddenUserPartial(partial: UserPartialResponse): UserPartialResp
 		global_name: null,
 		avatar: null,
 		avatar_color: null,
+		avatar_decoration_data: null,
 	};
 }
 

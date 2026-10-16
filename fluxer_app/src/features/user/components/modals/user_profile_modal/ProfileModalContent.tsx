@@ -1,6 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
-
-import {getUserAccentColor} from '@app/features/theme/utils/AccentColorUtils';
+import {getUserThemeColors} from '@app/features/theme/utils/AccentColorUtils';
 import {ProfileBody} from '@app/features/user/components/modals/user_profile_modal/ProfileBody';
 import {ProfileMediaHeader} from '@app/features/user/components/modals/user_profile_modal/ProfileMediaHeader';
 import type {ProfileModalContentProps} from '@app/features/user/components/modals/user_profile_modal/UserProfileModalShared';
@@ -28,7 +26,8 @@ export const ProfileModalContent: React.FC<ProfileModalContentProps> = observer(
 	}) => {
 		const effectiveProfile = profile?.getEffectiveProfile() ?? null;
 		const isSystemUser = user.id === FLUXERBOT_ID;
-		const bannerColor = getUserAccentColor(user, effectiveProfile?.accent_color);
+		const themeColors = getUserThemeColors(user, effectiveProfile);
+		const bannerColor = themeColors.primaryColor;
 		const membership = resolveProfileGuildMembership(profile);
 		const profileContext = useMemo<ProfileDisplayUtils.ProfileDisplayContext>(
 			() =>

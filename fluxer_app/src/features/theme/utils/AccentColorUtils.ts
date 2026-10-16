@@ -35,3 +35,43 @@ export function getUserAccentColor(
 	}
 	return fallback;
 }
+
+export interface ProfileThemeColors {
+	primaryColor: string;
+	accentColor: string;
+	hasCustomTheme: boolean;
+	gradient: string;
+}
+
+export function getUserThemeColors(
+	user: User | null | undefined,
+	profileData?: {
+		accent_color?: RawAccentColor;
+		banner_color?: RawAccentColor;
+		theme_colors?: [number, number] | null;
+	} | null,
+	fallback = DEFAULT_ACCENT_COLOR,
+): ProfileThemeColors {
+	const rawTheme = profileData?.theme_colors;
+	const rawPrimary =
+		rawTheme && rawTheme[0] != null
+			? rawTheme[0]
+			: (profileData?.banner_color ?? (user ? user.bannerColor : null));
+	const rawAccent =
+		rawTheme && rawTheme[1] != null
+			? rawTheme[1]
+			: (profileData?.accent_color ?? (user ? user.accentColor : null));
+
+	const hasCustomTheme = rawPrimary != null || rawAccent != null;
+	const accentHex = getUserAccentColor(user, rawAccent, fallback);
+	const primaryHex = rawPrimary != null ? ColorUtils.int2hex(rawPrimary) : accentHex;
+
+	const gradient = `linear-gradient(135deg, ${primaryHex} 0%, ${accentHex} 100%)`;
+
+	return {
+		primaryColor: primaryHex,
+		accentColor: accentHex,
+		hasCustomTheme,
+		gradient,
+	};
+}

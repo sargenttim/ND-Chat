@@ -79,8 +79,33 @@ export class UserAccountProfileService {
 			});
 			await this.processPronounsUpdate({user, pronouns: data.pronouns, updates});
 		}
+		if (data.theme_colors !== undefined) {
+			if (data.theme_colors === null) {
+				await this.processBannerColorUpdate({user, bannerColor: null, updates});
+				await this.processAccentColorUpdate({user, accentColor: null, updates});
+			} else {
+				await this.processBannerColorUpdate({user, bannerColor: data.theme_colors[0], updates});
+				await this.processAccentColorUpdate({user, accentColor: data.theme_colors[1], updates});
+			}
+		}
 		if (data.accent_color !== undefined) {
 			await this.processAccentColorUpdate({user, accentColor: data.accent_color, updates});
+		}
+		if (data.banner_color !== undefined) {
+			await this.processBannerColorUpdate({user, bannerColor: data.banner_color, updates});
+		}
+		if (data.avatar_decoration !== undefined || data.avatar_decoration_data !== undefined) {
+			const decAsset = data.avatar_decoration_data?.asset ?? data.avatar_decoration ?? null;
+			const nextTraits = new Set(updates.traits ?? user.traits);
+			for (const trait of Array.from(nextTraits)) {
+				if (trait.startsWith('avatar_decoration:')) {
+					nextTraits.delete(trait);
+				}
+			}
+			if (decAsset) {
+				nextTraits.add(`avatar_decoration:${decAsset}`);
+			}
+			updates.traits = nextTraits;
 		}
 		if (data.timezone !== undefined) {
 			const nextTimezone = this.processTimezoneUpdate({user, timezone: data.timezone, updates});
@@ -220,6 +245,17 @@ export class UserAccountProfileService {
 				});
 			}
 			updates.accent_color = accentColor;
+		}
+	}
+
+	private async processBannerColorUpdate(params: {
+		user: User;
+		bannerColor: number | null;
+		updates: UserFieldUpdates;
+	}): Promise<void> {
+		const {user, bannerColor, updates} = params;
+		if (bannerColor !== user.bannerColor) {
+			updates.banner_color = bannerColor;
 		}
 	}
 

@@ -1,0 +1,158 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+.overlay {
+	position: absolute;
+	top: -14%;
+	left: -14%;
+	width: 128%;
+	height: 128%;
+	pointer-events: none;
+	user-select: none;
+	z-index: 1;
+	overflow: visible;
+}
+
+.svgRoot {
+	width: 100%;
+	height: 100%;
+	display: block;
+	overflow: visible;
+}
+
+/* Animations */
+@keyframes flamePulse {
+	0%, 100% {
+		transform: scale(1) translateY(0);
+		opacity: 0.95;
+	}
+	50% {
+		transform: scale(1.02) translateY(-1px);
+		opacity: 1;
+	}
+}
+
+@keyframes haloFloat {
+	0%, 100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-2px);
+	}
+}
+
+@keyframes starTwinkle {
+	0%, 100% {
+		opacity: 0.5;
+		transform: scale(0.85);
+	}
+	50% {
+		opacity: 1;
+		transform: scale(1.15);
+	}
+}
+
+@keyframes cyberPulse {
+	0%, 100% {
+		opacity: 0.85;
+		filter: drop-shadow(0 0 2px rgba(0, 240, 255, 0.6));
+	}
+	50% {
+		opacity: 1;
+		filter: drop-shadow(0 0 5px rgba(0, 240, 255, 0.9)) drop-shadow(0 0 8px rgba(255, 0, 127, 0.5));
+	}
+}
+
+@keyframes petalSway {
+	0%, 100% {
+		transform: rotate(0deg) translate(0, 0);
+	}
+	50% {
+		transform: rotate(6deg) translate(1px, -1px);
+	}
+}
+
+@keyframes spectralSway {
+	0%, 100% {
+		transform: translateY(0) scaleX(1);
+		opacity: 0.8;
+	}
+	50% {
+		transform: translateY(-2px) scaleX(1.03);
+		opacity: 1;
+	}
+}
+
+@keyframes portalSpin {
+	0% {
+		transform: rotate(0deg);
+	}
+	100% {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes portalSpinReverse {
+	0% {
+		transform: rotate(360deg);
+	}
+	100% {
+		transform: rotate(0deg);
+	}
+}
+
+.animatedFlame {
+	transform-origin: 50% 90%;
+	animation: flamePulse 1.8s ease-in-out infinite;
+}
+
+.animatedHalo {
+	transform-origin: 50% 16%;
+	animation: haloFloat 3s ease-in-out infinite;
+}
+
+.animatedStar {
+	transform-origin: center;
+	animation: starTwinkle 2.2s ease-in-out infinite;
+}
+
+.animatedStarAlt {
+	transform-origin: center;
+	animation: starTwinkle 2.2s ease-in-out infinite 1.1s;
+}
+
+.animatedCyber {
+	animation: cyberPulse 2s ease-in-out infinite;
+}
+
+.animatedPetal {
+	transform-origin: center;
+	animation: petalSway 3.5s ease-in-out infinite;
+}
+
+.animatedSpectral {
+	transform-origin: 50% 80%;
+	animation: spectralSway 2.5s ease-in-out infinite;
+}
+
+.animatedPortalOuter {
+	transform-origin: 50% 50%;
+	animation: portalSpin 18s linear infinite;
+}
+
+.animatedPortalInner {
+	transform-origin: 50% 50%;
+	animation: portalSpinReverse 12s linear infinite;
+}
+
+/* Reduced motion disables animations */
+:global(html.reduced-motion) .animatedFlame,
+:global(html.reduced-motion) .animatedHalo,
+:global(html.reduced-motion) .animatedStar,
+:global(html.reduced-motion) .animatedStarAlt,
+:global(html.reduced-motion) .animatedCyber,
+:global(html.reduced-motion) .animatedPetal,
+:global(html.reduced-motion) .animatedSpectral,
+:global(html.reduced-motion) .animatedPortalOuter,
+:global(html.reduced-motion) .animatedPortalInner {
+	animation: none !important;
+}

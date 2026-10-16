@@ -72,6 +72,16 @@ export const UserUpdateRequest = z
 		bio: createStringType(1, 320).nullish().describe('User biography text (max 320 characters)'),
 		pronouns: createStringType(1, 40).nullish().describe('User pronouns (max 40 characters)'),
 		accent_color: ColorType.nullish().describe('Profile accent color as integer'),
+		banner_color: ColorType.nullish().describe('Profile banner / primary theme color as integer'),
+		theme_colors: z.array(ColorType).length(2).nullish().describe('Profile theme colors [primary, accent]'),
+		avatar_decoration: createStringType(1, 64).nullish().describe('Avatar decoration asset identifier or null to clear'),
+		avatar_decoration_data: z
+			.object({
+				asset: createStringType(1, 64),
+				sku_id: SnowflakeStringType.optional(),
+			})
+			.nullish()
+			.describe('Avatar decoration data'),
 		timezone: createStringType(1, 128).nullish().describe('IANA timezone identifier saved for profile local time'),
 		timezone_privacy_flags: createBitflagInt32Type(
 			ProfileFieldPrivacyFlags,

@@ -10,6 +10,7 @@ import styles from '@app/features/ui/components/BaseAvatar.module.css';
 import {TYPING_DOT_GAP_RATIO, TYPING_DOT_SIZE_RATIO} from '@app/features/ui/constants/TypingConstants';
 import FocusRing from '@app/features/ui/focus_ring/FocusRing';
 import {Tooltip} from '@app/features/ui/tooltip/Tooltip';
+import {AvatarDecorationOverlay} from '@app/features/user/components/profile/AvatarDecorationOverlay';
 import type {StatusType} from '@fluxer/constants/src/StatusConstants';
 import {normalizeStatus, StatusTypes} from '@fluxer/constants/src/StatusConstants';
 import {msg} from '@lingui/core/macro';
@@ -123,6 +124,7 @@ interface BaseAvatarProps {
 	customStatusBadgeScale?: number;
 	customStatusBadgeMaxSizeRatio?: number;
 	customStatusBadgeCutoutPaddingScale?: number;
+	avatarDecoration?: string | null;
 	title?: never;
 	[themeAttr: `data-flx-${string}`]: string | undefined;
 }
@@ -154,6 +156,7 @@ export const BaseAvatar = React.forwardRef<HTMLDivElement, BaseAvatarProps>(
 			customStatusBadgeScale = DEFAULT_CUSTOM_STATUS_BADGE_SCALE,
 			customStatusBadgeMaxSizeRatio,
 			customStatusBadgeCutoutPaddingScale = DEFAULT_CUSTOM_STATUS_BADGE_CUTOUT_PADDING_SCALE,
+			avatarDecoration,
 			...props
 		},
 		ref,
@@ -420,6 +423,13 @@ export const BaseAvatar = React.forwardRef<HTMLDivElement, BaseAvatarProps>(
 							{statusBadge}
 						</Tooltip>
 					))}
+				{avatarDecoration && (
+					<AvatarDecorationOverlay
+						decoration={avatarDecoration}
+						size={size}
+						data-flx="ui.base-avatar.avatar-decoration"
+					/>
+				)}
 			</div>
 		);
 

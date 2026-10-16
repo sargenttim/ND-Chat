@@ -52,6 +52,8 @@ interface ProfilePreviewProps {
 	previewBio?: string | null;
 	previewPronouns?: string | null;
 	previewAccentColor?: number | null;
+	previewPrimaryColor?: number | null;
+	previewAvatarDecoration?: string | null;
 	previewTimezoneOffset?: number | null;
 	previewGlobalName?: string | null;
 	previewNick?: string | null;
@@ -77,6 +79,8 @@ export const ProfilePreview: React.FC<ProfilePreviewProps> = observer(
 		previewBio,
 		previewPronouns,
 		previewAccentColor,
+		previewPrimaryColor,
+		previewAvatarDecoration,
 		previewTimezoneOffset,
 		previewGlobalName,
 		previewNick,
@@ -113,13 +117,19 @@ export const ProfilePreview: React.FC<ProfilePreviewProps> = observer(
 		const isCommunityProfile = Boolean(guildId && guildMemberProfile);
 		const previewUser = useMemo(() => {
 			const globalName = previewGlobalName !== undefined ? previewGlobalName : user.globalName;
+			const avatarDecData =
+				previewAvatarDecoration !== undefined
+					? previewAvatarDecoration
+						? {asset: previewAvatarDecoration, sku_id: '0'}
+						: null
+					: user.avatarDecorationData;
 			if (isCommunityProfile) {
-				return user.withUpdates({global_name: globalName});
+				return user.withUpdates({global_name: globalName, avatar_decoration_data: avatarDecData});
 			}
 			const bio = previewBio !== undefined ? previewBio : user.bio;
 			const pronouns = previewPronouns !== undefined ? previewPronouns : user.pronouns;
-			return user.withUpdates({bio, pronouns, global_name: globalName});
-		}, [user, previewBio, previewPronouns, previewGlobalName, isCommunityProfile]);
+			return user.withUpdates({bio, pronouns, global_name: globalName, avatar_decoration_data: avatarDecData});
+		}, [user, previewBio, previewPronouns, previewGlobalName, previewAvatarDecoration, isCommunityProfile]);
 		const mockProfile = useMemo(() => {
 			if (isCommunityProfile && guildId && guildMemberProfile) {
 				const globalProfile = createMockProfile(previewUser, {
@@ -133,6 +143,7 @@ export const ProfilePreview: React.FC<ProfilePreviewProps> = observer(
 						banner: previewBannerUrl || guildMemberProfile.banner,
 						pronouns: previewPronouns !== undefined ? previewPronouns : guildMemberProfile.pronouns,
 						accent_color: previewAccentColor !== undefined ? previewAccentColor : guildMemberProfile.accent_color,
+						banner_color: previewPrimaryColor !== undefined ? previewPrimaryColor : guildMemberProfile.banner_color,
 					},
 				});
 			}
@@ -142,6 +153,7 @@ export const ProfilePreview: React.FC<ProfilePreviewProps> = observer(
 				previewBio,
 				previewPronouns,
 				previewAccentColor,
+				previewPrimaryColor,
 				previewTimezoneOffset,
 				previewBadgeSettings,
 			});
@@ -152,6 +164,7 @@ export const ProfilePreview: React.FC<ProfilePreviewProps> = observer(
 			previewBio,
 			previewPronouns,
 			previewAccentColor,
+			previewPrimaryColor,
 			previewTimezoneOffset,
 			previewBadgeSettings,
 			guildId,
@@ -165,7 +178,7 @@ export const ProfilePreview: React.FC<ProfilePreviewProps> = observer(
 			hoverAvatarUrl: finalHoverAvatarUrl,
 			bannerUrl: finalBannerUrl,
 			hoverBannerUrl: finalHoverBannerUrl,
-			accentColor,
+			themeColors,
 		} = useProfileCardDisplayState({
 			user,
 			profile: mockProfile,
@@ -213,8 +226,8 @@ export const ProfilePreview: React.FC<ProfilePreviewProps> = observer(
 		const pronouns = previewPronouns !== undefined ? previewPronouns : user.pronouns;
 		const displayName =
 			previewNick || (guildId ? NicknameUtils.getNickname(previewUser, guildId) : previewUser.displayName);
-		const borderColor = accentColor;
-		const bannerColor = accentColor;
+		const borderColor = themeColors.accentColor;
+		const bannerColor = themeColors.primaryColor;
 		const selectedGuild = guildId ? Guilds.getGuild(guildId) : null;
 		const hasPreviewStatus = previewCustomStatus !== undefined;
 		const handlePreviewKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -234,6 +247,7 @@ export const ProfilePreview: React.FC<ProfilePreviewProps> = observer(
 				>
 					<ProfileCardLayout
 						borderColor={borderColor}
+						themeColors={themeColors}
 						showPreviewLabel={showPreviewLabel}
 						data-flx="user.profile.profile-preview.profile-card-layout"
 					>
@@ -241,9 +255,10 @@ export const ProfilePreview: React.FC<ProfilePreviewProps> = observer(
 							bannerUrl={finalBannerUrl}
 							hoverBannerUrl={finalHoverBannerUrl}
 							bannerColor={bannerColor}
-							user={user}
+							user={previewUser}
 							avatarUrl={finalAvatarUrl}
 							hoverAvatarUrl={finalHoverAvatarUrl}
+							avatarDecoration={previewAvatarDecoration !== undefined ? previewAvatarDecoration : previewUser.avatarDecoration}
 							isClickable={true}
 							onAvatarClick={openMockProfile}
 							data-flx="user.profile.profile-preview.profile-card-banner"

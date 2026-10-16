@@ -123,6 +123,7 @@ export const AvatarWithPresence: React.FC<Props> = observer(function AvatarWithP
 			customStatusBadgeScale={1.5}
 			customStatusBadgeMaxSizeRatio={0.36}
 			customStatusBadgeCutoutPaddingScale={1.35}
+			avatarDecoration={user.avatarDecoration}
 			data-flx="ui.avatars.avatar-with-presence.container"
 		/>
 	);

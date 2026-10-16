@@ -13,7 +13,7 @@ import {
 	UserPremiumTypes,
 } from '@fluxer/constants/src/UserConstants';
 import {DEFAULT_STOCK_LIMITS} from '@fluxer/limits/src/LimitDefaults';
-import type {UserPartial, UserPrivate, User as WireUser} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
+import type {AvatarDecorationData, UserPartial, UserPrivate, User as WireUser} from '@fluxer/schema/src/domains/user/UserResponseSchemas';
 import * as SnowflakeUtils from '@fluxer/snowflake/src/SnowflakeUtils';
 
 interface UserRecordOptions {
@@ -144,6 +144,7 @@ export class User {
 	readonly bannerColor: number | null | undefined;
 	readonly pronouns: string | null | undefined;
 	readonly accentColor: number | null | undefined;
+	readonly avatarDecorationData: AvatarDecorationData | null | undefined;
 	readonly timezone: string | null | undefined;
 	readonly timezonePrivacyFlags: number | undefined;
 	readonly mfaEnabled: boolean | undefined;
@@ -196,6 +197,9 @@ export class User {
 		this.bannerColor = hasKey(user, 'banner_color') ? (user.banner_color ?? null) : undefined;
 		this.pronouns = hasKey(user, 'pronouns') ? (user.pronouns ?? null) : undefined;
 		this.accentColor = hasKey(user, 'accent_color') ? (user.accent_color ?? null) : undefined;
+		this.avatarDecorationData = hasKey(user, 'avatar_decoration_data')
+			? (user.avatar_decoration_data ?? null)
+			: undefined;
 		this.timezone = hasKey(user, 'timezone') ? (user.timezone ?? null) : undefined;
 		this.timezonePrivacyFlags = hasKey(user, 'timezone_privacy_flags')
 			? (user.timezone_privacy_flags ?? ProfileFieldPrivacyFlags.EVERYONE)
@@ -250,6 +254,18 @@ export class User {
 		this._termsAgreedAt = hasKey(user, 'terms_agreed_at') ? parseDateOrNull(user.terms_agreed_at) : undefined;
 		this._privacyAgreedAt = hasKey(user, 'privacy_agreed_at') ? parseDateOrNull(user.privacy_agreed_at) : undefined;
 		this._traits = mergeTraitsArray(EMPTY_STRING_ARRAY, user, {clearMissing: true});
+	}
+
+	get avatarDecoration(): string | null {
+		if (this.avatarDecorationData?.asset) {
+			return this.avatarDecorationData.asset;
+		}
+		for (const trait of this._traits) {
+			if (trait.startsWith('avatar_decoration:')) {
+				return trait.slice('avatar_decoration:'.length);
+			}
+		}
+		return null;
 	}
 
 	get email(): string | null | undefined {
@@ -398,6 +414,8 @@ export class User {
 		if (pronouns !== undefined) result.pronouns = pronouns;
 		const accentColor = pickField(this.accentColor, u, 'accent_color', opts);
 		if (accentColor !== undefined) result.accent_color = accentColor;
+		const avatarDecorationData = pickField(this.avatarDecorationData, u, 'avatar_decoration_data', opts);
+		if (avatarDecorationData !== undefined) result.avatar_decoration_data = avatarDecorationData;
 		const timezone = pickField(this.timezone, u, 'timezone', opts);
 		if (timezone !== undefined) result.timezone = timezone;
 		const timezonePrivacyFlags = pickField(this.timezonePrivacyFlags, u, 'timezone_privacy_flags', opts);
@@ -591,6 +609,7 @@ export class User {
 			this.bannerColor === other.bannerColor &&
 			this.pronouns === other.pronouns &&
 			this.accentColor === other.accentColor &&
+			this.avatarDecorationData?.asset === other.avatarDecorationData?.asset &&
 			this.timezone === other.timezone &&
 			this.timezonePrivacyFlags === other.timezonePrivacyFlags &&
 			this.mfaEnabled === other.mfaEnabled &&
@@ -636,6 +655,7 @@ export class User {
 			system: this.system,
 			flags: this.flags,
 			mention_flags: this.mentionFlags || undefined,
+			avatar_decoration_data: this.avatarDecorationData,
 		};
 		const privateFields: Record<string, unknown> = {};
 		const setOptional = <K extends keyof UserPrivate>(key: K, value: UserPrivate[K] | undefined): void => {

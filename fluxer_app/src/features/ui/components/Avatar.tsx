@@ -35,6 +35,7 @@ interface AvatarProps {
 	guildId?: string | null;
 	mediaSize?: MediaProxyImageSize;
 	animateStatusCutout?: boolean;
+	avatarDecoration?: string | null;
 	title?: never;
 }
 
@@ -57,6 +58,7 @@ const AvatarComponent = React.forwardRef<HTMLDivElement, AvatarProps>(
 			guildId,
 			mediaSize,
 			animateStatusCutout = false,
+			avatarDecoration: customAvatarDecoration,
 			...props
 		},
 		ref,
@@ -168,6 +170,7 @@ const AvatarComponent = React.forwardRef<HTMLDivElement, AvatarProps>(
 		const safeHoverAvatarUrl = isAnimatedNeeded ? hoverAvatarUrl || undefined : undefined;
 		const normalizedStatusAttr = status != null ? normalizeStatus(status) : undefined;
 		const displayName = NicknameUtils.getNickname(user, guildId ?? null);
+		const resolvedAvatarDecoration = customAvatarDecoration !== undefined ? customAvatarDecoration : user.avatarDecoration;
 		const avatarRefs = useMemo(() => [ref, hoverRef], [ref, hoverRef]);
 		const mergedRef = useMergeRefs(avatarRefs);
 		return (
@@ -177,6 +180,7 @@ const AvatarComponent = React.forwardRef<HTMLDivElement, AvatarProps>(
 				avatarUrl={resolvedAvatarUrl}
 				hoverAvatarUrl={safeHoverAvatarUrl}
 				onImageLoaded={handleImageLoaded}
+				avatarDecoration={resolvedAvatarDecoration}
 				status={status}
 				isMobileStatus={isMobileStatus}
 				showSkeleton

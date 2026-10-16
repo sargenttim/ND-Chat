@@ -68,6 +68,14 @@ export const UserPartialResponse = z.object({
 		.describe(
 			"The user's account-wide reply mention preference. Omitted when the user has no preference set (treated as NO_PREFERENCE).",
 		),
+	avatar_decoration_data: z
+		.object({
+			asset: z.string().describe('Avatar decoration asset name/hash'),
+			sku_id: SnowflakeStringType.optional().describe('SKU identifier'),
+		})
+		.nullable()
+		.optional()
+		.describe('Avatar decoration data'),
 });
 
 export type UserPartialResponse = z.infer<typeof UserPartialResponse>;
@@ -85,6 +93,7 @@ export const UserPrivateResponse = UserPartialResponse.extend({
 	bio: z.string().nullable().describe('The user biography text'),
 	pronouns: z.string().nullable().describe('The preferred pronouns of the user'),
 	accent_color: Int32Type.nullable().describe('The user-selected accent color as an integer'),
+	theme_colors: z.array(Int32Type).length(2).nullable().optional().describe('The user-selected theme colors [primary, accent]'),
 	timezone: z.string().nullable().optional().describe('The IANA timezone identifier saved by the user'),
 	timezone_privacy_flags: createBitflagInt32Type(
 		ProfileFieldPrivacyFlags,
@@ -263,12 +272,19 @@ export const RecoveryKitCreateResponse = z.object({
 
 export type RecoveryKitCreateResponse = z.infer<typeof RecoveryKitCreateResponse>;
 
+export interface AvatarDecorationData {
+	asset: string;
+	sku_id?: string;
+}
+
 export interface UserProfileResponse {
 	bio: string | null;
 	pronouns: string | null;
 	banner: string | null;
 	banner_color?: number | null;
 	accent_color: number | null;
+	theme_colors?: [number, number] | null;
+	avatar_decoration_data?: AvatarDecorationData | null;
 }
 
 export const CustomStatusResponse = z.object({
@@ -476,6 +492,7 @@ export interface UserPartial {
 	readonly system?: boolean;
 	readonly flags: number;
 	readonly mention_flags?: MentionReplyPreference;
+	readonly avatar_decoration_data?: AvatarDecorationData | null;
 }
 
 export interface UserPrivate extends UserPartial, UserProfile {
@@ -569,6 +586,15 @@ const UserProfileDataResponse = z.object({
 	banner: z.string().nullable().describe('Hash of the profile banner image'),
 	banner_color: Int32Type.nullable().optional().describe('Default banner color if no custom banner'),
 	accent_color: Int32Type.nullable().describe('User-selected accent color'),
+	theme_colors: z.array(Int32Type).length(2).nullable().optional().describe('Profile theme colors [primary, accent]'),
+	avatar_decoration_data: z
+		.object({
+			asset: z.string(),
+			sku_id: SnowflakeStringType.optional(),
+		})
+		.nullable()
+		.optional()
+		.describe('Avatar decoration data'),
 });
 
 const GuildMemberProfileDataResponse = z
@@ -577,6 +603,15 @@ const GuildMemberProfileDataResponse = z
 		pronouns: z.string().nullable().describe('Guild-specific pronouns'),
 		banner: z.string().nullable().describe('Hash of the guild-specific banner image'),
 		accent_color: Int32Type.nullable().describe('Guild-specific accent color'),
+		theme_colors: z.array(Int32Type).length(2).nullable().optional().describe('Guild-specific theme colors [primary, accent]'),
+		avatar_decoration_data: z
+			.object({
+				asset: z.string(),
+				sku_id: SnowflakeStringType.optional(),
+			})
+			.nullable()
+			.optional()
+			.describe('Avatar decoration data'),
 	})
 	.nullable()
 	.optional();

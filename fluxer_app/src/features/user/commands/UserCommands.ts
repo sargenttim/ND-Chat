@@ -70,6 +70,9 @@ type UserUpdatePayload = Partial<UserPrivate> & {
 	premium_badge_timestamp_hidden?: boolean;
 	premium_badge_sequence_hidden?: boolean;
 	accent_color?: number | null;
+	banner_color?: number | null;
+	theme_colors?: [number, number] | null;
+	avatar_decoration?: string | null;
 	has_dismissed_premium_onboarding?: boolean;
 	has_unread_gift_inventory?: boolean;
 	email_token?: string;

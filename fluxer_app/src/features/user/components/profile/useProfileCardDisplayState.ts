@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 import type {GuildMember} from '@app/features/member/models/GuildMember';
-import {getUserAccentColor} from '@app/features/theme/utils/AccentColorUtils';
+import {getUserThemeColors, type ProfileThemeColors} from '@app/features/theme/utils/AccentColorUtils';
 import type {Profile} from '@app/features/user/models/Profile';
 import type {User} from '@app/features/user/models/User';
 import * as ProfileDisplayUtils from '@app/features/user/utils/ProfileDisplayUtils';
@@ -28,6 +28,8 @@ export interface ProfileCardDisplayState {
 	bannerUrl: string | null;
 	hoverBannerUrl: string | null;
 	accentColor: string;
+	primaryColor: string;
+	themeColors: ProfileThemeColors;
 	profileData: Readonly<UserProfile> | null;
 }
 
@@ -61,10 +63,12 @@ export function useProfileCardDisplayState({
 		[profileContext, previewOverrides, resolvedBannerSize],
 	);
 	const profileData = useMemo(() => profile?.getEffectiveProfile() ?? null, [profile]);
-	const accentColor = useMemo(
-		() => getUserAccentColor(accentUser ?? user, profileData?.accent_color),
-		[accentUser ?? user, profileData?.accent_color],
+	const themeColors = useMemo(
+		() => getUserThemeColors(accentUser ?? user, profileData),
+		[accentUser ?? user, profileData],
 	);
+	const accentColor = themeColors.accentColor;
+	const primaryColor = themeColors.primaryColor;
 	return {
 		profileContext,
 		avatarUrl: avatarUrls.avatarUrl,
@@ -72,6 +76,8 @@ export function useProfileCardDisplayState({
 		bannerUrl: bannerUrls.bannerUrl,
 		hoverBannerUrl: bannerUrls.hoverBannerUrl,
 		accentColor,
+		primaryColor,
+		themeColors,
 		profileData,
 	};
 }

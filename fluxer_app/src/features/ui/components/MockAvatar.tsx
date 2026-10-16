@@ -19,6 +19,7 @@ interface MockAvatarProps {
 	disableStatusTooltip?: boolean;
 	shouldPlayAnimated?: boolean;
 	isMobileStatus?: boolean;
+	avatarDecoration?: string | null;
 }
 
 export const MockAvatar = React.forwardRef<HTMLDivElement, MockAvatarProps>(
@@ -36,6 +37,7 @@ export const MockAvatar = React.forwardRef<HTMLDivElement, MockAvatarProps>(
 			disableStatusTooltip = false,
 			shouldPlayAnimated = false,
 			isMobileStatus = false,
+			avatarDecoration,
 			...props
 		},
 		ref,
@@ -58,6 +60,7 @@ export const MockAvatar = React.forwardRef<HTMLDivElement, MockAvatarProps>(
 				statusLabel={statusLabel}
 				disableStatusTooltip={disableStatusTooltip}
 				isMobileStatus={isMobileStatus}
+				avatarDecoration={avatarDecoration}
 				data-flx="ui.mock-avatar.base-avatar"
 				{...props}
 			/>

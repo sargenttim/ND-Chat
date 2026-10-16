@@ -28,6 +28,7 @@ export interface StatusAwareAvatarProps {
 	status?: string | null;
 	isMobile?: boolean;
 	animateStatusCutout?: boolean;
+	avatarDecoration?: string | null;
 }
 
 function getStatusWithTransientFallback(userId: string): StatusType {
@@ -57,6 +58,7 @@ export const StatusAwareAvatar: React.FC<StatusAwareAvatarProps> = observer(
 		status: externalStatus,
 		isMobile: externalIsMobile,
 		animateStatusCutout,
+		avatarDecoration,
 	}) => {
 		if (!user) {
 			return null;
@@ -87,6 +89,7 @@ export const StatusAwareAvatar: React.FC<StatusAwareAvatarProps> = observer(
 				guildId={guildId}
 				mediaSize={mediaSize}
 				animateStatusCutout={animateStatusCutout}
+				avatarDecoration={avatarDecoration}
 				data-flx="ui.status-aware-avatar.avatar"
 			/>
 		);

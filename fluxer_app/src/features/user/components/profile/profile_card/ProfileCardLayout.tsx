@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: AGPL-3.0-or-later
-
+import type {ProfileThemeColors} from '@app/features/theme/utils/AccentColorUtils';
 import styles from '@app/features/user/components/profile/profile_card/ProfileCardLayout.module.css';
 import {Trans} from '@lingui/react/macro';
 import {clsx} from 'clsx';
@@ -8,7 +7,8 @@ import type React from 'react';
 import {useMemo} from 'react';
 
 interface ProfileCardLayoutProps {
-	borderColor: string;
+	borderColor?: string;
+	themeColors?: ProfileThemeColors;
 	showPreviewLabel?: boolean;
 	hoverRef?: (instance: HTMLDivElement | null) => void;
 	className?: string;
@@ -17,8 +17,18 @@ interface ProfileCardLayoutProps {
 }
 
 export const ProfileCardLayout: React.FC<ProfileCardLayoutProps> = observer(
-	({borderColor, showPreviewLabel = false, hoverRef, className, style, children}) => {
-		const cardStyle = useMemo<React.CSSProperties>(() => ({...style, borderColor}), [borderColor, style]);
+	({borderColor, themeColors, showPreviewLabel = false, hoverRef, className, style, children}) => {
+		const effectiveBorderColor = borderColor ?? themeColors?.accentColor;
+		const cardStyle = useMemo<React.CSSProperties>(() => {
+			const res: React.CSSProperties = {
+				...style,
+				borderColor: effectiveBorderColor,
+			};
+			if (themeColors?.hasCustomTheme) {
+				res.background = themeColors.gradient;
+			}
+			return res;
+		}, [effectiveBorderColor, themeColors, style]);
 		return (
 			<div data-flx="user.profile.profile-card.profile-card-layout.div">
 				{showPreviewLabel && (
@@ -28,7 +38,11 @@ export const ProfileCardLayout: React.FC<ProfileCardLayoutProps> = observer(
 				)}
 				<div
 					ref={hoverRef}
-					className={clsx(styles.profileCard, className)}
+					className={clsx(
+						styles.profileCard,
+						themeColors?.hasCustomTheme && styles.profileCardThemed,
+						className,
+					)}
 					style={cardStyle}
 					data-flx="user.profile.profile-card.profile-card-layout.profile-card"
 				>

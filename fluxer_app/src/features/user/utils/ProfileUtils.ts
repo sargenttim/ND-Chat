@@ -73,6 +73,7 @@ export function createMockProfile(
 		previewBio?: string | null;
 		previewPronouns?: string | null;
 		previewAccentColor?: number | null;
+		previewPrimaryColor?: number | null;
 		previewBadgeSettings?: BadgeSettings;
 		previewTimezoneOffset?: number | null;
 	},
@@ -92,6 +93,7 @@ export function createMockProfile(
 			banner: finalBanner,
 			pronouns: finalPronouns,
 			accent_color: options?.previewAccentColor !== undefined ? options.previewAccentColor : (user.accentColor ?? null),
+			banner_color: options?.previewPrimaryColor !== undefined ? options.previewPrimaryColor : (user.bannerColor ?? null),
 		},
 		timezone_offset:
 			options?.previewTimezoneOffset !== undefined

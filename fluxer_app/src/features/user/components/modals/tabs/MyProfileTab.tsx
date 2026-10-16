@@ -30,6 +30,7 @@ import * as UserCommands from '@app/features/user/commands/UserCommands';
 import * as UserProfileCommands from '@app/features/user/commands/UserProfileCommands';
 import styles from '@app/features/user/components/modals/tabs/MyProfileTab.module.css';
 import {AccentColorPicker} from '@app/features/user/components/modals/tabs/my_profile_tab/AccentColorPicker';
+import {AvatarDecorationPicker} from '@app/features/user/components/modals/tabs/my_profile_tab/AvatarDecorationPicker';
 import {AvatarUploader} from '@app/features/user/components/modals/tabs/my_profile_tab/AvatarUploader';
 import {BannerUploader} from '@app/features/user/components/modals/tabs/my_profile_tab/BannerUploader';
 import {BIO_MARKDOWN_PARSER_FLAGS, BioEditor} from '@app/features/user/components/modals/tabs/my_profile_tab/BioEditor';
@@ -175,6 +176,8 @@ interface FormInputs {
 	global_name: string | null;
 	pronouns: string | null;
 	accent_color: number | null;
+	banner_color: number | null;
+	avatar_decoration?: string | null;
 	timezone: string | null;
 	timezone_privacy_flags: number;
 	nick?: string | null;
@@ -249,6 +252,8 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 			global_name: null,
 			pronouns: null,
 			accent_color: null,
+			banner_color: null,
+			avatar_decoration: user?.avatarDecoration ?? null,
 			timezone: user?.timezone ?? null,
 			timezone_privacy_flags: user?.timezonePrivacyFlags ?? ProfileFieldPrivacyFlags.EVERYONE,
 			nick: null,
@@ -313,6 +318,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 			const markdownBio = guildProfile.bio ?? null;
 			const pronouns = guildProfile.pronouns ?? null;
 			const accentColor = guildProfile.accent_color !== null ? guildProfile.accent_color : (user.accentColor ?? null);
+			const bannerColor = guildProfile.banner_color !== null ? guildProfile.banner_color : (user.bannerColor ?? null);
 			const avatarRemoteState = createProfileAssetRemoteStateFromFlags({
 				identityKey: profileIdentityKey,
 				hasCustomAsset: Boolean(guildMember?.avatar),
@@ -330,6 +336,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 					global_name: null,
 					pronouns,
 					accent_color: typeof accentColor === 'number' ? accentColor : null,
+					banner_color: typeof bannerColor === 'number' ? bannerColor : null,
 					nick: guildMember?.nick || null,
 				},
 				bioMarkdown: markdownBio || '',
@@ -345,6 +352,8 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 				global_name: user.globalName || null,
 				pronouns: user.pronouns || null,
 				accent_color: typeof user.accentColor === 'number' ? user.accentColor : null,
+				banner_color: typeof user.bannerColor === 'number' ? user.bannerColor : null,
+				avatar_decoration: user.avatarDecoration || null,
 				nick: null,
 			},
 			bioMarkdown: markdownBio || '',
@@ -506,6 +515,7 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 						global_name: null,
 						pronouns: data.pronouns,
 						accent_color: data.accent_color,
+						banner_color: data.banner_color,
 						timezone: user.timezone ?? null,
 						timezone_privacy_flags: user.timezonePrivacyFlags ?? ProfileFieldPrivacyFlags.EVERYONE,
 						nick: data.nick,
@@ -523,6 +533,8 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 					global_name: data.global_name,
 					pronouns: data.pronouns,
 					accent_color: data.accent_color,
+					banner_color: data.banner_color,
+					avatar_decoration: data.avatar_decoration,
 				};
 				assignProfileAssetUploadPatch(updateData, 'avatar', avatarAsset);
 				assignProfileAssetUploadPatch(updateData, 'banner', bannerAsset);
@@ -552,6 +564,8 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 						global_name: newUser.global_name || null,
 						pronouns: newUser.pronouns || null,
 						accent_color: typeof newUser.accent_color === 'number' ? newUser.accent_color : null,
+						banner_color: typeof newUser.banner_color === 'number' ? newUser.banner_color : null,
+						avatar_decoration: newUser.avatar_decoration_data?.asset ?? data.avatar_decoration ?? null,
 						timezone: newUser.timezone ?? null,
 						timezone_privacy_flags: newUser.timezone_privacy_flags ?? ProfileFieldPrivacyFlags.EVERYONE,
 						nick: null,
@@ -869,11 +883,25 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 										data-flx="user.my-profile-tab.my-profile-tab-component.opacity-half"
 									>
 										<AccentColorPicker
-											value={form.watch('accent_color') ?? null}
-											onChange={(value: number | null) => form.setValue('accent_color', value, {shouldDirty: true})}
+											primaryColor={form.watch('banner_color') ?? null}
+											accentColor={form.watch('accent_color') ?? null}
+											onPrimaryChange={(value: number | null) => form.setValue('banner_color', value, {shouldDirty: true})}
+											onAccentChange={(value: number | null) => form.setValue('accent_color', value, {shouldDirty: true})}
 											disabled={isProfileCustomizationLocked || isPerGuildProfileCustomizationDisabled}
-											errorMessage={form.formState.errors.accent_color?.message}
+											errorMessage={form.formState.errors.accent_color?.message || form.formState.errors.banner_color?.message}
 											data-flx="user.my-profile-tab.my-profile-tab-component.accent-color-picker.set-value"
+										/>
+									</div>
+									<div
+										className={isPerGuildProfile && !hasPerGuildProfiles ? styles.opacityHalf : ''}
+										data-flx="user.my-profile-tab.my-profile-tab-component.avatar-decoration-section"
+									>
+										<AvatarDecorationPicker
+											value={form.watch('avatar_decoration') ?? null}
+											onChange={(value: string | null) => form.setValue('avatar_decoration', value, {shouldDirty: true})}
+											disabled={isProfileCustomizationLocked || isPerGuildProfileCustomizationDisabled}
+											errorMessage={form.formState.errors.avatar_decoration?.message}
+											data-flx="user.my-profile-tab.my-profile-tab-component.avatar-decoration-picker.set-value"
 										/>
 									</div>
 									<div
@@ -920,6 +948,8 @@ const MyProfileTabComponent = observer(function MyProfileTabComponent({
 										previewBio={actualBio}
 										previewPronouns={form.watch('pronouns')}
 										previewAccentColor={form.watch('accent_color')}
+										previewPrimaryColor={form.watch('banner_color')}
+										previewAvatarDecoration={form.watch('avatar_decoration')}
 										previewTimezoneOffset={previewTimezoneOffset}
 										previewGlobalName={!isPerGuildProfile ? form.watch('global_name') : undefined}
 										previewNick={isPerGuildProfile ? form.watch('nick') : undefined}

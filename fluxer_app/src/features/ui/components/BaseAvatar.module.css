@@ -68,6 +68,7 @@
 .statusContainer {
 	pointer-events: auto;
 	position: absolute;
+	z-index: 2;
 	right: var(--avatar-status-right);
 	bottom: var(--avatar-status-bottom);
 	display: flex;

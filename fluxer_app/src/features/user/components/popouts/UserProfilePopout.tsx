@@ -193,15 +193,23 @@ export const UserProfilePopout: React.FC<UserProfilePopoutProps> = observer(
 			);
 			requestClose();
 		};
-		const {profileContext, avatarUrl, hoverAvatarUrl, bannerUrl, hoverBannerUrl, accentColor, profileData} =
-			useProfileCardDisplayState({
-				user,
-				profile,
-				guildId: profile?.guildId,
-				guildMember,
-				guildMemberProfile: profile?.guildMemberProfile,
-				bannerSize: MEDIA_PROXY_PROFILE_BANNER_SIZE_POPOUT,
-			});
+		const {
+			profileContext,
+			avatarUrl,
+			hoverAvatarUrl,
+			bannerUrl,
+			hoverBannerUrl,
+			accentColor,
+			themeColors,
+			profileData,
+		} = useProfileCardDisplayState({
+			user,
+			profile,
+			guildId: profile?.guildId,
+			guildMember,
+			guildMemberProfile: profile?.guildMemberProfile,
+			bannerSize: MEDIA_PROXY_PROFILE_BANNER_SIZE_POPOUT,
+		});
 		const avatarMenuUrl = getUserMenuAvatarUrl({user, profile, profileContext});
 		const bannerMenuUrl = getUserMenuBannerUrl({user, profile, profileContext});
 		const handleAvatarContextMenu = useCallback(
@@ -252,13 +260,14 @@ export const UserProfilePopout: React.FC<UserProfilePopoutProps> = observer(
 				</FocusRingScope>
 			);
 		}
-		const borderColor = accentColor;
-		const bannerColor = accentColor;
+		const borderColor = themeColors.accentColor;
+		const bannerColor = themeColors.primaryColor;
 		return (
 			<FocusRingScope containerRef={popoutContainerRef} data-flx="user.user-profile-popout.focus-ring-scope">
 				<div ref={popoutContainerRef} data-flx="user.user-profile-popout.div">
 					<ProfileCardLayout
 						borderColor={borderColor}
+						themeColors={themeColors}
 						hoverRef={hoverRef}
 						className={styles.profilePopoutCard}
 						style={PROFILE_POPOUT_GEOMETRY_STYLE}

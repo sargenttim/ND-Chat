@@ -23,6 +23,7 @@ interface ProfileCardBannerProps {
 	avatarUrl: string | null;
 	hoverAvatarUrl: string | null;
 	disablePresence?: boolean;
+	avatarDecoration?: string | null;
 	isClickable?: boolean;
 	onAvatarClick?: () => void;
 	onAvatarContextMenu?: (event: React.MouseEvent) => void;
@@ -38,6 +39,7 @@ export const ProfileCardBanner: React.FC<ProfileCardBannerProps> = observer(
 		avatarUrl,
 		hoverAvatarUrl,
 		disablePresence = false,
+		avatarDecoration,
 		isClickable = true,
 		onAvatarClick,
 		onAvatarContextMenu,
@@ -141,6 +143,7 @@ export const ProfileCardBanner: React.FC<ProfileCardBannerProps> = observer(
 							avatarUrl={avatarUrl}
 							hoverAvatarUrl={hoverAvatarUrl}
 							disablePresence={disablePresence}
+							avatarDecoration={avatarDecoration}
 							isClickable={isClickable}
 							forceAnimate
 							forceAnimateIgnoringSettings
