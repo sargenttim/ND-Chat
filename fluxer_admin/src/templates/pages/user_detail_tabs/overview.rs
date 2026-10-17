@@ -6,7 +6,10 @@ use crate::{
     config::AdminConfig,
     templates::components::{
         badge::{BadgeVariant, badge},
-        form::{checkbox, csrf_input, form_actions, submit_button},
+        form::{
+            FORM_INPUT_CLASS, FORM_LABEL_CLASS, FORM_SELECT_CLASS, checkbox, csrf_input,
+            form_actions, submit_button,
+        },
         page_container::{card_with_header, detail_row},
     },
     utils::{
@@ -15,7 +18,7 @@ use crate::{
         user_tag::user_tag,
     },
 };
-use maud::{Markup, html};
+use maud::{Markup, PreEscaped, html};
 
 pub fn overview_tab(
     config: &AdminConfig,
@@ -226,6 +229,7 @@ fn render_overview_tab(
                     }
                 }
             }))
+            (nd_plus_management_card(config, user, admin_acls, csrf_token))
             (flags_card(config, user, admin_acls, csrf_token))
             @if let Some(badges) = badges {
                 (badges_card(config, user, badges, admin_acls, csrf_token))
@@ -633,4 +637,225 @@ fn custom_traits<'a>(user: &'a AdminUser, trait_definitions: &[&str]) -> Vec<&'a
         .filter(|trait_name| !trait_definitions.contains(trait_name))
         .filter(|trait_name| !DERIVED_TRAITS.contains(trait_name))
         .collect()
+}
+
+fn to_datetime_local_value(s: Option<&str>) -> String {
+    if let Some(val) = s {
+        let trimmed = val.trim();
+        if trimmed.len() >= 16 {
+            let part = &trimmed[..16];
+            return part.replace(' ', "T");
+        }
+    }
+    String::new()
+}
+
+fn nd_plus_management_card(
+    config: &AdminConfig,
+    user: &AdminUser,
+    admin_acls: &[String],
+    csrf_token: &str,
+) -> Markup {
+    let can_manage_premium = acl::has_permission(admin_acls, acl::USER_MANAGE_PREMIUM);
+    let current_type = user.premium_type.unwrap_or(0);
+    let until_val = to_datetime_local_value(user.premium_until.as_deref());
+    let since_val = to_datetime_local_value(user.premium_since.as_deref());
+
+    card_with_header(
+        "ND+ Subscription Management",
+        html! {
+            div class="space-y-6" {
+                div class="rounded-lg border border-neutral-200 bg-neutral-50 p-4" {
+                    div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2" {
+                        div class="space-y-1" {
+                            div class="text-xs font-semibold uppercase tracking-wide text-neutral-500" { "Current Status" }
+                            div class="flex items-center gap-2" {
+                                @match current_type {
+                                    1 => {
+                                        span class="inline-flex items-center rounded-md bg-purple-100 px-2.5 py-0.5 text-xs font-medium text-purple-800" {
+                                            "ND+ Subscription"
+                                        }
+                                        @if let Some(ref until) = user.premium_until {
+                                            span class="text-xs text-neutral-600" {
+                                                "Expires: " (format_admin_timestamp(until))
+                                            }
+                                        }
+                                    }
+                                    2 => {
+                                        span class="inline-flex items-center rounded-md bg-amber-100 px-2.5 py-0.5 text-xs font-medium text-amber-800" {
+                                            "ND+ Lifetime"
+                                        }
+                                        @if let Some(seq) = user.premium_lifetime_sequence {
+                                            span class="text-xs text-neutral-600" {
+                                                " #" (seq)
+                                            }
+                                        }
+                                    }
+                                    _ => {
+                                        span class="inline-flex items-center rounded-md bg-neutral-200 px-2.5 py-0.5 text-xs font-medium text-neutral-700" {
+                                            "Free / Inactive"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        @if let Some(ref since) = user.premium_since {
+                            div class="text-xs text-neutral-500 sm:text-right" {
+                                "Subscriber since: " (format_admin_timestamp(since))
+                            }
+                        }
+                    }
+                    @if let Some(ref grace) = user.premium_grace_ends_at {
+                        div class="mt-2 border-t border-neutral-200 pt-2 text-xs text-amber-700" {
+                            "Grace period ends: " (format_admin_timestamp(grace))
+                        }
+                    }
+                }
+
+                @if can_manage_premium {
+                    form method="post"
+                        action={(config.base_path) "/users/" (user.id) "?action=set_premium&tab=overview"}
+                        class="space-y-4" {
+                        (csrf_input(csrf_token))
+
+                        div class="grid grid-cols-1 gap-4 sm:grid-cols-2" {
+                            div class="space-y-1.5" {
+                                label for="premium_type" class=(FORM_LABEL_CLASS) {
+                                    "ND+ Tier"
+                                }
+                                select name="premium_type" id="nd_premium_type" class=(FORM_SELECT_CLASS) {
+                                    option value="0" selected[current_type == 0] { "None (Free / Revoked)" }
+                                    option value="1" selected[current_type == 1] { "Subscription (Tier 1)" }
+                                    option value="2" selected[current_type == 2] { "Lifetime (Tier 2)" }
+                                }
+                                p class="text-xs text-neutral-500" {
+                                    "Setting tier to 'None' will revoke ND+ and remove premium perks."
+                                }
+                            }
+
+                            div class="space-y-1.5" {
+                                label for="premium_until" class=(FORM_LABEL_CLASS) {
+                                    "Expiration Date (Subscription)"
+                                }
+                                input type="datetime-local"
+                                    name="premium_until"
+                                    id="nd_premium_until"
+                                    value=(until_val)
+                                    class=(FORM_INPUT_CLASS);
+                                div class="flex flex-wrap gap-1.5 pt-1" {
+                                    button type="button"
+                                        onclick="addDaysToPremiumUntil(30)"
+                                        class="rounded bg-neutral-100 hover:bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-700 transition-colors" {
+                                        "+30 Days"
+                                    }
+                                    button type="button"
+                                        onclick="addDaysToPremiumUntil(90)"
+                                        class="rounded bg-neutral-100 hover:bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-700 transition-colors" {
+                                        "+90 Days"
+                                    }
+                                    button type="button"
+                                        onclick="addDaysToPremiumUntil(365)"
+                                        class="rounded bg-neutral-100 hover:bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-700 transition-colors" {
+                                        "+1 Year"
+                                    }
+                                    button type="button"
+                                        onclick="clearPremiumUntil()"
+                                        class="rounded bg-neutral-100 hover:bg-neutral-200 px-2 py-0.5 text-xs font-medium text-neutral-500 transition-colors" {
+                                        "Clear"
+                                    }
+                                }
+                            }
+
+                            div class="space-y-1.5" {
+                                label for="premium_since" class=(FORM_LABEL_CLASS) {
+                                    "Member Since Date"
+                                }
+                                input type="datetime-local"
+                                    name="premium_since"
+                                    id="nd_premium_since"
+                                    value=(since_val)
+                                    class=(FORM_INPUT_CLASS);
+                                p class="text-xs text-neutral-500" {
+                                    "Leave blank to preserve current or default to now."
+                                }
+                            }
+
+                            div class="space-y-1.5" {
+                                label for="audit_log_reason" class=(FORM_LABEL_CLASS) {
+                                    "Audit Log Reason"
+                                }
+                                input type="text"
+                                    name="audit_log_reason"
+                                    id="nd_audit_log_reason"
+                                    placeholder="e.g. Granted promo / extended by admin"
+                                    class=(FORM_INPUT_CLASS);
+                                p class="text-xs text-neutral-500" {
+                                    "Recorded in admin audit logs for accountability."
+                                }
+                            }
+                        }
+
+                        div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-neutral-100" {
+                            (submit_button("Save ND+ Changes"))
+
+                            @if current_type != 0 {
+                                button type="button"
+                                    onclick="confirmRevokePremium()"
+                                    class="inline-flex items-center justify-center gap-1.5 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2" {
+                                    "Revoke ND+"
+                                }
+                            }
+                        }
+                    }
+
+                    form id="revoke-premium-form"
+                        method="post"
+                        action={(config.base_path) "/users/" (user.id) "?action=revoke_premium&tab=overview"}
+                        class="hidden" {
+                        (csrf_input(csrf_token))
+                        input type="hidden" name="audit_log_reason" id="revoke_audit_log_reason" value="";
+                    }
+
+                    script {
+                        (PreEscaped(r#"
+                            function addDaysToPremiumUntil(days) {
+                                const input = document.getElementById('nd_premium_until');
+                                if (!input) return;
+                                let base = input.value ? new Date(input.value) : new Date();
+                                if (isNaN(base.getTime()) || base.getTime() < Date.now()) {
+                                    base = new Date();
+                                }
+                                base.setDate(base.getDate() + days);
+                                const pad = (n) => String(n).padStart(2, '0');
+                                const formatted = `${base.getFullYear()}-${pad(base.getMonth() + 1)}-${pad(base.getDate())}T${pad(base.getHours())}:${pad(base.getMinutes())}`;
+                                input.value = formatted;
+                                const tierSelect = document.getElementById('nd_premium_type');
+                                if (tierSelect && tierSelect.value !== '1') {
+                                    tierSelect.value = '1';
+                                }
+                            }
+                            function clearPremiumUntil() {
+                                const input = document.getElementById('nd_premium_until');
+                                if (input) input.value = '';
+                            }
+                            function confirmRevokePremium() {
+                                if (!confirm('Are you sure you want to revoke ND+ from this user? This will remove all ND+ perks immediately.')) {
+                                    return;
+                                }
+                                const reason = prompt('Optional audit log reason for revoking ND+:', 'Revoked by admin');
+                                if (reason === null) return;
+                                const reasonInput = document.getElementById('revoke_audit_log_reason');
+                                if (reasonInput) reasonInput.value = reason;
+                                document.getElementById('revoke-premium-form').submit();
+                            }
+                        "#))
+                    }
+                } @else {
+                    p class="text-xs text-neutral-500" {
+                        "Read-only \u{2014} " (acl::USER_MANAGE_PREMIUM) " permission required to manage ND+ subscriptions."
+                    }
+                }
+            }
+        },
+    )
 }

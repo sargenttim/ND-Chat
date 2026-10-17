@@ -161,6 +161,65 @@ pub async fn dispatch(
                 "Failed to update user traits",
             )
         }
+        "set_premium" => {
+            let Ok(premium_type) = form.clean("premium_type").parse::<u8>() else {
+                return DispatchOutcome::error("Invalid premium tier");
+            };
+            let premium_until = {
+                let v = form.clean("premium_until");
+                if v.trim().is_empty() || premium_type != 1 {
+                    None
+                } else {
+                    Some(normalize_iso_timestamp(&v))
+                }
+            };
+            let premium_since = {
+                let v = form.clean("premium_since");
+                if v.trim().is_empty() || premium_type == 0 {
+                    None
+                } else {
+                    Some(normalize_iso_timestamp(&v))
+                }
+            };
+            let reason = {
+                let v = form.clean("audit_log_reason");
+                if v.trim().is_empty() {
+                    None
+                } else {
+                    Some(v)
+                }
+            };
+            let body = crate::api::types::SetUserPremiumBody {
+                premium_type,
+                premium_until,
+                premium_since,
+            };
+            DispatchOutcome::from_result(
+                client.set_user_premium(user_id, &body, reason.as_deref()).await,
+                "ND+ subscription updated successfully",
+                "Failed to update ND+ subscription",
+            )
+        }
+        "revoke_premium" => {
+            let reason = {
+                let v = form.clean("audit_log_reason");
+                if v.trim().is_empty() {
+                    None
+                } else {
+                    Some(v)
+                }
+            };
+            let body = crate::api::types::SetUserPremiumBody {
+                premium_type: 0,
+                premium_until: None,
+                premium_since: None,
+            };
+            DispatchOutcome::from_result(
+                client.set_user_premium(user_id, &body, reason.as_deref()).await,
+                "ND+ subscription revoked successfully",
+                "Failed to revoke ND+ subscription",
+            )
+        }
         "disable_mfa" => DispatchOutcome::from_result(
             client.disable_mfa(user_id).await,
             "MFA disabled successfully",
@@ -565,9 +624,37 @@ fn parse_csv_snowflake(value: &str, field: &str, row: &str) -> Result<String, St
     }
 }
 
+fn normalize_iso_timestamp(input: &str) -> String {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if !trimmed.contains('T') {
+        return format!("{trimmed}T23:59:59Z");
+    }
+    if trimmed.ends_with('Z') || trimmed.contains('+') || (trimmed.rfind('-').map_or(false, |pos| pos > 10)) {
+        return trimmed.to_string();
+    }
+    let colons = trimmed.chars().filter(|&c| c == ':').count();
+    if colons == 1 {
+        format!("{trimmed}:00Z")
+    } else {
+        format!("{trimmed}Z")
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{parse_dry_run, parse_message_shred_csv};
+    use super::{normalize_iso_timestamp, parse_dry_run, parse_message_shred_csv};
+
+    #[test]
+    fn test_normalize_iso_timestamp() {
+        assert_eq!(normalize_iso_timestamp("2026-11-16"), "2026-11-16T23:59:59Z");
+        assert_eq!(normalize_iso_timestamp("2026-11-16T12:00"), "2026-11-16T12:00:00Z");
+        assert_eq!(normalize_iso_timestamp("2026-11-16T12:00:00"), "2026-11-16T12:00:00Z");
+        assert_eq!(normalize_iso_timestamp("2026-11-16T12:00:00Z"), "2026-11-16T12:00:00Z");
+        assert_eq!(normalize_iso_timestamp("2026-11-16T12:00:00+00:00"), "2026-11-16T12:00:00+00:00");
+    }
 
     #[test]
     fn parse_dry_run_defaults_to_preview() {

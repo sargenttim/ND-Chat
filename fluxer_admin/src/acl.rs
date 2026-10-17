@@ -95,6 +95,7 @@ pub const USER_VIEW_DOB: &str = "user:view:dob";
 pub const USER_VIEW_EMAIL: &str = "user:view:email";
 pub const USER_VIEW_IP: &str = "user:view:ip";
 pub const USER_TEMP_BAN: &str = "user:temp_ban";
+pub const USER_MANAGE_PREMIUM: &str = "user:manage_premium";
 pub const USER_UPDATE_BADGES: &str = "user:update:badges";
 pub const USER_UPDATE_BOT_STATUS: &str = "user:update:bot_status";
 pub const USER_UPDATE_DOB: &str = "user:update:dob";
@@ -208,6 +209,7 @@ pub const ALL_ACLS: &[&str] = &[
     USER_VIEW_EMAIL,
     USER_VIEW_IP,
     USER_TEMP_BAN,
+    USER_MANAGE_PREMIUM,
     USER_UPDATE_BADGES,
     USER_UPDATE_BOT_STATUS,
     USER_UPDATE_DOB,

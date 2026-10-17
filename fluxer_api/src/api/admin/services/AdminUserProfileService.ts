@@ -23,12 +23,15 @@ import {AccessDeniedError} from '@fluxer/errors/src/domains/core/AccessDeniedErr
 import {InputValidationError} from '@fluxer/errors/src/domains/core/InputValidationError';
 import {TagAlreadyTakenError} from '@fluxer/errors/src/domains/user/TagAlreadyTakenError';
 import {UnknownUserError} from '@fluxer/errors/src/domains/user/UnknownUserError';
+import type {UserRow} from '@app/api/database/types/UserTypes';
+import {clearPerksSanitizedFlag, createPremiumClearPatch} from '@app/api/user/UserHelpers';
 import type {
 	ChangeDobRequest,
 	ChangeEmailRequest,
 	ChangeUsernameRequest,
 	ClearUserFieldsRequest,
 	SetUserBotStatusRequest,
+	SetUserPremiumRequest,
 	SetUserSystemStatusRequest,
 	VerifyUserEmailRequest,
 } from '@fluxer/schema/src/domains/admin/AdminUserSchemas';
@@ -393,6 +396,73 @@ export class AdminUserProfileService {
 				['new_dob', data.date_of_birth],
 			]),
 		});
+		return {
+			user: await mapUserToAdminResponse(updatedUser, cacheService, acls),
+		};
+	}
+
+	async setUserPremium(
+		data: SetUserPremiumRequest,
+		adminUserId: UserID,
+		auditLogReason: string | null,
+		acls: ReadonlySet<string>,
+	) {
+		const {users: userRepository, cache: cacheService} = this.deps.apiContext.services;
+		const {auditService, userUpdateDeps} = this.deps;
+		const userId = createUserID(data.user_id);
+		const user = await userRepository.findUnique(userId);
+		if (!user) {
+			throw new UnknownUserError();
+		}
+
+		let updates: Partial<UserRow>;
+		if (data.premium_type === 0) {
+			updates = {
+				...createPremiumClearPatch(),
+				premium_lifetime_sequence: null,
+			};
+		} else if (data.premium_type === 1) {
+			const premiumSince = data.premium_since ? new Date(data.premium_since) : (user.premiumSince ?? new Date());
+			const premiumUntil = data.premium_until ? new Date(data.premium_until) : null;
+			updates = {
+				premium_type: 1,
+				premium_since: premiumSince,
+				premium_until: premiumUntil,
+				premium_grace_ends_at: null,
+				premium_flags: clearPerksSanitizedFlag(user.premiumFlags),
+			};
+		} else if (data.premium_type === 2) {
+			const premiumSince = data.premium_since ? new Date(data.premium_since) : (user.premiumSince ?? new Date());
+			updates = {
+				premium_type: 2,
+				premium_since: premiumSince,
+				premium_until: null,
+				premium_grace_ends_at: null,
+				premium_flags: clearPerksSanitizedFlag(user.premiumFlags),
+			};
+		} else {
+			throw InputValidationError.create('premium_type', 'Invalid premium tier');
+		}
+
+		const updatedUser = await userRepository.patchUpsert(userId, updates, user.toRow());
+		await propagateUserUpdate(userUpdateDeps, user, updatedUser);
+
+		const oldTier = user.premiumType ?? 0;
+		const newTier = data.premium_type;
+		await auditService.createAuditLog({
+			adminUserId,
+			targetType: 'user',
+			targetId: BigInt(userId),
+			action: 'set_premium',
+			auditLogReason,
+			metadata: new Map([
+				['old_premium_type', oldTier.toString()],
+				['new_premium_type', newTier.toString()],
+				['premium_until', updates.premium_until ? (updates.premium_until as Date).toISOString() : 'null'],
+				['premium_since', updates.premium_since ? (updates.premium_since as Date).toISOString() : 'null'],
+			]),
+		});
+
 		return {
 			user: await mapUserToAdminResponse(updatedUser, cacheService, acls),
 		};

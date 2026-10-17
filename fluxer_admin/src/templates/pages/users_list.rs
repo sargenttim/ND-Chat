@@ -26,6 +26,7 @@ use crate::{
     },
     utils::{
         bigint::format_discriminator,
+        timestamps::format_admin_timestamp,
         user_tag::{unique_usernames, user_tag},
     },
 };
@@ -35,6 +36,7 @@ pub struct UserListParams {
     pub q: String,
     pub email: String,
     pub ip: String,
+    pub has_premium: Option<bool>,
     pub requested_ids: Vec<String>,
     pub limit: u32,
     pub page: u32,
@@ -45,15 +47,22 @@ impl UserListParams {
         q: Option<String>,
         email: Option<String>,
         ip: Option<String>,
+        has_premium: Option<String>,
         ids: Option<String>,
         limit: Option<u32>,
         page: Option<u32>,
     ) -> Self {
         let ids = ids.unwrap_or_default();
+        let has_premium = match has_premium.as_deref() {
+            Some("true") => Some(true),
+            Some("false") => Some(false),
+            _ => None,
+        };
         Self {
             q: q.unwrap_or_default().trim().to_owned(),
             email: email.unwrap_or_default().trim().to_owned(),
             ip: ip.unwrap_or_default().trim().to_owned(),
+            has_premium,
             requested_ids: parse_ids_query(&ids),
             limit: match limit.unwrap_or(25) {
                 50 => 50,
@@ -70,12 +79,18 @@ impl UserListParams {
     }
 
     pub fn has_search(&self) -> bool {
-        self.has_id_lookup() || !self.q.is_empty() || !self.email.is_empty() || !self.ip.is_empty()
+        self.has_id_lookup() || !self.q.is_empty() || !self.email.is_empty() || !self.ip.is_empty() || self.has_premium.is_some()
     }
 
     pub fn search_query(&self) -> Option<&str> {
-        if self.email.is_empty() && self.ip.is_empty() && !self.q.is_empty() {
-            Some(&self.q)
+        if self.email.is_empty() && self.ip.is_empty() {
+            if !self.q.is_empty() {
+                Some(&self.q)
+            } else if self.has_premium.is_some() {
+                Some("*")
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -206,6 +221,23 @@ fn search_form(base: &str, params: &UserListParams, show_email_search: bool) -> 
                 }
                 div class="flex-1" {
                     div class="relative" {
+                        select id="search-premium" name="has_premium"
+                            hx-get=(&action)
+                            hx-trigger="change"
+                            hx-target="#users-results"
+                            hx-push-url="true"
+                            hx-include="closest form"
+                            hx-swap="outerHTML"
+                            class={(FORM_CONTROL_CLASS) " h-10 appearance-none px-3 py-1.5 pr-10"} {
+                            option value="" selected[params.has_premium.is_none()] { "ND+: All" }
+                            option value="true" selected[params.has_premium == Some(true)] { "ND+: Active" }
+                            option value="false" selected[params.has_premium == Some(false)] { "ND+: Free only" }
+                        }
+                        (select_chevron())
+                    }
+                }
+                div class="flex-1" {
+                    div class="relative" {
                         select id="search-limit" name="limit"
                             hx-get=(&action)
                             hx-trigger="change"
@@ -287,6 +319,12 @@ fn empty_state_title(params: &UserListParams) -> String {
         format!("No users found with email \"{}\"", params.email)
     } else if !params.ip.is_empty() {
         format!("No users found with last active IP \"{}\"", params.ip)
+    } else if let Some(hp) = params.has_premium {
+        if hp {
+            "No active ND+ subscribers found".to_string()
+        } else {
+            "No free users found".to_string()
+        }
     } else {
         format!("No users found matching \"{}\"", params.q)
     }
@@ -340,6 +378,7 @@ fn render_users_table(
                         (table_header_cell("Email"))
                     }
                     (table_header_cell("Status"))
+                    (table_header_cell("ND+"))
                     (table_header_cell(""))
                 }
             }))
@@ -398,6 +437,37 @@ fn render_users_table(
                             (user_status_badge(user))
                         }))
                         (table_cell(false, html! {
+                            @match user.premium_type {
+                                Some(1) => {
+                                    div class="flex flex-col gap-0.5" {
+                                        span class="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-800 w-fit" {
+                                            "ND+ Subscription"
+                                        }
+                                        @if let Some(ref until) = user.premium_until {
+                                            span class="text-[11px] text-neutral-500" {
+                                                "Until " (format_admin_timestamp(until))
+                                            }
+                                        }
+                                    }
+                                }
+                                Some(2) => {
+                                    div class="flex flex-col gap-0.5" {
+                                        span class="inline-flex items-center rounded-md border border-purple-300 bg-purple-50 px-2 py-0.5 text-xs font-semibold text-purple-800 w-fit" {
+                                            "ND+ Lifetime"
+                                        }
+                                        @if let Some(seq) = user.premium_lifetime_sequence {
+                                            span class="text-[11px] text-neutral-500" {
+                                                "#" (seq)
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    span class="text-neutral-400 text-xs" { "Free" }
+                                }
+                            }
+                        }))
+                        (table_cell(false, html! {
                             button type="button"
                                 data-drawer-open="user-peek"
                                 data-drawer-href={(base) "/users/" (user.id) "/fragment"}
@@ -444,6 +514,9 @@ fn users_url(base: &str, params: &UserListParams, page: u32) -> String {
     }
     if !params.ip.is_empty() {
         pairs.push(format!("ip={}", urlencoding::encode(&params.ip)));
+    }
+    if let Some(hp) = params.has_premium {
+        pairs.push(format!("has_premium={}", if hp { "true" } else { "false" }));
     }
     pairs.push(format!("limit={}", params.limit));
     pairs.push(format!("page={page}"));

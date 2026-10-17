@@ -35,6 +35,7 @@ struct UserListQuery {
     q: Option<String>,
     email: Option<String>,
     ip: Option<String>,
+    has_premium: Option<String>,
     ids: Option<String>,
     limit: Option<u32>,
     page: Option<u32>,
@@ -81,6 +82,7 @@ async fn users_list(
         query.q,
         query.email,
         query.ip,
+        query.has_premium,
         query.ids,
         query.limit,
         query.page,
@@ -109,6 +111,7 @@ async fn users_list(
                     params.search_query(),
                     params.email_query(),
                     params.ip_query(),
+                    params.has_premium,
                     params.limit,
                     offset,
                 )

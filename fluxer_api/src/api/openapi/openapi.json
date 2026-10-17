@@ -24655,6 +24655,21 @@
 					"mention_flags": {
 						"description": "The user's account-wide reply mention preference. Omitted when the user has no preference set (treated as NO_PREFERENCE).",
 						"$ref": "#/components/schemas/MentionReplyPreferences"
+					},
+					"avatar_decoration_data": {
+						"description": "Avatar decoration data",
+						"anyOf": [
+							{
+								"type": "object",
+								"properties": {
+									"asset": {"type": "string", "description": "Avatar decoration asset name/hash"},
+									"sku_id": {"description": "SKU identifier", "$ref": "#/components/schemas/SnowflakeStringType"}
+								},
+								"required": ["asset"],
+								"additionalProperties": false
+							},
+							{"type": "null"}
+						]
 					}
 				},
 				"required": ["id", "username", "discriminator", "global_name", "avatar", "avatar_color", "flags"],
@@ -24677,6 +24692,28 @@
 							"accent_color": {
 								"anyOf": [{"$ref": "#/components/schemas/Int32Type"}, {"type": "null"}],
 								"description": "User-selected accent color"
+							},
+							"theme_colors": {
+								"description": "Profile theme colors [primary, accent]",
+								"anyOf": [
+									{"minItems": 2, "maxItems": 2, "type": "array", "items": {"$ref": "#/components/schemas/Int32Type"}},
+									{"type": "null"}
+								]
+							},
+							"avatar_decoration_data": {
+								"description": "Avatar decoration data",
+								"anyOf": [
+									{
+										"type": "object",
+										"properties": {
+											"asset": {"type": "string"},
+											"sku_id": {"$ref": "#/components/schemas/SnowflakeStringType"}
+										},
+										"required": ["asset"],
+										"additionalProperties": false
+									},
+									{"type": "null"}
+								]
 							}
 						},
 						"required": ["bio", "pronouns", "banner", "accent_color"],
@@ -24699,6 +24736,33 @@
 									"accent_color": {
 										"anyOf": [{"$ref": "#/components/schemas/Int32Type"}, {"type": "null"}],
 										"description": "Guild-specific accent color"
+									},
+									"theme_colors": {
+										"description": "Guild-specific theme colors [primary, accent]",
+										"anyOf": [
+											{
+												"minItems": 2,
+												"maxItems": 2,
+												"type": "array",
+												"items": {"$ref": "#/components/schemas/Int32Type"}
+											},
+											{"type": "null"}
+										]
+									},
+									"avatar_decoration_data": {
+										"description": "Avatar decoration data",
+										"anyOf": [
+											{
+												"type": "object",
+												"properties": {
+													"asset": {"type": "string"},
+													"sku_id": {"$ref": "#/components/schemas/SnowflakeStringType"}
+												},
+												"required": ["asset"],
+												"additionalProperties": false
+											},
+											{"type": "null"}
+										]
 									}
 								},
 								"required": ["bio", "pronouns", "banner", "accent_color"],
@@ -24801,6 +24865,21 @@
 						"description": "The user's account-wide reply mention preference. Omitted when the user has no preference set (treated as NO_PREFERENCE).",
 						"$ref": "#/components/schemas/MentionReplyPreferences"
 					},
+					"avatar_decoration_data": {
+						"description": "Avatar decoration data",
+						"anyOf": [
+							{
+								"type": "object",
+								"properties": {
+									"asset": {"type": "string", "description": "Avatar decoration asset name/hash"},
+									"sku_id": {"description": "SKU identifier", "$ref": "#/components/schemas/SnowflakeStringType"}
+								},
+								"required": ["asset"],
+								"additionalProperties": false
+							},
+							{"type": "null"}
+						]
+					},
 					"is_staff": {"type": "boolean", "description": "Whether the user has staff permissions"},
 					"acls": {
 						"type": "array",
@@ -24823,6 +24902,13 @@
 					"accent_color": {
 						"anyOf": [{"$ref": "#/components/schemas/Int32Type"}, {"type": "null"}],
 						"description": "The user-selected accent color as an integer"
+					},
+					"theme_colors": {
+						"description": "The user-selected theme colors [primary, accent]",
+						"anyOf": [
+							{"minItems": 2, "maxItems": 2, "type": "array", "items": {"$ref": "#/components/schemas/Int32Type"}},
+							{"type": "null"}
+						]
 					},
 					"timezone": {"description": "The IANA timezone identifier saved by the user", "type": ["string", "null"]},
 					"timezone_privacy_flags": {"$ref": "#/components/schemas/ProfileFieldPrivacyFlags"},
@@ -27551,6 +27637,35 @@
 						"description": "Profile accent color as integer",
 						"anyOf": [{"$ref": "#/components/schemas/ColorType"}, {"type": "null"}]
 					},
+					"banner_color": {
+						"description": "Profile banner / primary theme color as integer",
+						"anyOf": [{"$ref": "#/components/schemas/ColorType"}, {"type": "null"}]
+					},
+					"theme_colors": {
+						"description": "Profile theme colors [primary, accent]",
+						"anyOf": [
+							{"minItems": 2, "maxItems": 2, "type": "array", "items": {"$ref": "#/components/schemas/ColorType"}},
+							{"type": "null"}
+						]
+					},
+					"avatar_decoration": {
+						"description": "Avatar decoration asset identifier or null to clear",
+						"type": ["string", "null"]
+					},
+					"avatar_decoration_data": {
+						"description": "Avatar decoration data",
+						"anyOf": [
+							{
+								"type": "object",
+								"properties": {
+									"asset": {"type": "string"},
+									"sku_id": {"$ref": "#/components/schemas/SnowflakeStringType"}
+								},
+								"required": ["asset"]
+							},
+							{"type": "null"}
+						]
+					},
 					"timezone": {
 						"description": "IANA timezone identifier saved for profile local time",
 						"type": ["string", "null"]
@@ -27614,6 +27729,21 @@
 						"description": "The user's account-wide reply mention preference. Omitted when the user has no preference set (treated as NO_PREFERENCE).",
 						"$ref": "#/components/schemas/MentionReplyPreferences"
 					},
+					"avatar_decoration_data": {
+						"description": "Avatar decoration data",
+						"anyOf": [
+							{
+								"type": "object",
+								"properties": {
+									"asset": {"type": "string", "description": "Avatar decoration asset name/hash"},
+									"sku_id": {"description": "SKU identifier", "$ref": "#/components/schemas/SnowflakeStringType"}
+								},
+								"required": ["asset"],
+								"additionalProperties": false
+							},
+							{"type": "null"}
+						]
+					},
 					"is_staff": {"type": "boolean", "description": "Whether the user has staff permissions"},
 					"acls": {
 						"type": "array",
@@ -27636,6 +27766,13 @@
 					"accent_color": {
 						"anyOf": [{"$ref": "#/components/schemas/Int32Type"}, {"type": "null"}],
 						"description": "The user-selected accent color as an integer"
+					},
+					"theme_colors": {
+						"description": "The user-selected theme colors [primary, accent]",
+						"anyOf": [
+							{"minItems": 2, "maxItems": 2, "type": "array", "items": {"$ref": "#/components/schemas/Int32Type"}},
+							{"type": "null"}
+						]
 					},
 					"timezone": {"description": "The IANA timezone identifier saved by the user", "type": ["string", "null"]},
 					"timezone_privacy_flags": {"$ref": "#/components/schemas/ProfileFieldPrivacyFlags"},

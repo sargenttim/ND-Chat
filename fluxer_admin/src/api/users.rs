@@ -19,30 +19,51 @@ impl AdminApiClient {
         query: Option<&str>,
         email: Option<&str>,
         last_active_ip: Option<&str>,
+        has_premium: Option<bool>,
         limit: u32,
         offset: u64,
     ) -> ApiResult<SearchUsersResponse> {
-        let limit = limit.to_string();
-        let offset = offset.to_string();
-        let response = self
-            .generated()
-            .list_admin_users(
-                nonempty(email),
-                nonempty(last_active_ip),
-                Some(limit.as_str()),
-                Some(offset.as_str()),
-                nonempty(query),
-                None,
-                None,
+        let mut query_params: Vec<(&str, &str)> = Vec::new();
+        let limit_str = limit.to_string();
+        let offset_str = offset.to_string();
+        if let Some(q) = query {
+            if !q.is_empty() {
+                query_params.push(("q", q));
+            }
+        }
+        if let Some(e) = email {
+            if !e.is_empty() {
+                query_params.push(("email", e));
+            }
+        }
+        if let Some(ip) = last_active_ip {
+            if !ip.is_empty() {
+                query_params.push(("last_active_ip", ip));
+            }
+        }
+        if let Some(hp) = has_premium {
+            query_params.push(("has_premium", if hp { "true" } else { "false" }));
+        }
+        query_params.push(("limit", &limit_str));
+        query_params.push(("offset", &offset_str));
+        self.get("/admin/users", Some(&query_params)).await
+    }
+
+    pub async fn set_user_premium(
+        &self,
+        user_id: &str,
+        body: &super::types::SetUserPremiumBody,
+        audit_log_reason: Option<&str>,
+    ) -> ApiResult<AdminUser> {
+        let resp: UserMutationResponse = self
+            .send(
+                Method::PUT,
+                &format!("/admin/users/{user_id}/premium"),
+                Some(body),
+                audit_log_reason,
             )
-            .await
-            .map_err(|e| self.generated_error(e))?;
-        let response = response.into_inner();
-        Ok(SearchUsersResponse {
-            users: self.generated_value(response.users)?,
-            total: crate::api::generated::number_to_u64(response.total, "total")
-                .map_err(ApiError::Parse)?,
-        })
+            .await?;
+        Ok(resp.user)
     }
 
     pub async fn lookup_users_by_ids(&self, user_ids: &[String]) -> ApiResult<Vec<AdminUser>> {

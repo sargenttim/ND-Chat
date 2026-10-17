@@ -6134,6 +6134,17 @@
 							"type": "string"
 						},
 						"description": "Number of users to skip before returning results"
+					},
+					{
+						"name": "has_premium",
+						"in": "query",
+						"required": false,
+						"schema": {
+							"description": "Filter users by ND+ status (true = active, false = none)",
+							"type": "string",
+							"enum": ["true", "false"]
+						},
+						"description": "Filter users by ND+ status (true = active, false = none)"
 					}
 				]
 			}
@@ -7885,6 +7896,72 @@
 						"description": "The ID of the user"
 					}
 				]
+			}
+		},
+		"/admin/users/{user_id}/premium": {
+			"put": {
+				"operationId": "set_admin_user_premium",
+				"summary": "Manage user ND+ subscription",
+				"tags": ["Admin"],
+				"responses": {
+					"200": {
+						"description": "Success",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/UserMutationResponse"}}}
+					},
+					"400": {
+						"description": "Bad Request - The request was malformed or contained invalid data",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"401": {
+						"description": "Unauthorized - Authentication is required or the token is invalid",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"403": {
+						"description": "Forbidden - You do not have permission to perform this action",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					},
+					"429": {
+						"description": "Too Many Requests - You are being rate limited",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/ThrottledError"}}},
+						"headers": {
+							"Retry-After": {
+								"description": "Number of seconds to wait before retrying (only on 429)",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Limit": {
+								"description": "The number of requests that can be made in the current window",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Remaining": {
+								"description": "The number of remaining requests that can be made",
+								"schema": {"type": "integer"}
+							},
+							"X-RateLimit-Reset": {
+								"description": "Unix timestamp when the rate limit resets",
+								"schema": {"type": "integer"}
+							}
+						}
+					},
+					"500": {
+						"description": "Internal Server Error - An unexpected error occurred",
+						"content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}
+					}
+				},
+				"description": "Grant, update, or revoke ND+ premium status for a user. Creates audit log entry. Requires USER_MANAGE_PREMIUM permission.",
+				"security": [{"adminApiKey": []}],
+				"parameters": [
+					{
+						"name": "user_id",
+						"in": "path",
+						"required": true,
+						"schema": {"description": "The ID of the user", "allOf": [{"$ref": "#/components/schemas/SnowflakeType"}]},
+						"description": "The ID of the user"
+					}
+				],
+				"requestBody": {
+					"required": true,
+					"content": {"application/json": {"schema": {"$ref": "#/components/schemas/AdminUserSetPremiumRequest"}}}
+				}
 			}
 		},
 		"/admin/users/{user_id}/premium-flags": {
@@ -10177,7 +10254,15 @@
 						"type": "array",
 						"items": {
 							"description": "User profile field that can be cleared",
-							"x-enumNames": ["avatar", "banner", "bio", "pronouns", "global_name", "theme_colors", "avatar_decoration"],
+							"x-enumNames": [
+								"avatar",
+								"banner",
+								"bio",
+								"pronouns",
+								"global_name",
+								"theme_colors",
+								"avatar_decoration"
+							],
 							"x-enumDescriptions": [
 								"User profile avatar image",
 								"User profile banner image",
@@ -10219,6 +10304,30 @@
 						}
 					}
 				}
+			},
+			"AdminUserSetPremiumRequest": {
+				"type": "object",
+				"properties": {
+					"premium_type": {
+						"type": "integer",
+						"minimum": 0,
+						"maximum": 2,
+						"description": "Premium tier: 0 = None, 1 = Subscription, 2 = Lifetime"
+					},
+					"premium_until": {
+						"description": "Expiration timestamp (ISO 8601). Used for Subscription, null for Lifetime/None",
+						"nullable": true,
+						"type": "string",
+						"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?$"
+					},
+					"premium_since": {
+						"description": "Activation timestamp (ISO 8601). If omitted when activating, current time is used",
+						"nullable": true,
+						"type": "string",
+						"pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?(?:Z|[+-]\\d{2}:?\\d{2})?$"
+					}
+				},
+				"required": ["premium_type"]
 			},
 			"AdminPasswordResetLinkResponse": {
 				"type": "object",
@@ -10661,7 +10770,7 @@
 				"type": "object",
 				"properties": {
 					"acls": {
-						"maxItems": 112,
+						"maxItems": 113,
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AdminAclType"},
 						"description": "List of access control permissions to assign"
@@ -14003,7 +14112,7 @@
 					},
 					"acls": {
 						"description": "Replacement list of access control permissions for the key",
-						"maxItems": 112,
+						"maxItems": 113,
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AdminAclType"}
 					}
@@ -14021,7 +14130,7 @@
 						"type": "string"
 					},
 					"acls": {
-						"maxItems": 112,
+						"maxItems": 113,
 						"type": "array",
 						"items": {"type": "string"},
 						"description": "List of access control permissions for the key"
@@ -14051,7 +14160,7 @@
 						"maximum": 365
 					},
 					"acls": {
-						"maxItems": 112,
+						"maxItems": 113,
 						"type": "array",
 						"items": {"$ref": "#/components/schemas/AdminAclType"},
 						"description": "List of access control permissions for the key"
@@ -14072,7 +14181,7 @@
 						"type": "string"
 					},
 					"acls": {
-						"maxItems": 112,
+						"maxItems": 113,
 						"type": "array",
 						"items": {"type": "string"},
 						"description": "List of access control permissions for the key"
@@ -14085,7 +14194,7 @@
 				"type": "object",
 				"properties": {
 					"acls": {
-						"maxItems": 112,
+						"maxItems": 113,
 						"type": "array",
 						"items": {"type": "string", "minLength": 1, "maxLength": 64},
 						"description": "Every admin access control permission the admin API recognises"
@@ -14192,6 +14301,7 @@
 					"user:view:email",
 					"user:view:ip",
 					"user:temp_ban",
+					"user:manage_premium",
 					"user:update:badges",
 					"user:update:bot_status",
 					"user:update:dob",
@@ -15659,6 +15769,20 @@
 					"mention_flags": {
 						"description": "The user's account-wide reply mention preference. Omitted when the user has no preference set (treated as NO_PREFERENCE).",
 						"allOf": [{"$ref": "#/components/schemas/MentionReplyPreferences"}]
+					},
+					"avatar_decoration_data": {
+						"description": "Avatar decoration data",
+						"nullable": true,
+						"type": "object",
+						"properties": {
+							"asset": {"type": "string", "description": "Avatar decoration asset name/hash"},
+							"sku_id": {
+								"description": "SKU identifier",
+								"allOf": [{"$ref": "#/components/schemas/SnowflakeStringType"}]
+							}
+						},
+						"required": ["asset"],
+						"additionalProperties": false
 					}
 				},
 				"required": ["id", "username", "discriminator", "global_name", "avatar", "avatar_color", "flags"],
@@ -17366,7 +17490,7 @@
 						"description": "ISO 8601 timestamp when the pending deletion was scheduled",
 						"type": "string"
 					},
-					"acls": {"maxItems": 112, "type": "array", "items": {"type": "string"}},
+					"acls": {"maxItems": 113, "type": "array", "items": {"type": "string"}},
 					"traits": {"maxItems": 100, "type": "array", "items": {"type": "string"}},
 					"badge_ids": {"allOf": [{"$ref": "#/components/schemas/BadgeIdsResponse"}]},
 					"has_totp": {"type": "boolean"},

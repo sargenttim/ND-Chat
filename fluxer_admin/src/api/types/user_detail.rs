@@ -407,3 +407,12 @@ pub struct PasswordResetLinkResponse {
     pub url: String,
     pub expires_at: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetUserPremiumBody {
+    pub premium_type: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub premium_until: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub premium_since: Option<String>,
+}

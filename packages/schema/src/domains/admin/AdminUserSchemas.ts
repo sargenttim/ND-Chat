@@ -9,7 +9,7 @@ import {
 } from '@fluxer/constants/src/UserConstants';
 import {ADMIN_ACL_COUNT, AdminAclType} from '@fluxer/schema/src/domains/admin/AdminAclType';
 import {BadgeIdsResponse} from '@fluxer/schema/src/domains/badge/BadgeSchemas';
-import {CalendarDateType} from '@fluxer/schema/src/primitives/DateValidators';
+import {CalendarDateType, IsoTimestampStringType} from '@fluxer/schema/src/primitives/DateValidators';
 import {NSFWLevelSchema} from '@fluxer/schema/src/primitives/GuildValidators';
 import {createQueryIntegerType, QueryBooleanType} from '@fluxer/schema/src/primitives/QueryValidators';
 import {
@@ -373,6 +373,15 @@ export const SetUserTraitsRequest = z.object({
 
 export type SetUserTraitsRequest = z.infer<typeof SetUserTraitsRequest>;
 
+export const SetUserPremiumRequest = z.object({
+	user_id: SnowflakeType.describe('ID of the user to set premium status for'),
+	premium_type: z.number().int().min(0).max(2).describe('Premium tier: 0 = None, 1 = Subscription, 2 = Lifetime'),
+	premium_until: IsoTimestampStringType.nullable().optional().describe('Expiration timestamp (ISO 8601). Used for Subscription, null for Lifetime/None'),
+	premium_since: IsoTimestampStringType.nullable().optional().describe('Activation timestamp (ISO 8601). If omitted when activating, current time is used'),
+});
+
+export type SetUserPremiumRequest = z.infer<typeof SetUserPremiumRequest>;
+
 export const ChangeDobRequest = z.object({
 	user_id: SnowflakeType.describe('ID of the user to change date of birth for'),
 	date_of_birth: createStringType(10, 10)
@@ -509,6 +518,11 @@ export const AdminUserListQuery = z.object({
 	offset: createQueryIntegerType({defaultValue: 0, minValue: 0, maxValue: 100000}).describe(
 		'Number of users to skip before returning results',
 	),
+	has_premium: z
+		.enum(['true', 'false'])
+		.optional()
+		.transform((val) => (val === 'true' ? true : val === 'false' ? false : undefined))
+		.describe('Filter users by ND+ status (true = active, false = none)'),
 });
 
 export type AdminUserListQuery = z.infer<typeof AdminUserListQuery>;
@@ -638,6 +652,10 @@ export type AdminUserAclsRequest = z.infer<typeof AdminUserAclsRequest>;
 export const AdminUserTraitsRequest = SetUserTraitsRequest.omit({user_id: true});
 
 export type AdminUserTraitsRequest = z.infer<typeof AdminUserTraitsRequest>;
+
+export const AdminUserSetPremiumRequest = SetUserPremiumRequest.omit({user_id: true});
+
+export type AdminUserSetPremiumRequest = z.infer<typeof AdminUserSetPremiumRequest>;
 
 export const AdminUserFlagsUpdateRequest = UpdateUserFlagsRequest.omit({user_id: true});
 

@@ -94,6 +94,7 @@ export class AdminSearchService {
 			query?: string;
 			email?: string;
 			last_active_ip?: string;
+			has_premium?: boolean;
 			limit: number;
 			offset: number;
 		},
@@ -125,8 +126,8 @@ export class AdminSearchService {
 		const query = data.query?.trim() || '';
 		const isBrowseAll = query === '' || query === '*';
 		const searchFilters: UserSearchFilters = isBrowseAll
-			? {sortBy: 'createdAt', sortOrder: 'asc'}
-			: {sortBy: 'relevance'};
+			? {sortBy: 'createdAt', sortOrder: 'asc', hasPremium: data.has_premium}
+			: {sortBy: 'relevance', hasPremium: data.has_premium};
 		const directUserId = /^\d+$/.test(query) ? createUserID(BigInt(query)) : null;
 		const canResolveDirectUser = directUserId !== null && !isSyntheticUserId(directUserId) && data.offset === 0;
 		const [searchResult, directUser] = await Promise.all([

@@ -617,4 +617,27 @@ export const UserWriteAdminAuditCases: ReadonlyArray<AdminAuditCoverageCase> = [
 			};
 		},
 	},
+	{
+		method: 'PUT',
+		route: '/admin/users/:user_id/premium',
+		async prepare({harness}) {
+			const target = await createTestAccount(harness);
+			const premiumUntil = new Date(Date.now() + 30 * 86400000).toISOString();
+			return {
+				request: {
+					path: `/admin/users/${target.userId}/premium`,
+					body: {premium_type: 1, premium_until: premiumUntil},
+				},
+				expected: {
+					action: 'set_premium',
+					targetType: 'user',
+					targetId: target.userId,
+					metadata: {
+						old_premium_type: '0',
+						new_premium_type: '1',
+					},
+				},
+			};
+		},
+	},
 ];

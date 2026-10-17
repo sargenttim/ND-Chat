@@ -39,6 +39,7 @@ import {
 	AdminUserPremiumFlagsUpdateRequest,
 	AdminUserRelationshipCategoryQuery,
 	AdminUserRelationshipParam,
+	AdminUserSetPremiumRequest,
 	AdminUserSystemStatusRequest,
 	AdminUsersMeResponse,
 	AdminUserTraitsRequest,
@@ -160,6 +161,7 @@ export function UserAdminController(app: HonoApp) {
 					query: query.q,
 					email: query.email,
 					last_active_ip: query.last_active_ip,
+					has_premium: query.has_premium,
 					limit: query.limit,
 					offset: query.offset,
 				},
@@ -1239,6 +1241,38 @@ export function UserAdminController(app: HonoApp) {
 			const {user_id: userId} = ctx.req.valid('param');
 			return ctx.json(
 				await adminService.userService.profileService.changeDob(
+					{user_id: userId, ...ctx.req.valid('json')},
+					adminUserId,
+					auditLogReason,
+					adminUserAcls,
+				),
+			);
+		},
+	);
+	app.put(
+		'/admin/users/:user_id/premium',
+		RateLimitMiddleware(RateLimitConfigs.ADMIN_USER_MODIFY),
+		requireAdminACL(AdminACLs.USER_MANAGE_PREMIUM),
+		Validator('param', UserIdParam),
+		Validator('json', AdminUserSetPremiumRequest),
+		OpenAPI({
+			operationId: 'set_admin_user_premium',
+			summary: 'Manage user ND+ subscription',
+			responseSchema: UserMutationResponse,
+			statusCode: 200,
+			security: 'adminApiKey',
+			tags: 'Admin',
+			description:
+				'Grant, update, or revoke ND+ premium status for a user. Creates audit log entry. Requires USER_MANAGE_PREMIUM permission.',
+		}),
+		async (ctx) => {
+			const adminService = ctx.get('adminService');
+			const adminUserId = ctx.get('adminUserId');
+			const auditLogReason = ctx.get('auditLogReason');
+			const adminUserAcls = ctx.get('adminUserAcls');
+			const {user_id: userId} = ctx.req.valid('param');
+			return ctx.json(
+				await adminService.userService.profileService.setUserPremium(
 					{user_id: userId, ...ctx.req.valid('json')},
 					adminUserId,
 					auditLogReason,
