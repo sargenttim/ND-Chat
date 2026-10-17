@@ -162,33 +162,23 @@ pub async fn dispatch(
             )
         }
         "set_premium" => {
-            let Ok(premium_type) = form.clean("premium_type").parse::<u8>() else {
+            let Some(raw_tier) = get("premium_type") else {
+                return DispatchOutcome::error("Missing premium tier");
+            };
+            let Ok(premium_type) = raw_tier.parse::<u8>() else {
                 return DispatchOutcome::error("Invalid premium tier");
             };
-            let premium_until = {
-                let v = form.clean("premium_until");
-                if v.trim().is_empty() || premium_type != 1 {
-                    None
-                } else {
-                    Some(normalize_iso_timestamp(&v))
-                }
+            let premium_until = if premium_type == 1 {
+                get("premium_until").map(|v| normalize_iso_timestamp(&v))
+            } else {
+                None
             };
-            let premium_since = {
-                let v = form.clean("premium_since");
-                if v.trim().is_empty() || premium_type == 0 {
-                    None
-                } else {
-                    Some(normalize_iso_timestamp(&v))
-                }
+            let premium_since = if premium_type != 0 {
+                get("premium_since").map(|v| normalize_iso_timestamp(&v))
+            } else {
+                None
             };
-            let reason = {
-                let v = form.clean("audit_log_reason");
-                if v.trim().is_empty() {
-                    None
-                } else {
-                    Some(v)
-                }
-            };
+            let reason = get("audit_log_reason");
             let body = crate::api::types::SetUserPremiumBody {
                 premium_type,
                 premium_until,
@@ -201,14 +191,7 @@ pub async fn dispatch(
             )
         }
         "revoke_premium" => {
-            let reason = {
-                let v = form.clean("audit_log_reason");
-                if v.trim().is_empty() {
-                    None
-                } else {
-                    Some(v)
-                }
-            };
+            let reason = get("audit_log_reason");
             let body = crate::api::types::SetUserPremiumBody {
                 premium_type: 0,
                 premium_until: None,
